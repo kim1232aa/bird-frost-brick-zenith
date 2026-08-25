@@ -1,0 +1,24 @@
+{
+  "version": "12.13",
+  "name": "大画布 UI + 画布主页选择 + Seedance2 编辑回退恢复版",
+  "date": "2026-07-22",
+  "route": "http://127.0.0.1:3001/canvas",
+  "updates": [
+    "恢复 /canvas 为画布库/选择画布主页，可选择已有画布、新建画布、导入画布和修复加载。",
+    "保留 /canvas/workspace 的 12.11 大画布工作区 UI，不改变现有大画布界面。",
+    "工作区顶部 主页、我的画布 以及加载失败返回入口统一进入 /canvas/home。",
+    "保留图片节点右键主菜单，并将 Seedance2 人脸迁移放到主菜单可直接点击。",
+    "保留图片节点底部编辑框，包含 gpt-image-2 模型选择与图片生成参数入口。",
+    "保留 Seedance2 人脸迁移编辑弹窗、回退一步按钮和 Ctrl/Cmd + Z 回退。",
+    "保留编辑保存后的原图回退入口：右键图片节点 -> 编辑图片 -> 还原 Seedance2 原图。",
+    "已清空旧静态文件并同步到 3001 容器静态前端，避免旧 UI 残留。"
+  ],
+  "verification": [
+    "Version 12.13 preserves the restored 12.11 canvas UI and current image/text model dropdown lists.",
+    "npm run build 通过。",
+    "Chrome 真实浏览器无缓存强刷 /canvas 后停留在画布库主页。",
+    "点击 新建画布 后进入 /canvas/workspace?id=...，工作区 12.11 UI 正常显示。",
+    "回到 /canvas 后能看到已有画布卡片，点击卡片可进入同一个画布 ID。",
+    "浏览器验证未发现 console/page error。"
+  ]
+}

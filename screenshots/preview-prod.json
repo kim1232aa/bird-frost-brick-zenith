@@ -1,0 +1,38 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "无界创作台",
+      "hasCanvas": false,
+      "bodyTextLen": 3563,
+      "bodyTextHash": "49ae186590ca08f4673307bb46d0de5aaea46fc47729a7b4427cbd747c6aee6b",
+      "bodyTextPrefix": "无界创作台 首页 生图 生视频 电商套图 故事导演 无限画布 创作记录 接线 工作室 · 图 200 接线 STUDIO 出图、",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/preview-prod.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "无界创作台",
+      "hasCanvas": false,
+      "bodyTextLen": 3530,
+      "bodyTextHash": "0561e6c9c81f0ac99d12bca1a07233271fd571456ba1a44c22a98009bea220c3",
+      "bodyTextPrefix": "无界创作台 工作室 · 图 200 接线 STUDIO 出图、出视频、出分镜，按厂商官方字段接线 已启用 4 条中转，目录 50",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/preview-prod-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/preview-prod.json",
+  "divergesFromBaseline": false,
+  "baselineReasons": []
+}

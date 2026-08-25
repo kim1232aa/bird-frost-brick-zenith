@@ -1,0 +1,10 @@
+Tapnow Studio / Tapnow-Studio-PP
+
+Source repository: https://github.com/chapterv/Tapnow-Studio-PP
+Bundled release: 3.8.8-rc7
+Bundled asset: Tapnow.Studio-V3.8.8-rc7.html
+License: GPL-3.0
+
+This directory vendors the released single-file HTML build as the /maiyi-canvas
+experience. The previous in-house canvas route is retained under
+/canvas for rollback reference if restored.

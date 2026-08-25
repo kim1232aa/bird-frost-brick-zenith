@@ -1,0 +1,1 @@
+import{a as e,i as t}from"./index-C7JhvDir.js";var n=e()(t((e,t)=>({items:[],add:n=>e({items:[{...n,id:crypto.randomUUID(),createdAt:Date.now()},...t().items].slice(0,80)}),remove:n=>e({items:t().items.filter(e=>e.id!==n)}),clear:()=>e({items:[]})}),{name:`boundless-studio:history`}));export{n as t};
