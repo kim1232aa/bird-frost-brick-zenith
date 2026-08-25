@@ -2,18 +2,18 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog } from "@/studio/catalog";
+import { findCatalog, catalogKey } from "@/studio/catalog";
 import { createStudioVideo, waitStudioVideo } from "@/studio/generate/video";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
 import { useStudioHistory } from "@/studio/history";
 import { useMembershipStore } from "@/studio/membership";
-import { useOpsStore } from "@/studio/ops";
-import { ModelSwitcher } from "@/studio/model-switcher";
-import { CompactModelSelect, preferredTextKey, preferredVideoKey } from "@/studio/model-select";
+import { liveCatalog, useOpsStore } from "@/studio/ops";
+import { preferredTextKey, preferredVideoKey } from "@/studio/model-select";
 import { VIDEO_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
+import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
 
 export function VideoStudioPage() {
   const navigate = useNavigate();
@@ -38,7 +38,22 @@ export function VideoStudioPage() {
     if (next) setSelection(next);
   }, []);
 
+  useEffect(() => {
+    const allowed = liveCatalog("video", true).map((item) => catalogKey(item));
+    if (selection && allowed.length && !allowed.includes(selection)) setSelection(preferredVideoKey());
+  }, [selection]);
+
   const card = findCatalog(selection);
+  const models = liveCatalog("video", true);
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof models>();
+    for (const item of models) {
+      const list = map.get(item.provider) || [];
+      list.push(item);
+      map.set(item.provider, list);
+    }
+    return [...map.entries()];
+  }, [models]);
   const isArk = /volcengine|seedance/i.test(selection);
   const recent = useMemo(
     () => [...items.filter((item) => item.kind === "video" && item.urls[0]), ...GALLERY_SEED.filter((item) => item.kind === "video")],
@@ -74,20 +89,24 @@ export function VideoStudioPage() {
       setBusy("");
     } catch (err) {
       const message = err instanceof Error ? err.message : "视频生成失败";
-      setError(message.includes("eligible") ? "Grok 视频额度暂时用尽。这条接线之前已经出过片，样片在右侧可播。" : message);
+      if (message.includes("eligible")) {
+        setError("Grok 视频额度暂时用尽。这条接线之前已经出过片，样片在右侧可播。");
+      } else if (/cloudflare|403/i.test(message)) {
+        setError("Grok 中转被 Cloudflare 拦截。请改用 Civitai LTX 2.3，或稍后再试。");
+      } else {
+        setError(message);
+      }
       setBusy("");
     }
   };
 
   return (
-    <div className="bench">
-      <aside className="bench-side">
-        <ModelSwitcher kind="video" value={selection} onChange={setSelection} />
-        <p className="studio-hint">
-          已接线可跑：Grok Imagine（已实测）。火山 Seedance 走 Agent Plan，Small 档会返回未开通。Civitai LTX / Hunyuan 需 Buzz。
-        </p>
+    <div className="bp-work">
+      <aside className="bp-left">
+        <p className="studio-kicker">生视频</p>
+        <h1>文生视频 / 首帧驱动</h1>
         <label className="dropzone">
-          <span>首帧（可选，图生视频）</span>
+          <span>首帧（可选）</span>
           <input
             type="file"
             accept="image/*"
@@ -103,15 +122,11 @@ export function VideoStudioPage() {
         </label>
         <label>
           提示词
-          <textarea rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <textarea rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述镜头运动、主体和气氛" />
         </label>
+        <p className="bp-count">必填 · {prompt.length} / 20000</p>
         <div className="prompt-tools">
-          <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} label="文本模型（润色）" />
-          <button
-            type="button"
-            className="studio-ghost"
-            disabled={Boolean(busy)}
-            onClick={() =>
+          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() =>
               void enhancePrompt({ relays, prompt, textModel, kind: "video" })
                 .then(setPrompt)
                 .catch((err) => setError(err instanceof Error ? err.message : "润色失败"))
@@ -122,59 +137,89 @@ export function VideoStudioPage() {
         </div>
         <div className="chip-row">
           {VIDEO_TEMPLATES.map((item) => (
-            <button key={item.label} type="button" onClick={() => setPrompt(item.prompt)}>
+            <button
+              key={item.label}
+              type="button"
+              className={prompt === item.prompt ? "is-active" : undefined}
+              onClick={() => setPrompt(item.prompt)}
+            >
               {item.label}
             </button>
           ))}
         </div>
-        <div className="ws-row">
-          <label>
-            时长
-            <select value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
-              {[4, 5, 6, 8, 10].map((item) => (
-                <option key={item} value={item}>
-                  {item}s
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            画幅
-            <select value={ratio} onChange={(event) => setRatio(event.target.value)}>
-              {["16:9", "9:16", "1:1", "adaptive"].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-        </div>
         {isArk ? (
           <label className="flow-check">
             <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
-            生成原声（Seedance Agent Plan）
+            生成原声
           </label>
         ) : null}
-        <div className="spec-box">
-          {card?.nsfw ? "NSFW 允许" : "安全档"} · {card?.cost} · {card?.wired ? "已接线" : "待接线"} · 剩余 {remaining} 点
-          <br />
-          {card?.blurb}
-        </div>
-        <div className="bench-cta">
+        <div className="bp-cta">
+          <p className="studio-hint">
+            {card?.verified ? "已实测可出片" : "这条没有实测过，不会出现在生成菜单"} · {card?.nsfw ? "NSFW 允许" : "安全档"} · 剩余 {remaining}
+          </p>
           <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
-            {busy || `用 ${card?.model || "当前模型"} 生成`}
+            {busy ? `生成中 · ${busy}` : "生成视频"}
           </button>
           {error ? <p className="studio-error">{error}</p> : null}
         </div>
       </aside>
-      <section className="bench-main">
-        <div className="bench-result">
-          {url ? (
-            <video src={url} controls autoPlay loop />
-          ) : (
-            <div className="studio-placeholder">{busy || "视频出在这里。已实测的 Grok Imagine 样片可点开播放。"}</div>
-          )}
+      <section className="bp-right">
+        <header className="bp-bar">
+          <div>
+            <p className="studio-kicker">可跑视频模型 · {models.length}</p>
+            <strong>{card?.model}</strong>
+            <span className="studio-hint"> {card?.provider}</span>
+          </div>
+        </header>
+        <div className="bp-models" data-testid="video-models">
+          {groups.map(([provider, list]) => (
+            <div key={provider} className="bp-model-group">
+              <p>{provider}</p>
+              <div>
+                {list.map((item) => {
+                  const key = catalogKey(item);
+                  return (
+                    <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
+                      <b>{item.model}</b>
+                      <span>
+                        {item.verified ? "已实测" : "未实测"}
+                        {item.nsfw ? " · NSFW" : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="bp-params">
+          <div className="studio-seg">
+            {[4, 5, 6, 8, 10].map((item) => (
+              <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
+                {item}s
+              </button>
+            ))}
+          </div>
+          <div className="studio-seg">
+            {["16:9", "9:16", "1:1"].map((item) => (
+              <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+        <WorkbenchStatus
+          busy={busy}
+          error={error}
+          done={url ? `${card?.label || "模型"} 已出片` : ""}
+          idle="右侧会显示生成中 / 完成 / 失败"
+        />
+        <div className="bp-stage">
+          {url ? <video src={url} controls autoPlay loop /> : <p className="studio-hint">{busy ? "" : "视频出在这里。样片可点开播放。"}</p>}
+          <StageOverlay busy={busy} />
         </div>
         {url ? (
-          <div className="result-actions">
+          <div className="result-actions" style={{ padding: "0 16px 8px" }}>
             <a className="studio-ghost" href={url} download="studio.mp4" target="_blank" rel="noreferrer">
               下载
             </a>
@@ -190,14 +235,11 @@ export function VideoStudioPage() {
             </button>
           </div>
         ) : null}
-        <div className="bench-gallery">
+        <div className="bp-gallery">
           {recent.map((item) => (
-            <button key={item.id} type="button" className="bench-card" onClick={() => item.urls[0] && setUrl(item.urls[0])}>
+            <button key={item.id} type="button" className={url === item.urls[0] ? "is-active" : undefined} onClick={() => item.urls[0] && setUrl(item.urls[0])}>
               {item.kind === "video" ? <video src={item.urls[0]} muted /> : <img src={item.urls[0]} alt="" />}
-              <div>
-                <b>{item.title}</b>
-                <small>{item.model}</small>
-              </div>
+              <span>{item.title}</span>
             </button>
           ))}
         </div>

@@ -164,6 +164,7 @@ export default defineConfig(({ command, isPreview }) => ({
   resolve: {
     tsconfigPaths: true,
     alias: {
+      "@": resolve(__dirname, "src"),
       "next/navigation": resolve(__dirname, "src/compat/next-navigation.ts"),
       "next/link": resolve(__dirname, "src/compat/next-link.tsx"),
       "next/image": resolve(__dirname, "src/compat/next-image.tsx"),

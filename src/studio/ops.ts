@@ -154,7 +154,7 @@ export function liveCatalog(kind?: ModelCard["kind"], generate = false) {
     if (ops.unlisted[catalogKey(item)]) return false;
     const card = liveCard(item);
     if (generate && !card.wired) return false;
-    if (generate && kind === "video" && !card.verified) return false;
+    if (generate && kind === "video" && !item.verified) return false;
     return true;
   }).map(liveCard);
 }

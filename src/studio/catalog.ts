@@ -43,7 +43,7 @@ for (const engine of CIVITAI_ENGINES) {
     cost: "Buzz",
     size: engine.kind === "image" ? "可调" : "官方",
     blurb: `Civitai ${engine.label}。mature 默认开。`,
-    verified: engine.id === "krea2-turbo",
+    verified: engine.id === "krea2-turbo" || engine.id === "ltx2.3",
   };
 }
 

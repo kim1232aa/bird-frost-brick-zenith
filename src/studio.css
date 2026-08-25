@@ -24,7 +24,8 @@ html.dark,
   min-height: 100vh;
   background: #101014;
   color: #efe9dd;
-  font-family: "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+  font-family: "DM Sans", "Noto Sans SC", "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .studio-topbar {
@@ -78,6 +79,7 @@ html.dark,
 .studio-nav a.is-active {
   background: #efe9dd;
   color: #101014;
+  font-weight: 700;
 }
 
 .studio-top-actions {
@@ -738,11 +740,79 @@ html.dark,
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
 }
 
+select,
+option,
+optgroup {
+  color-scheme: dark;
+  background: #17171d;
+  color: #efe9dd;
+}
+
 .sd-port-labels span {
+  left: -36px;
+}
+
+.sd-5 {
+  grid-template-columns: repeat(5, minmax(72px, 1fr));
+}
+
+.sd-actions button {
+  overflow: hidden;
+}
+
+.sd-actions b,
+.sd-actions span {
+  white-space: normal;
+}
+
+.char-sheet {
+  width: 260px;
+}
+
+.sd2-panel {
+  overflow: hidden;
+}
+
+.sd2-panel textarea {
+  min-height: 72px;
+}
+
+.story-bench .bench-side {
+  min-width: 360px;
+}
+
+.story-bench textarea {
+  width: 100%;
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.flow-import {
+  position: relative;
+  overflow: hidden;
+}
+
+.flow-import input {
   position: absolute;
-  left: 14px;
-  font-size: 10px;
-  color: #8b867c;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.chip-row button.is-active {
+  background: #efe9dd;
+  color: #101014;
+}
+
+@media (max-width: 900px) {
+  .bench,
+  .story-bench {
+    grid-template-columns: 1fr;
+  }
+  .sd-5,
+  .sd-actions {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .sd-head {
@@ -884,6 +954,11 @@ html.dark,
   gap: 8px;
   align-items: center;
   margin-top: 8px;
+}
+
+.sd-row b,
+.sd-row small {
+  display: block;
 }
 
 .sd-row img,

@@ -16293,7 +16293,7 @@ function InfiniteCanvasPage() {
           ) : null}
         </InfiniteCanvas>
 
-        {!nodes.length ? (
+        {!nodes.length && !dialogNodeId ? (
           <CanvasEmptyStarter
             theme={theme}
             onUpload={() => handleUploadRequest()}

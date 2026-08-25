@@ -60,8 +60,6 @@ export const useStudioSession = create<StudioSession>()(
                 ...item,
                 apiKey: override.apiKey || item.apiKey,
                 enabled: override.enabled ?? item.enabled,
-                baseUrl: override.baseUrl || item.baseUrl,
-                name: override.name || item.name,
               };
             })
             .concat(extras),

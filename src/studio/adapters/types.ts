@@ -49,6 +49,7 @@ export type TextGenInput = {
   prompt: string;
   system?: string;
   json?: boolean;
+  imageUrl?: string;
 };
 
 export type AudioGenInput = {

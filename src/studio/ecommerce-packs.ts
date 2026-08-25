@@ -33,7 +33,14 @@ export const ECOMMERCE_PACKS: EcommercePack[] = [
   { id: "full9", label: "完整 9 图", shots: [SHOTS.hero, SHOTS.threeQuarter, SHOTS.left, SHOTS.back, SHOTS.detail, SHOTS.scale, SHOTS.lifestyle, SHOTS.feature, SHOTS.pack] },
 ];
 
-export function composeEcommercePrompt(product: string, shot: EcommerceShot) {
+export const ECOMMERCE_SCENES = [
+  { id: "solid", label: "纯色背景", prompt: "seamless solid studio backdrop, catalog lighting, no props" },
+  { id: "indoor", label: "室内场景", prompt: "bright modern interior lifestyle, natural window light, conversion-oriented" },
+  { id: "outdoor", label: "户外场景", prompt: "natural outdoor daylight lifestyle, shallow depth, product readable" },
+] as const;
+
+export function composeEcommercePrompt(product: string, shot: EcommerceShot, sceneId = "solid") {
   const subject = product.trim() || "the uploaded product";
-  return `Ecommerce product photography of ${subject}. ${shot.prompt}. Photoreal, no watermark, no extra logos.`;
+  const scene = ECOMMERCE_SCENES.find((item) => item.id === sceneId) || ECOMMERCE_SCENES[0];
+  return `Ecommerce product photography of ${subject}. ${shot.prompt}. Scene: ${scene.prompt}. Photoreal, no watermark, no extra logos. Keep product identity locked.`;
 }

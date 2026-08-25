@@ -2,6 +2,7 @@
 
 import { catalogKey, type ModelCard } from "./catalog";
 import { liveCatalog } from "./ops";
+import { ModelMenu } from "./model-menu";
 
 export function CompactModelSelect({
   kind,
@@ -14,36 +15,7 @@ export function CompactModelSelect({
   onChange: (value: string) => void;
   label?: string;
 }) {
-  const cards = liveCatalog(kind, true);
-  const groups = new Map<string, ModelCard[]>();
-  for (const card of cards) {
-    const list = groups.get(card.provider) || [];
-    list.push(card);
-    groups.set(card.provider, list);
-  }
-  const fallback =
-    kind === "image" ? "生图模型" : kind === "video" ? "视频模型" : kind === "audio" ? "音频模型" : "文本模型";
-  const safeValue = cards.some((card) => catalogKey(card) === value) ? value : cards[0] ? catalogKey(cards[0]) : "";
-  return (
-    <label className="model-picker">
-      {label || fallback}
-      <select value={safeValue} onChange={(event) => onChange(event.target.value)}>
-        {groups.size === 0 ? <option value="">暂无已接线模型</option> : null}
-        {[...groups.entries()].map(([provider, list]) => (
-          <optgroup key={provider} label={provider}>
-            {list.map((card) => (
-              <option key={catalogKey(card)} value={catalogKey(card)}>
-                {card.model}
-                {card.nsfw ? " · NSFW" : ""}
-                {" · "}
-                {card.cost}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-    </label>
-  );
+  return <ModelMenu kind={kind} value={value} onChange={onChange} label={label} />;
 }
 
 export function preferredVideoKey() {

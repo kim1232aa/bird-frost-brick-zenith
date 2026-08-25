@@ -66,7 +66,15 @@ export const openaiCompatAdapter: StudioAdapter = {
         temperature: 0.7,
         messages: [
           ...(input.system ? [{ role: "system", content: input.system }] : []),
-          { role: "user", content: input.prompt },
+          input.imageUrl
+            ? {
+                role: "user",
+                content: [
+                  { type: "text", text: input.prompt },
+                  { type: "image_url", image_url: { url: input.imageUrl } },
+                ],
+              }
+            : { role: "user", content: input.prompt },
         ],
         ...(input.json ? { response_format: { type: "json_object" } } : {}),
       },

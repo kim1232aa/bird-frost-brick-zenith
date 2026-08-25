@@ -2,19 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog } from "@/studio/catalog";
+import { findCatalog, catalogKey } from "@/studio/catalog";
 import { generateStudioImage } from "@/studio/generate/image";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
 import { useStudioHistory } from "@/studio/history";
 import { useMembershipStore } from "@/studio/membership";
-import { useOpsStore } from "@/studio/ops";
-import { ModelSwitcher } from "@/studio/model-switcher";
-import { CompactModelSelect, preferredTextKey } from "@/studio/model-select";
+import { liveCatalog, useOpsStore } from "@/studio/ops";
+import { preferredTextKey } from "@/studio/model-select";
 import { IMAGE_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
 import { STUDIO_ROUTES } from "@/studio/wiring";
+import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
 
 const ASPECTS: Record<string, { w: number; h: number }> = {
   "1:1": { w: 1024, h: 1024 },
@@ -24,6 +24,14 @@ const ASPECTS: Record<string, { w: number; h: number }> = {
   "4:3": { w: 1024, h: 768 },
 };
 
+function engineFamily(selection: string) {
+  if (/volcengine|seedream/i.test(selection)) return "ark" as const;
+  if (selection.includes("civitai")) return "civitai" as const;
+  if (/gpt-image/i.test(selection)) return "gpt" as const;
+  if (/grok-imagine-image/i.test(selection)) return "grok" as const;
+  return "generic" as const;
+}
+
 export function ImageStudioPage() {
   const navigate = useNavigate();
   const relays = useStudioSession((state) => state.relays);
@@ -31,6 +39,16 @@ export function ImageStudioPage() {
   const addHistory = useStudioHistory((state) => state.add);
   const remaining = useOpsStore((state) => state.credits.image);
   const record = useMembershipStore((state) => state.record);
+  const models = liveCatalog("image", true);
+  const groups = useMemo(() => {
+    const map = new Map<string, typeof models>();
+    for (const card of models) {
+      const list = map.get(card.provider) || [];
+      list.push(card);
+      map.set(card.provider, list);
+    }
+    return [...map.entries()];
+  }, [models]);
   const [prompt, setPrompt] = useState(IMAGE_TEMPLATES[0].prompt);
   const [negative, setNegative] = useState("");
   const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
@@ -40,6 +58,7 @@ export function ImageStudioPage() {
   const [aspect, setAspect] = useState("1:1");
   const [size, setSize] = useState("2K");
   const [seed, setSeed] = useState("");
+  const [count, setCount] = useState(1);
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -50,18 +69,22 @@ export function ImageStudioPage() {
     if (next) setSelection(next);
   }, []);
 
-  const card = findCatalog(selection);
-  const isArk = /volcengine|seedream/i.test(selection);
-  const isCivitai = selection.includes("civitai");
-  const isGpt = /gpt-image/i.test(selection);
+  useEffect(() => {
+    if (selection && models.length && !models.some((card) => catalogKey(card) === selection)) {
+      setSelection(catalogKey(models[0]));
+    }
+  }, [models, selection]);
+
+  const card = findCatalog(selection) || models[0];
+  const family = engineFamily(selection);
   const recent = useMemo(
     () => [...items.filter((item) => item.kind === "image" && item.urls[0]), ...GALLERY_SEED.filter((item) => item.kind === "image")].slice(0, 12),
     [items],
   );
 
   useEffect(() => {
-    if (isArk) setSize(quality === "hq" ? "3K" : "2K");
-  }, [quality, isArk]);
+    if (family === "ark") setSize(quality === "hq" ? "3K" : "2K");
+  }, [quality, family]);
 
   const dims = useMemo(() => {
     const base = ASPECTS[aspect] || ASPECTS["1:1"];
@@ -71,7 +94,7 @@ export function ImageStudioPage() {
 
   const generate = async () => {
     const { providerId, model } = splitModel(selection);
-    setBusy("提交生图…");
+    setBusy(`正在提交 ${card?.label || card?.model || model}…`);
     setError("");
     try {
       const result = await generateStudioImage({
@@ -79,13 +102,15 @@ export function ImageStudioPage() {
         prompt,
         providerId,
         model,
-        size: isArk ? size : isGpt ? (quality === "hq" ? "1536x1536" : "1024x1024") : undefined,
-        width: isCivitai ? dims.width : undefined,
-        height: isCivitai ? dims.height : undefined,
-        seed: isCivitai && seed ? Number(seed) : undefined,
+        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : undefined,
+        width: family === "civitai" || family === "grok" ? dims.width : undefined,
+        height: family === "civitai" || family === "grok" ? dims.height : undefined,
+        seed: family === "civitai" && seed ? Number(seed) : undefined,
         imageUrl: mode === "i2i" && reference ? reference : undefined,
         negativePrompt: negative || undefined,
+        n: count > 1 ? count : undefined,
       });
+      setBusy("正在写入结果…");
       setUrl(result.url);
       record("image");
       addHistory({ kind: "image", title: prompt.slice(0, 40), prompt, model: result.model, urls: [result.url] });
@@ -115,9 +140,28 @@ export function ImageStudioPage() {
   };
 
   return (
-    <div className="bench">
-      <aside className="bench-side">
-        <ModelSwitcher kind="image" value={selection} onChange={setSelection} />
+    <div className="bp-work">
+      <aside className="bp-left">
+        <p className="studio-kicker">生图</p>
+        <h1>文生图 / 图生图</h1>
+        <label className="dropzone">
+          <span>点击上传参考图</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                setReference(String(reader.result || ""));
+                setMode("i2i");
+              };
+              reader.readAsDataURL(file);
+            }}
+          />
+          {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>不上传则走文生图</small>}
+        </label>
         <div className="studio-seg">
           <button type="button" className={mode === "t2i" ? "is-active" : undefined} onClick={() => setMode("t2i")}>
             文生图
@@ -126,45 +170,98 @@ export function ImageStudioPage() {
             图生图
           </button>
         </div>
-        {mode === "i2i" ? (
-          <label className="dropzone">
-            <span>参考图 · 拖入或点击上传</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = () => setReference(String(reader.result || ""));
-                reader.readAsDataURL(file);
-              }}
-            />
-            {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>图生图会把这张图作为构图参考</small>}
-          </label>
-        ) : null}
         <label>
           提示词
-          <textarea rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <textarea rows={8} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述你的想法" />
         </label>
+        <p className="bp-count">必填 · {prompt.length} / 20000</p>
+        {(family === "civitai" || family === "generic") && (
+          <label>
+            负面提示
+            <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
+          </label>
+        )}
         <div className="prompt-tools">
-          <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} label="文本模型（润色）" />
           <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
             润色提示词
           </button>
-          <span>{prompt.length} 字</span>
         </div>
         <div className="chip-row">
           {IMAGE_TEMPLATES.map((item) => (
-            <button key={item.label} type="button" onClick={() => setPrompt(item.prompt)}>
+            <button
+              key={item.label}
+              type="button"
+              className={prompt === item.prompt ? "is-active" : undefined}
+              onClick={() => setPrompt(item.prompt)}
+            >
               {item.label}
             </button>
           ))}
         </div>
-        <section className="param-block">
-          <p className="studio-kicker">参数 · 随模型切换</p>
-          <label>
-            质量档
+        <div className="bp-cta">
+          <p className="studio-hint">
+            {card?.nsfw ? "NSFW 允许" : "安全档"} · {card?.cost || "1 点"}/图 · 剩余 {remaining}
+          </p>
+          <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
+            {busy ? busy : "生成"}
+          </button>
+          {error ? <p className="studio-error">{error}</p> : null}
+        </div>
+      </aside>
+      <section className="bp-right">
+        <header className="bp-bar">
+          <div>
+            <p className="studio-kicker">已接线模型 · {models.length}</p>
+            <strong>{card?.model}</strong>
+            <span className="studio-hint"> {card?.provider}</span>
+          </div>
+        </header>
+        <div className="bp-models" data-testid="image-models">
+          {groups.map(([provider, list]) => (
+            <div key={provider} className="bp-model-group">
+              <p>{provider}</p>
+              <div>
+                {list.map((item) => {
+                  const key = catalogKey(item);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={key === selection ? "is-on" : undefined}
+                      onClick={() => setSelection(key)}
+                    >
+                      <b>{item.model}</b>
+                      <span>
+                        {item.nsfw ? "NSFW" : "安全"}
+                        {item.verified ? " · 已实测" : ""}
+                        {item.size ? ` · ${item.size}` : ""}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="bp-params">
+          {family === "ark" ? (
+            <div className="studio-seg">
+              {["2K", "3K"].map((item) => (
+                <button key={item} type="button" className={size === item ? "is-active" : undefined} onClick={() => setSize(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="studio-seg">
+              {Object.keys(ASPECTS).map((item) => (
+                <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
+                  {item}
+                </button>
+              ))}
+            </div>
+          )}
+          {family !== "ark" ? (
             <div className="studio-seg">
               {(["eco", "std", "hq"] as const).map((item) => (
                 <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
@@ -172,61 +269,43 @@ export function ImageStudioPage() {
                 </button>
               ))}
             </div>
-          </label>
-          {isArk ? (
-            <label>
-              分辨率（火山官方 size）
-              <select value={size} onChange={(event) => setSize(event.target.value)}>
-                <option value="2K">2K</option>
-                <option value="3K">3K</option>
-              </select>
+          ) : (
+            <div className="studio-seg">
+              {(["std", "hq"] as const).map((item) => (
+                <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
+                  {item === "hq" ? "3K 高质" : "2K 标准"}
+                </button>
+              ))}
+            </div>
+          )}
+          {(family === "civitai" || family === "gpt") && (
+            <div className="studio-seg">
+              {[1, 2, 4].map((item) => (
+                <button key={item} type="button" className={count === item ? "is-active" : undefined} onClick={() => setCount(item)}>
+                  {item} 张
+                </button>
+              ))}
+            </div>
+          )}
+          {family === "civitai" ? (
+            <label className="bp-seed">
+              种子
+              <input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="可空" />
             </label>
           ) : null}
-          {isCivitai ? (
-            <>
-              <label>
-                画幅
-                <select value={aspect} onChange={(event) => setAspect(event.target.value)}>
-                  {Object.keys(ASPECTS).map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
-              <p className="studio-hint">
-                {dims.width} × {dims.height}
-              </p>
-              <label>
-                Seed（官方 metadata 可复现）
-                <input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="可选" />
-              </label>
-              <label>
-                负向提示词
-                <input value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="可选" />
-              </label>
-            </>
-          ) : null}
-          {isGpt ? <p className="studio-hint">GPT Image 走 Images API。高质档约 1536，标准 1024。</p> : null}
-          {!isArk && !isCivitai && !isGpt ? <p className="studio-hint">该模型使用官方默认分辨率。可上传参考图走图生图。</p> : null}
-        </section>
-        <div className="spec-box">
-          {card?.nsfw ? "NSFW / mature 允许" : "安全档"} · {card?.cost} · {card?.wired ? "已接线" : "待接线"} · 剩余 {remaining} 点
-          <br />
-          {card?.docs}
         </div>
-        <div className="bench-cta">
-          <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
-            {busy || `用 ${card?.model || "当前模型"} 生成`}
-          </button>
-          {error ? <p className="studio-error">{error}</p> : null}
-        </div>
-      </aside>
-      <section className="bench-main">
-        <div className="bench-result">
-          {busy && !url ? <div className="studio-placeholder">{busy}</div> : null}
-          {url ? <img src={url} alt={prompt} /> : !busy ? <div className="studio-placeholder">结果出在这里。下面是已实测样张，可点开回填提示词。</div> : null}
+        <WorkbenchStatus
+          busy={busy}
+          error={error}
+          done={url ? `${card?.model || "模型"} 已出图` : ""}
+          idle="选模型 → 调参 → 生成。右侧会显示进度和结果。"
+        />
+        <div className="bp-stage">
+          {url ? <img src={url} alt={prompt} /> : <p className="studio-hint">{busy ? "" : "结果出在这里"}</p>}
+          <StageOverlay busy={busy} />
         </div>
         {url ? (
-          <div className="result-actions">
+          <div className="result-actions" style={{ padding: "0 16px 8px" }}>
             <a className="studio-ghost" href={url} download="studio.png" target="_blank" rel="noreferrer">
               下载
             </a>
@@ -248,22 +327,19 @@ export function ImageStudioPage() {
             </button>
           </div>
         ) : null}
-        <div className="bench-gallery">
+        <div className="bp-gallery">
           {recent.map((item) => (
             <button
               key={item.id}
               type="button"
-              className="bench-card"
+              className={url === item.urls[0] ? "is-active" : undefined}
               onClick={() => {
                 if (item.urls[0]) setUrl(item.urls[0]);
                 if (item.prompt) setPrompt(item.prompt);
               }}
             >
               <img src={item.urls[0]} alt={item.title} />
-              <div>
-                <b>{item.title}</b>
-                <small>{item.model}</small>
-              </div>
+              <span>{item.title}</span>
             </button>
           ))}
         </div>

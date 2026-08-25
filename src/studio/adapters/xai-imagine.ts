@@ -49,11 +49,14 @@ export const xaiImagineAdapter: StudioAdapter = {
       body,
       timeoutMs: 90_000,
     });
+    const ready = String(data.url || "").trim();
+    if (ready.startsWith("blob:") || /^https?:\/\//i.test(ready)) return { id: `done:${ready}` };
     const id = String(data.request_id || data.id || "").trim();
     if (!id) throw new Error(`Imagine 视频没有返回 request_id：${JSON.stringify(data).slice(0, 200)}`);
     return { id };
   },
   async pollVideo(ctx, taskId) {
+    if (taskId.startsWith("done:")) return { status: "completed", url: taskId.slice(5) };
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: `/videos/${encodeURIComponent(taskId)}`,

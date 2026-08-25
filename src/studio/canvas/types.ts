@@ -1,4 +1,4 @@
-import type { StoryCast, StoryShot } from "@/studio/story/plan";
+import type { StoryCast, StoryScene, StoryShot } from "@/studio/story/plan";
 
 export type CanvasKind =
   | "prompt"
@@ -9,7 +9,8 @@ export type CanvasKind =
   | "story"
   | "audio"
   | "upload"
-  | "seedance";
+  | "seedance"
+  | "config";
 
 export type CanvasData = {
   kind: CanvasKind;
@@ -34,12 +35,15 @@ export type CanvasData = {
   logline?: string;
   development?: string;
   scenes?: string[];
+  sceneBoard?: StoryScene[];
   cast?: StoryCast[];
   shots?: StoryShot[];
   negative?: string;
   seed?: string;
   width?: number;
   height?: number;
+  count?: number;
+  generationMode?: "image" | "video" | "audio";
 };
 
 export const STYLE_PRESETS = [
@@ -55,4 +59,4 @@ export const STYLE_PRESETS = [
   "黑白分镜",
 ];
 
-export const GRAPH_KEY = "boundless-studio:canvas-graph-v6";
+export const GRAPH_KEY = "boundless-studio:canvas-graph-v7";

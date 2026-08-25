@@ -1,27 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createZip } from "@/lib/zip";
 import { useStudioSession } from "@/studio/session";
-import { composeEcommercePrompt, ECOMMERCE_PACKS } from "@/studio/ecommerce-packs";
+import { composeEcommercePrompt, ECOMMERCE_PACKS, ECOMMERCE_SCENES } from "@/studio/ecommerce-packs";
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioHistory } from "@/studio/history";
 import { useMembershipStore } from "@/studio/membership";
 import { CompactModelSelect } from "@/studio/model-select";
 import { STUDIO_ROUTES } from "@/studio/wiring";
+import { WorkbenchStatus } from "@/studio/workbench-status";
 
 type ShotState = { status: "idle" | "running" | "done" | "error"; url?: string; error?: string; note: string };
 
 export function EcommerceSuitePage() {
   const relays = useStudioSession((state) => state.relays);
+  const items = useStudioHistory((state) => state.items);
   const addHistory = useStudioHistory((state) => state.add);
   const record = useMembershipStore((state) => state.record);
   const [packId, setPackId] = useState("amazon");
+  const [sceneId, setSceneId] = useState<(typeof ECOMMERCE_SCENES)[number]["id"]>("solid");
   const [product, setProduct] = useState("matte ceramic coffee mug");
   const [reference, setReference] = useState("");
-  const [mode, setMode] = useState<"batch" | "single">("single");
   const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
   const pack = useMemo(() => ECOMMERCE_PACKS.find((item) => item.id === packId) || ECOMMERCE_PACKS[0], [packId]);
   const [shots, setShots] = useState<Record<string, ShotState>>({});
+  const [progress, setProgress] = useState("");
+  const [error, setError] = useState("");
+  const [batch, setBatch] = useState(true);
+
+  const doneCount = pack.shots.filter((shot) => shots[shot.id]?.url).length;
+  const history = items.filter((item) => item.kind === "ecommerce").slice(0, 8);
 
   const patch = (id: string, next: Partial<ShotState>) =>
     setShots((current) => {
@@ -33,12 +42,13 @@ export function EcommerceSuitePage() {
     const shot = pack.shots.find((item) => item.id === shotId);
     if (!shot) return;
     patch(shot.id, { status: "running", error: "" });
+    setError("");
     try {
       const extra = shots[shot.id]?.note || "";
       const [providerId, model] = selection.split("::");
       const result = await generateStudioImage({
         relays,
-        prompt: `${composeEcommercePrompt(product, shot)}${extra ? ` Extra direction: ${extra}` : ""}`,
+        prompt: `${composeEcommercePrompt(product, shot, sceneId)}${extra ? ` Extra direction: ${extra}` : ""}`,
         imageUrl: reference || undefined,
         providerId,
         model,
@@ -48,29 +58,50 @@ export function EcommerceSuitePage() {
       record("image");
       addHistory({ kind: "ecommerce", title: `${pack.label} · ${shot.label}`, prompt: product, model: result.model, urls: [result.url] });
     } catch (err) {
-      patch(shot.id, { status: "error", error: err instanceof Error ? err.message : "失败" });
+      const message = err instanceof Error ? err.message : String(err);
+      patch(shot.id, { status: "error", error: message });
+      setError(message);
     }
   };
 
   const generatePack = async () => {
-    if (mode === "batch") {
-      for (const shot of pack.shots) await generateOne(shot.id);
+    setError("");
+    for (let i = 0; i < pack.shots.length; i += 1) {
+      setProgress(`${i}/${pack.shots.length} 生成中 · ${pack.shots[i].label}`);
+      await generateOne(pack.shots[i].id);
+    }
+    setProgress(`${pack.shots.length}/${pack.shots.length} 已完成`);
+  };
+
+  const downloadZip = async () => {
+    const files = [];
+    for (const shot of pack.shots) {
+      const url = shots[shot.id]?.url;
+      if (!url) continue;
+      const res = await fetch(`/client-api/fetch-url?url=${encodeURIComponent(url)}`);
+      files.push({ name: `${shot.id}-${shot.label}.png`, data: await res.arrayBuffer() });
+    }
+    if (!files.length) {
+      setError("还没有可打包的成片");
       return;
     }
-    await generateOne(pack.shots[0].id);
+    const blob = await createZip(files);
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `${pack.id}-suite.zip`;
+    link.click();
+    URL.revokeObjectURL(href);
   };
 
   return (
-    <div className="studio-split ecommerce">
-      <aside className="studio-form">
+    <div className="bench">
+      <aside className="bench-side">
+        <p className="studio-kicker">ECOMMERCE</p>
         <h1>电商套图</h1>
-        <p className="studio-hint">上传描述或参考后选平台方案。每张镜头可单独重拍，不必整套重来。</p>
-        <label>
-          ① 产品
-          <textarea rows={4} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="描述产品" />
-        </label>
-        <label>
-          参考图（可选）
+        <p className="studio-hint">上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
+        <label className="dropzone">
+          <span>① 商品参考图（必填更稳）</span>
           <input
             type="file"
             accept="image/*"
@@ -82,48 +113,81 @@ export function EcommerceSuitePage() {
               reader.readAsDataURL(file);
             }}
           />
+          {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>点这里上传单张商品图</small>}
         </label>
+        <label>
+          产品描述
+          <textarea rows={3} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="材质、颜色、卖点" />
+        </label>
+        <p className="studio-kicker">② 场景模板</p>
+        <div className="chip-row">
+          {ECOMMERCE_SCENES.map((item) => (
+            <button key={item.id} type="button" className={sceneId === item.id ? "is-active" : undefined} onClick={() => setSceneId(item.id)}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <p className="studio-kicker">② 出片方式</p>
+        <div className="chip-row">
+          <button type="button" className={batch ? "is-active" : undefined} onClick={() => setBatch(true)}>
+            连续套图 · {pack.shots.length} 张
+          </button>
+          <button type="button" className={!batch ? "is-active" : undefined} onClick={() => setBatch(false)}>
+            独立高清
+          </button>
+        </div>
         <CompactModelSelect kind="image" value={selection} onChange={setSelection} />
         <label>
-          ② 平台方案
+          ③ 平台方案
           <select value={packId} onChange={(event) => setPackId(event.target.value)}>
             {ECOMMERCE_PACKS.map((item) => (
-              <option key={item.id} value={item.id}>{item.label} · {item.shots.length} 张</option>
+              <option key={item.id} value={item.id}>
+                {item.label} · {item.shots.length} 张
+              </option>
             ))}
           </select>
         </label>
-        <div className="studio-seg">
-          <button type="button" className={mode === "batch" ? "is-active" : undefined} onClick={() => setMode("batch")}>连续套图</button>
-          <button type="button" className={mode === "single" ? "is-active" : undefined} onClick={() => setMode("single")}>独立高清</button>
-        </div>
-        <button type="button" className="studio-primary" onClick={() => void generatePack()}>
-          {mode === "batch" ? `生成整套 ${pack.shots.length}` : "生成当前镜头"}
+        <button type="button" className="studio-primary" disabled={Boolean(progress.includes("生成中"))} onClick={() => void generatePack()}>
+          {progress.includes("生成中") ? progress : `生成整套 ${pack.shots.length}`}
         </button>
+        <button type="button" className="studio-ghost" disabled={!doneCount} onClick={() => void downloadZip()}>
+          打包 ZIP（{doneCount}/{pack.shots.length}）
+        </button>
+        {progress ? <p className="studio-hint">{progress}</p> : null}
+        {error ? <p className="studio-error">{error}</p> : null}
       </aside>
-      <section className="shot-board">
-        <header>
-          <strong>分镜台</strong>
-          <span>{pack.shots.length} 个镜头</span>
+      <section className="bench-main story-board">
+        <header className="story-logline">
+          <p className="studio-kicker">分镜台</p>
+          <h2>
+            {pack.label} · {ECOMMERCE_SCENES.find((item) => item.id === sceneId)?.label} · {doneCount}/{pack.shots.length} 已完成
+          </h2>
         </header>
+        <WorkbenchStatus
+          busy={progress.includes("生成中") ? progress : ""}
+          error={error}
+          done={doneCount ? `${doneCount}/${pack.shots.length} 张已出` : ""}
+          idle="生成套图时，这里会显示第几张、是否完成"
+        />
         <div className="shot-grid">
           {pack.shots.map((shot, index) => {
             const state = shots[shot.id] || { status: "idle", note: "" };
             return (
               <article key={shot.id} className="shot-card">
-                <div className="shot-index">{index + 1}</div>
-                {state.url ? <img src={state.url} alt={shot.label} /> : <div className="shot-empty">{state.status === "running" ? "生成中" : "待生成"}</div>}
+                {state.url ? <img src={state.url} alt={shot.label} /> : <div className="shot-empty">{state.status === "running" ? "生成中…" : `${index + 1}. ${shot.label}`}</div>}
                 <div className="shot-body">
-                  <b>{shot.label}</b>
-                  <p>{shot.prompt}</p>
-                  <input
-                    value={state.note}
-                    placeholder="补充要求"
-                    onChange={(event) => patch(shot.id, { note: event.target.value })}
-                  />
+                  <b>
+                    {index + 1}. {shot.label}
+                  </b>
+                  <input value={state.note} placeholder="这张的补充要求" onChange={(event) => patch(shot.id, { note: event.target.value })} />
                   <div className="shot-actions">
-                    <button type="button" onClick={() => void generateOne(shot.id)}>{state.url ? "重拍" : "生成"}</button>
+                    <button type="button" onClick={() => void generateOne(shot.id)}>
+                      {state.url ? "重拍" : "生成"}
+                    </button>
                     {state.url ? (
-                      <a href={state.url} download={`${shot.label}.jpg`} target="_blank" rel="noreferrer">下载</a>
+                      <a href={state.url} download={`${shot.label}.jpg`} target="_blank" rel="noreferrer">
+                        下载
+                      </a>
                     ) : null}
                   </div>
                   {state.error ? <p className="studio-error">{state.error}</p> : null}
@@ -131,6 +195,24 @@ export function EcommerceSuitePage() {
               </article>
             );
           })}
+        </div>
+        <div>
+          <p className="studio-kicker">历史套图</p>
+          <div className="bench-gallery">
+            {history.length ? (
+              history.map((item) => (
+                <article key={item.id} className="bench-card">
+                  {item.urls[0] ? <img src={item.urls[0]} alt="" /> : <div className="shot-empty" />}
+                  <div>
+                    <b>{item.title}</b>
+                    <small>{item.model}</small>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="studio-hint">生成后会出现在这里，也可到创作记录回看。</p>
+            )}
+          </div>
         </div>
       </section>
     </div>

@@ -10,6 +10,13 @@ export type CanvasActions = {
   runAllStory: (id: string) => Promise<void>;
   spawnCharacterConfig: (id: string) => void;
   spawnShotConfig: (id: string) => void;
+  duplicateNode: (id: string) => void;
+  downloadNode: (id: string) => void;
+  enhanceNode: (id: string) => Promise<void>;
+  spawnUpscale: (id: string) => void;
+  openImageTool: (id: string, kind: "crop" | "mask" | "angle" | "split" | "reverse" | "derived") => void;
+  copyPrompt: (id: string) => void;
+  copyImage: (id: string) => void;
   busy: string;
 };
 
@@ -28,6 +35,13 @@ export function useCanvasActions() {
       runAllStory: async () => undefined,
       spawnCharacterConfig: () => undefined,
       spawnShotConfig: () => undefined,
+      duplicateNode: () => undefined,
+      downloadNode: () => undefined,
+      enhanceNode: async () => undefined,
+      spawnUpscale: () => undefined,
+      openImageTool: () => undefined,
+      copyPrompt: () => undefined,
+      copyImage: () => undefined,
       busy: "",
     } satisfies CanvasActions;
   }

@@ -9,8 +9,9 @@ import { CompactModelSelect, preferredImageKey, preferredTextKey, preferredVideo
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
-import { characterLock, planStory, type StoryCast, type StoryShot } from "@/studio/story/plan";
+import { characterLock, draftPlan, planStory, type StoryCast, type StoryShot } from "@/studio/story/plan";
 import { GRAPH_KEY } from "@/studio/canvas/types";
+import { WorkbenchStatus } from "@/studio/workbench-status";
 
 export function StoryDirectorPage() {
   const navigate = useNavigate();
@@ -30,7 +31,9 @@ export function StoryDirectorPage() {
   const [cast, setCast] = useState<StoryCast[]>([]);
   const [shots, setShots] = useState<StoryShot[]>([]);
   const [busy, setBusy] = useState("");
+  const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [job, setJob] = useState<{ type: "char" | "shot" | "video" | "analyze" | "all"; index?: number } | null>(null);
 
   useEffect(() => {
     const next = queryParam("text") || queryParam("model");
@@ -43,8 +46,14 @@ export function StoryDirectorPage() {
   const videoSel = splitModel(videoModel);
 
   const analyze = async () => {
-    setBusy("分析故事…");
+    setJob({ type: "analyze" });
+    setBusy("正在拆分镜…");
     setError("");
+    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
+    setLogline(local.logline);
+    setScenes(local.scenes);
+    setCast(local.cast);
+    setShots(local.shots);
     try {
       const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
       setLogline(plan.logline);
@@ -56,13 +65,15 @@ export function StoryDirectorPage() {
       setError(err instanceof Error ? err.message : "分析失败");
     } finally {
       setBusy("");
+      setJob(null);
     }
   };
 
-  const renderCharacter = async (index: number) => {
-    const person = cast[index];
+  const renderCharacter = async (index: number, people = cast) => {
+    const person = people[index];
     if (!person) return;
-    setBusy(`定妆 ${person.name}`);
+    setJob({ type: "char", index });
+    setBusy(`正在出 ${person.name} 的角色图…`);
     setError("");
     try {
       const result = await generateStudioImage({
@@ -73,48 +84,56 @@ export function StoryDirectorPage() {
         size: quality === "3K" ? "3K" : "2K",
       });
       setCast((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "ready" } : item)));
-      addHistory({ kind: "image", title: `定妆 ${person.name}`, prompt: person.look, model: result.model, urls: [result.url] });
+      addHistory({ kind: "image", title: `角色 ${person.name}`, prompt: person.look, model: result.model, urls: [result.url] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "定妆失败");
+      const message = err instanceof Error ? err.message : "角色图失败";
+      setError(message);
+      setCast((current) => current.map((item, i) => (i === index ? { ...item, status: message } : item)));
     } finally {
       setBusy("");
+      setJob(null);
     }
   };
 
-  const renderShot = async (index: number) => {
-    const shot = shots[index];
+  const renderShot = async (index: number, boardShots = shots) => {
+    const shot = boardShots[index];
     if (!shot) return;
-    setBusy(`分镜 ${shot.title}`);
+    setJob({ type: "shot", index });
+    setBusy(`正在生成第 ${index + 1} 镜…`);
     setError("");
     try {
       const result = await generateStudioImage({
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
-        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast)}`,
+        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast.length ? cast : [])}`,
         imageUrl: cast.find((item) => item.url)?.url,
         size: quality === "3K" ? "3K" : "2K",
       });
-      setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done" } : item)));
+      setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done", error: "" } : item)));
       addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, urls: [result.url] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "分镜失败");
+      const message = err instanceof Error ? err.message : "这一镜出图失败";
+      setError(message);
+      setShots((current) => current.map((item, i) => (i === index ? { ...item, status: "error", error: message } : item)));
     } finally {
       setBusy("");
+      setJob(null);
     }
   };
 
   const renderVideo = async (index: number) => {
     const shot = shots[index];
     if (!shot) return;
-    setBusy(`视频 ${shot.title}`);
+    setJob({ type: "video", index });
+    setBusy(`正在生成第 ${index + 1} 镜视频…`);
     setError("");
     try {
       const created = await createStudioVideo({
         relays,
         prompt: `${shot.prompt}. Camera: ${shot.camera || "slow push in"}`,
         imageUrl: shot.url,
-        duration: 5,
+        duration: shot.duration || 5,
         aspectRatio: ratio,
         providerId: videoSel.providerId,
         model: videoSel.model,
@@ -124,18 +143,67 @@ export function StoryDirectorPage() {
       setShots((current) => current.map((item, i) => (i === index ? { ...item, videoUrl: url, status: "video" } : item)));
       addHistory({ kind: "video", title: shot.title, prompt: shot.prompt, model: created.model, urls: [url] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "视频失败");
+      const message = err instanceof Error ? err.message : "视频失败";
+      setError(message);
+      setShots((current) => current.map((item, i) => (i === index ? { ...item, error: message } : item)));
     } finally {
       setBusy("");
+      setJob(null);
     }
   };
 
-  const runStillPipeline = async () => {
-    for (let i = 0; i < cast.length; i += 1) {
-      if (!cast[i].url && !cast[i].locked) await renderCharacter(i);
+  const fillCast = async (people = cast) => {
+    const missing = people.filter((item) => !item.url && !item.locked);
+    let done = 0;
+    for (let i = 0; i < people.length; i += 1) {
+      if (people[i].url || people[i].locked) continue;
+      setProgress(`${done}/${missing.length || 1} 角色图 ${people[i].name}`);
+      await renderCharacter(i, people);
+      done += 1;
+      setProgress(`${done}/${missing.length || 1} 角色图完成`);
     }
-    for (let i = 0; i < shots.length; i += 1) {
-      if (!shots[i].url) await renderShot(i);
+  };
+
+  const fillShots = async (boardShots = shots) => {
+    const missing = boardShots.filter((item) => !item.url);
+    let done = 0;
+    for (let i = 0; i < boardShots.length; i += 1) {
+      if (boardShots[i].url) continue;
+      setProgress(`${done}/${missing.length || 1} 分镜 ${boardShots[i].title}`);
+      await renderShot(i, boardShots);
+      done += 1;
+      setProgress(`${done}/${missing.length || 1} 分镜完成`);
+    }
+  };
+
+  const runStillPipeline = async (board?: { cast: StoryCast[]; shots: StoryShot[] }) => {
+    const people = board?.cast || cast;
+    const boardShots = board?.shots || shots;
+    await fillCast(people);
+    await fillShots(boardShots);
+  };
+
+  const oneClickAll = async () => {
+    setJob({ type: "all" });
+    setBusy("一键：拆分镜 → 角色图 → 全部分镜");
+    setError("");
+    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
+    setLogline(local.logline);
+    setScenes(local.scenes);
+    setCast(local.cast);
+    setShots(local.shots);
+    try {
+      const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
+      setLogline(plan.logline);
+      setScenes(plan.scenes);
+      setCast(plan.cast);
+      setShots(plan.shots);
+      await runStillPipeline(plan);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy("");
+      setJob(null);
     }
   };
 
@@ -175,166 +243,173 @@ export function StoryDirectorPage() {
   };
 
   return (
-    <div className="bench story-bench">
-      <aside className="bench-side sd-page">
-        <p className="studio-kicker">STORY</p>
-        <h1>故事导演</h1>
-        <p className="studio-hint">先把故事贴进去，点分析。角色和分镜会填到右边；需要节点连线时再推到画布。</p>
-        <div className="sd-5">
-          <label>
-            文本模型
-            <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} />
-          </label>
-          <label>
-            生图模型
-            <CompactModelSelect kind="image" value={imageModel} onChange={setImageModel} />
-          </label>
-        </div>
-        <label>
-          视频模型
-          <CompactModelSelect kind="video" value={videoModel} onChange={setVideoModel} />
-        </label>
+    <div className="bp-work">
+      <aside className="bp-left">
+        <p className="studio-kicker">故事导演</p>
+        <h1>把故事拆成分镜</h1>
         <label>
           故事
-          <textarea rows={10} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风要求。" />
+          <textarea rows={9} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风。" />
         </label>
-        <div className="sd-5">
-          <label>
-            画风预设
-            <select value={style} onChange={(event) => setStyle(event.target.value)}>
-              {STYLE_PRESETS.map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            模式
-            <select value={mode} onChange={(event) => setMode(event.target.value as "single" | "grid9")}>
-              <option value="single">逐镜生成</option>
-              <option value="grid9">9宫格分镜</option>
-            </select>
-          </label>
-          <label>
-            镜头数
-            <input type="number" min={1} max={12} value={shotCount} onChange={(event) => setShotCount(Number(event.target.value) || 5)} />
-          </label>
-          <label>
-            画幅
-            <select value={ratio} onChange={(event) => setRatio(event.target.value)}>
-              {["16:9", "9:16", "1:1"].map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            质量
-            <select value={quality} onChange={(event) => setQuality(event.target.value)}>
-              <option value="1K">1K</option>
-              <option value="2K">2K</option>
-              <option value="3K">3K</option>
-            </select>
-          </label>
+        <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} label="文本模型" />
+        <CompactModelSelect kind="image" value={imageModel} onChange={setImageModel} label="生图模型" />
+        <CompactModelSelect kind="video" value={videoModel} onChange={setVideoModel} label="视频模型" />
+        <div className="chip-row">
+          {STYLE_PRESETS.slice(0, 6).map((item) => (
+            <button key={item} type="button" className={style === item ? "is-active" : undefined} onClick={() => setStyle(item)}>
+              {item}
+            </button>
+          ))}
         </div>
-        <div className="sd-actions">
-          <button type="button" disabled={Boolean(busy) || !idea.trim()} onClick={() => void analyze()}>
-            <b>分析故事</b>
-            <span>生成角色 / 场景 / 分镜</span>
+        <div className="studio-seg">
+          <button type="button" className={mode === "single" ? "is-active" : undefined} onClick={() => setMode("single")}>
+            逐镜
           </button>
-          <button type="button" disabled={Boolean(busy) || !cast.length} onClick={() => void runStillPipeline()}>
-            <b>补齐角色图</b>
-            <span>{cast.length ? `再出分镜静帧` : "需先分析故事"}</span>
-          </button>
-          <button type="button" disabled={Boolean(busy) || !shots.length} onClick={() => void runStillPipeline()}>
-            <b>生成分镜图</b>
-            <span>按镜头提交</span>
-          </button>
-          <button type="button" onClick={pushCanvas}>
-            <b>推到画布</b>
-            <span>变成可连线节点</span>
+          <button type="button" className={mode === "grid9" ? "is-active" : undefined} onClick={() => setMode("grid9")}>
+            9 宫格
           </button>
         </div>
-        {busy ? <p className="studio-hint">{busy}</p> : null}
-        {error ? <p className="studio-error">{error}</p> : null}
-        <div className="sd-tiles">
-          <div>
-            <small>角色</small>
-            <b>{cast.length} 个</b>
-          </div>
-          <div>
-            <small>场景</small>
-            <b>{scenes.length} 个</b>
-          </div>
-          <div>
-            <small>镜头</small>
-            <b>{shots.length} 个</b>
-          </div>
+        <div className="chip-row">
+          {[3, 5, 6, 9].map((item) => (
+            <button key={item} type="button" className={shotCount === item ? "is-active" : undefined} onClick={() => setShotCount(item)}>
+              {item} 镜
+            </button>
+          ))}
+          {["16:9", "9:16", "1:1"].map((item) => (
+            <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
+              {item}
+            </button>
+          ))}
+          {["2K", "3K"].map((item) => (
+            <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
+        <div className="bp-cta">
+          <button type="button" className="studio-primary" disabled={Boolean(job)} onClick={() => void oneClickAll()}>
+            {job?.type === "all" ? busy : "一键全流程"}
+          </button>
+          <button type="button" className="studio-ghost" disabled={Boolean(job)} onClick={() => void analyze()}>
+            只拆分镜
+          </button>
+          <button type="button" className="studio-ghost" disabled={Boolean(job) || !cast.length} onClick={() => void fillCast()}>
+            给所有角色出图
+          </button>
+          <button type="button" className="studio-ghost" disabled={Boolean(job) || !shots.length} onClick={() => void fillShots()}>
+            给所有镜头出图
+          </button>
+          <button type="button" className="studio-ghost" onClick={pushCanvas}>
+            推到画布
+          </button>
+          {error ? <p className="studio-error">{error}</p> : null}
         </div>
       </aside>
-      <section className="bench-main story-board">
+      <section className="bp-right story-board">
+        <header className="bp-bar">
+          <b>
+            分镜台 · {cast.length} 角色 · {shots.filter((item) => item.url).length}/{shots.length || 0} 已出图
+          </b>
+        </header>
+        <WorkbenchStatus
+          busy={busy}
+          error={error}
+          done={logline ? `${cast.length} 角色 · ${shots.filter((item) => item.url).length}/${shots.length || 0} 分镜` : ""}
+          idle="拆完分镜后，点角色卡「生成角色图」，或镜头卡「生成这一镜」"
+        />
         {!cast.length && !shots.length ? (
-          <div className="studio-placeholder">
-            <p>右边先空着，这是正常的。</p>
-            <p>1. 左边贴故事</p>
-            <p>2. 点「分析故事」</p>
-            <p>3. 角色资产和分镜会出现在这里，再定妆、出图、出视频</p>
+          <div className="bp-stage">
+            <p className="studio-hint">右边会出角色资产和分镜。左边贴故事，点「分析故事」或「一键全流程」。</p>
           </div>
         ) : (
-          <>
+          <div className="story-result">
             <article className="story-logline">
               <p className="studio-kicker">故事总结</p>
               <h2>{logline}</h2>
               <p>场景：{scenes.join(" / ") || "—"}</p>
             </article>
-            <div>
-              <p className="studio-kicker">角色资产</p>
-              <div className="cast-row">
-                {cast.map((person, index) => (
-                  <button key={`${person.name}-${index}`} type="button" className="cast-card" onClick={() => void renderCharacter(index)}>
-                    {person.url ? <img src={person.url} alt={person.name} /> : <div className="shot-empty">点此定妆</div>}
-                    <span>
-                      {person.name}
-                      <small>
-                        {person.importance === "main" ? "主角" : "配角"}
-                        {person.url ? " · 已生成" : " · 待定妆"}
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <p className="studio-kicker">角色（先出角色图，分镜才能长得一样）</p>
+            <div className="cast-row">
+              {cast.map((person, index) => {
+                const running = job?.type === "char" && job.index === index;
+                return (
+                <article key={`${person.name}-${index}`} className="cast-card">
+                  <div className="card-media">
+                    {person.url ? <img src={person.url} alt={person.name} /> : <div className="shot-empty">还没有角色图</div>}
+                    {running ? (
+                      <div className="card-busy">
+                        <span className="orig-spinner sm" />
+                        出图中
+                      </div>
+                    ) : null}
+                  </div>
+                  <span>
+                    {person.name}
+                    <small>
+                      {person.importance === "main" ? "主角" : "配角"}
+                      {person.locked ? " · 外貌已锁" : person.url ? " · 已出图" : " · 还没出图"}
+                    </small>
+                  </span>
+                  {person.status && person.status !== "pending" && person.status !== "ready" ? <p className="studio-error">{person.status}</p> : null}
+                  <div className="shot-actions">
+                    <button type="button" disabled={running} onClick={() => void renderCharacter(index)}>
+                      {person.url ? "重做角色图" : "生成角色图"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCast((current) => current.map((item, i) => (i === index ? { ...item, locked: !item.locked } : item)))}
+                    >
+                      {person.locked ? "解锁外貌" : "锁定外貌"}
+                    </button>
+                  </div>
+                </article>
+              );
+              })}
             </div>
-            <div>
-              <p className="studio-kicker">分镜队列</p>
-              <div className="shot-grid">
-                {shots.map((shot, index) => (
-                  <article key={`${shot.title}-${index}`} className="shot-card">
+            <p className="studio-kicker">分镜队列</p>
+            <div className="shot-grid">
+              {shots.map((shot, index) => {
+                const running = (job?.type === "shot" || job?.type === "video") && job.index === index;
+                return (
+                <article key={`${shot.title}-${index}`} className="shot-card">
+                  <div className="card-media">
                     {shot.videoUrl ? (
                       <video src={shot.videoUrl} controls />
                     ) : shot.url ? (
                       <img src={shot.url} alt={shot.title} />
                     ) : (
-                      <div className="shot-empty">{shot.title}</div>
+                      <div className="shot-empty">{index + 1}. {shot.title}</div>
                     )}
-                    <div className="shot-body">
-                      <b>
-                        {index + 1}. {shot.title}
-                      </b>
-                      <p>
-                        {shot.camera} · {shot.scene} · {shot.characters.join(" / ")}
-                      </p>
-                      <div className="shot-actions">
-                        <button type="button" disabled={Boolean(busy)} onClick={() => void renderShot(index)}>
-                          {shot.url ? "重拍静帧" : "出图"}
-                        </button>
-                        <button type="button" disabled={Boolean(busy)} onClick={() => void renderVideo(index)}>
-                          出视频
-                        </button>
+                    {running ? (
+                      <div className="card-busy">
+                        <span className="orig-spinner sm" />
+                        {job?.type === "video" ? "视频生成中" : "这一镜出图中"}
                       </div>
+                    ) : null}
+                  </div>
+                  <div className="shot-body">
+                    <b>
+                      {index + 1}. {shot.title}
+                    </b>
+                    <p>
+                      {shot.camera} · {shot.scene} · {shot.characters.join(" / ")} · {shot.duration || 5}s
+                    </p>
+                    <p>台词：{shot.dialogue || "无对白"}</p>
+                    {shot.error ? <p className="studio-error">{shot.error}</p> : null}
+                    <div className="shot-actions">
+                      <button type="button" disabled={running} onClick={() => void renderShot(index)}>
+                        {shot.url ? "重做这一镜" : "生成这一镜"}
+                      </button>
+                      <button type="button" disabled={running} onClick={() => void renderVideo(index)}>
+                        生成视频
+                      </button>
                     </div>
-                  </article>
-                ))}
-              </div>
+                  </div>
+                </article>
+              );
+              })}
             </div>
-          </>
+          </div>
         )}
       </section>
     </div>

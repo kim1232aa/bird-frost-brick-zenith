@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as CanvasRepairRouteImport } from './routes/canvas-repair'
 import { Route as CatalogRouteImport } from './routes/catalog'
 import { Route as EcommerceRouteImport } from './routes/ecommerce'
 import { Route as ImageRouteImport } from './routes/image'
@@ -21,6 +22,7 @@ import { Route as StoryRouteImport } from './routes/story'
 import { Route as VideoRouteImport } from './routes/video'
 import { Route as WebdavProxyRouteImport } from './routes/webdav-proxy'
 import { Route as CanvasIndexRouteImport } from './routes/canvas/index'
+import { Route as CanvasHomeRouteImport } from './routes/canvas/home'
 import { Route as CanvasWorkspaceRouteImport } from './routes/canvas/workspace'
 import { Route as ClientApiFetchUrlRouteImport } from './routes/client-api/fetch-url'
 import { Route as ClientApiHealthRouteImport } from './routes/client-api/health'
@@ -36,6 +38,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CanvasRepairRoute = CanvasRepairRouteImport.update({
+  id: '/canvas-repair',
+  path: '/canvas-repair',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CatalogRoute = CatalogRouteImport.update({
@@ -88,6 +95,11 @@ const CanvasIndexRoute = CanvasIndexRouteImport.update({
   path: '/canvas/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CanvasHomeRoute = CanvasHomeRouteImport.update({
+  id: '/canvas/home',
+  path: '/canvas/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CanvasWorkspaceRoute = CanvasWorkspaceRouteImport.update({
   id: '/canvas/workspace',
   path: '/canvas/workspace',
@@ -123,6 +135,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
   '/image': typeof ImageRoute
@@ -132,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
   '/webdav-proxy': typeof WebdavProxyRoute
+  '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
@@ -143,6 +157,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
   '/image': typeof ImageRoute
@@ -152,6 +167,7 @@ export interface FileRoutesByTo {
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
   '/webdav-proxy': typeof WebdavProxyRoute
+  '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
@@ -164,6 +180,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
   '/image': typeof ImageRoute
@@ -173,6 +190,7 @@ export interface FileRoutesById {
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
   '/webdav-proxy': typeof WebdavProxyRoute
+  '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
@@ -186,6 +204,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
     | '/image'
@@ -195,6 +214,7 @@ export interface FileRouteTypes {
     | '/story'
     | '/video'
     | '/webdav-proxy'
+    | '/canvas/home'
     | '/canvas/workspace'
     | '/client-api/fetch-url'
     | '/client-api/health'
@@ -206,6 +226,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
     | '/image'
@@ -215,6 +236,7 @@ export interface FileRouteTypes {
     | '/story'
     | '/video'
     | '/webdav-proxy'
+    | '/canvas/home'
     | '/canvas/workspace'
     | '/client-api/fetch-url'
     | '/client-api/health'
@@ -226,6 +248,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
     | '/image'
@@ -235,6 +258,7 @@ export interface FileRouteTypes {
     | '/story'
     | '/video'
     | '/webdav-proxy'
+    | '/canvas/home'
     | '/canvas/workspace'
     | '/client-api/fetch-url'
     | '/client-api/health'
@@ -247,6 +271,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  CanvasRepairRoute: typeof CanvasRepairRoute
   CatalogRoute: typeof CatalogRoute
   EcommerceRoute: typeof EcommerceRoute
   ImageRoute: typeof ImageRoute
@@ -256,6 +281,7 @@ export interface RootRouteChildren {
   StoryRoute: typeof StoryRoute
   VideoRoute: typeof VideoRoute
   WebdavProxyRoute: typeof WebdavProxyRoute
+  CanvasHomeRoute: typeof CanvasHomeRoute
   CanvasWorkspaceRoute: typeof CanvasWorkspaceRoute
   ClientApiFetchUrlRoute: typeof ClientApiFetchUrlRoute
   ClientApiHealthRoute: typeof ClientApiHealthRoute
@@ -279,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/canvas-repair': {
+      id: '/canvas-repair'
+      path: '/canvas-repair'
+      fullPath: '/canvas-repair'
+      preLoaderRoute: typeof CanvasRepairRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/catalog': {
@@ -351,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CanvasIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/canvas/home': {
+      id: '/canvas/home'
+      path: '/canvas/home'
+      fullPath: '/canvas/home'
+      preLoaderRoute: typeof CanvasHomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/canvas/workspace': {
       id: '/canvas/workspace'
       path: '/canvas/workspace'
@@ -399,6 +439,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  CanvasRepairRoute: CanvasRepairRoute,
   CatalogRoute: CatalogRoute,
   EcommerceRoute: EcommerceRoute,
   ImageRoute: ImageRoute,
@@ -408,6 +449,7 @@ const rootRouteChildren: RootRouteChildren = {
   StoryRoute: StoryRoute,
   VideoRoute: VideoRoute,
   WebdavProxyRoute: WebdavProxyRoute,
+  CanvasHomeRoute: CanvasHomeRoute,
   CanvasWorkspaceRoute: CanvasWorkspaceRoute,
   ClientApiFetchUrlRoute: ClientApiFetchUrlRoute,
   ClientApiHealthRoute: ClientApiHealthRoute,

@@ -11,6 +11,7 @@ export async function generateStudioText(input: {
   model?: string;
   providerId?: string;
   json?: boolean;
+  imageUrl?: string;
 }) {
   const providerId = input.providerId || STUDIO_ROUTES.text.providerId;
   const model = input.model || STUDIO_ROUTES.text.model;
@@ -25,7 +26,7 @@ export async function generateStudioText(input: {
     if (!adapter.generateText) throw new Error(`${adapter.label} 不支持文本`);
     const result = await adapter.generateText(
       { provider },
-      { model, prompt: input.prompt, system: input.system, json: input.json },
+      { model, prompt: input.prompt, system: input.system, json: input.json, imageUrl: input.imageUrl },
     );
     return { text: result.text, model, providerId };
   } catch (err) {

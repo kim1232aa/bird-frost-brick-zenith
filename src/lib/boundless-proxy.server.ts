@@ -210,6 +210,13 @@ export async function proxyImageHostUpload(request: Request) {
 }
 
 async function forward(request: Request, target: URL, headers: Headers, timeoutMs: number) {
+  if (!headers.has("user-agent")) {
+    headers.set(
+      "User-Agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    );
+  }
+  if (!headers.has("accept")) headers.set("Accept", "application/json, */*");
   const init: RequestInit = {
     method: request.method,
     headers,
@@ -234,8 +241,7 @@ async function toClientResponse(upstream: Response) {
   const headers = stripHeaders(upstream.headers, ["content-encoding", "content-length", "transfer-encoding"]);
   const buffer = Buffer.from(await upstream.arrayBuffer());
   headers.set("content-length", String(buffer.byteLength));
-  headers.set("content-encoding", "identity");
-  headers.set("cache-control", "no-transform");
+  headers.delete("content-encoding");
   return new Response(buffer, {
     status: upstream.status,
     statusText: upstream.statusText,
