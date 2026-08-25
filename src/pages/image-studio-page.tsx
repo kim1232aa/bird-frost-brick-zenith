@@ -142,10 +142,20 @@ export function ImageStudioPage() {
   return (
     <div className="bp-work">
       <aside className="bp-left">
-        <p className="studio-kicker">生图</p>
-        <h1>文生图 / 图生图</h1>
+        <p className="studio-kicker">{card?.model || "生图"}</p>
+        <h1>{card?.label || "文生图 / 图生图"}</h1>
+        <label>
+          描述你的想法
+          <textarea rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述你的想法" />
+        </label>
+        <div className="prompt-tools">
+          <span className="bp-count">必填 · {prompt.length} / 20000</span>
+          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
+            提示词模板 / 润色
+          </button>
+        </div>
         <label className="dropzone">
-          <span>点击上传参考图</span>
+          <span>点击上传图片，如需标注可再次点击</span>
           <input
             type="file"
             accept="image/*"
@@ -160,7 +170,7 @@ export function ImageStudioPage() {
               reader.readAsDataURL(file);
             }}
           />
-          {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>不上传则走文生图</small>}
+          {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>没思路？先点下面模板，或右边看示例</small>}
         </label>
         <div className="studio-seg">
           <button type="button" className={mode === "t2i" ? "is-active" : undefined} onClick={() => setMode("t2i")}>
@@ -170,22 +180,7 @@ export function ImageStudioPage() {
             图生图
           </button>
         </div>
-        <label>
-          提示词
-          <textarea rows={8} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述你的想法" />
-        </label>
-        <p className="bp-count">必填 · {prompt.length} / 20000</p>
-        {(family === "civitai" || family === "generic") && (
-          <label>
-            负面提示
-            <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
-          </label>
-        )}
-        <div className="prompt-tools">
-          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
-            润色提示词
-          </button>
-        </div>
+        <p className="studio-kicker">没思路？点模板</p>
         <div className="chip-row">
           {IMAGE_TEMPLATES.map((item) => (
             <button
@@ -198,85 +193,58 @@ export function ImageStudioPage() {
             </button>
           ))}
         </div>
-        <div className="bp-cta">
-          <p className="studio-hint">
-            {card?.nsfw ? "NSFW 允许" : "安全档"} · {card?.cost || "1 点"}/图 · 剩余 {remaining}
-          </p>
-          <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
-            {busy ? busy : "生成"}
-          </button>
-          {error ? <p className="studio-error">{error}</p> : null}
-        </div>
-      </aside>
-      <section className="bp-right">
-        <header className="bp-bar">
-          <div>
-            <p className="studio-kicker">已接线模型 · {models.length}</p>
-            <strong>{card?.model}</strong>
-            <span className="studio-hint"> {card?.provider}</span>
-          </div>
-        </header>
-        <div className="bp-models" data-testid="image-models">
+        {(family === "civitai" || family === "generic") && (
+          <label>
+            负面提示
+            <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
+          </label>
+        )}
+        <p className="studio-kicker">选择模型 · {models.length}</p>
+        <div className="bp-pick" data-testid="image-models">
           {groups.map(([provider, list]) => (
-            <div key={provider} className="bp-model-group">
-              <p>{provider}</p>
-              <div>
-                {list.map((item) => {
-                  const key = catalogKey(item);
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={key === selection ? "is-on" : undefined}
-                      onClick={() => setSelection(key)}
-                    >
-                      <b>{item.model}</b>
-                      <span>
-                        {item.nsfw ? "NSFW" : "安全"}
-                        {item.verified ? " · 已实测" : ""}
-                        {item.size ? ` · ${item.size}` : ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+            <div key={provider}>
+              <small>{provider}</small>
+              {list.map((item) => {
+                const key = catalogKey(item);
+                return (
+                  <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
+                    <b>{item.model}</b>
+                    <span>
+                      {item.nsfw ? "NSFW" : "安全"} · {item.cost || "1 点"}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           ))}
         </div>
-        <div className="bp-params">
+        <p className="studio-kicker">参数</p>
+        <div className="bp-params-col">
           {family === "ark" ? (
             <div className="studio-seg">
               {["2K", "3K"].map((item) => (
                 <button key={item} type="button" className={size === item ? "is-active" : undefined} onClick={() => setSize(item)}>
-                  {item}
+                  {item} · {item === "3K" ? "2 点" : "1 点"}
                 </button>
               ))}
             </div>
           ) : (
-            <div className="studio-seg">
-              {Object.keys(ASPECTS).map((item) => (
-                <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
-                  {item}
-                </button>
-              ))}
-            </div>
-          )}
-          {family !== "ark" ? (
-            <div className="studio-seg">
-              {(["eco", "std", "hq"] as const).map((item) => (
-                <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
-                  {item === "eco" ? "经济" : item === "hq" ? "高质" : "标准"}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="studio-seg">
-              {(["std", "hq"] as const).map((item) => (
-                <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
-                  {item === "hq" ? "3K 高质" : "2K 标准"}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="studio-seg">
+                {Object.keys(ASPECTS).map((item) => (
+                  <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
+                    {item}
+                  </button>
+                ))}
+              </div>
+              <div className="studio-seg">
+                {(["eco", "std", "hq"] as const).map((item) => (
+                  <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
+                    {item === "eco" ? "经济 · 1 点" : item === "hq" ? "稳定 · 2 点" : "标准 · 1 点"}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
           {(family === "civitai" || family === "gpt") && (
             <div className="studio-seg">
@@ -294,40 +262,63 @@ export function ImageStudioPage() {
             </label>
           ) : null}
         </div>
+        <div className="bp-cta">
+          <p className="studio-hint">
+            {card?.nsfw ? "NSFW 允许" : "安全档"} · 剩余 {remaining} 点
+          </p>
+          <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
+            {busy ? busy : "生成"}
+          </button>
+          {error ? <p className="studio-error">{error}</p> : null}
+        </div>
+      </aside>
+      <section className="bp-right">
+        <header className="bp-bar">
+          <div>
+            <p className="studio-kicker">{url || busy ? "生成结果" : "示例效果"}</p>
+            <strong>{card?.model}</strong>
+            <span className="studio-hint"> {card?.provider}</span>
+          </div>
+        </header>
         <WorkbenchStatus
           busy={busy}
           error={error}
           done={url ? `${card?.model || "模型"} 已出图` : ""}
-          idle="选模型 → 调参 → 生成。右侧会显示进度和结果。"
+          idle="右侧先看示例。生成后结果会盖在上面。"
         />
-        <div className="bp-stage">
-          {url ? <img src={url} alt={prompt} /> : <p className="studio-hint">{busy ? "" : "结果出在这里"}</p>}
-          <StageOverlay busy={busy} />
-        </div>
-        {url ? (
-          <div className="result-actions" style={{ padding: "0 16px 8px" }}>
-            <a className="studio-ghost" href={url} download="studio.png" target="_blank" rel="noreferrer">
-              下载
-            </a>
-            <button type="button" className="studio-ghost" onClick={() => void generate()}>
-              再生成
-            </button>
-            <button
-              type="button"
-              className="studio-ghost"
-              onClick={() => {
-                setReference(url);
-                setMode("i2i");
-              }}
-            >
-              用作参考
-            </button>
-            <button type="button" className="studio-ghost" onClick={sendCanvas}>
-              送入画布
-            </button>
-          </div>
+        {url || busy ? (
+          <>
+            <div className="bp-stage">
+              {url ? <img src={url} alt={prompt} /> : null}
+              <StageOverlay busy={busy} />
+            </div>
+            {url ? (
+              <div className="result-actions" style={{ padding: "0 16px 8px" }}>
+                <a className="studio-ghost" href={url} download="studio.png" target="_blank" rel="noreferrer">
+                  下载
+                </a>
+                <button type="button" className="studio-ghost" onClick={() => void generate()}>
+                  再生成
+                </button>
+                <button
+                  type="button"
+                  className="studio-ghost"
+                  onClick={() => {
+                    setReference(url);
+                    setMode("i2i");
+                  }}
+                >
+                  用作参考
+                </button>
+                <button type="button" className="studio-ghost" onClick={sendCanvas}>
+                  送入画布
+                </button>
+              </div>
+            ) : null}
+          </>
         ) : null}
-        <div className="bp-gallery">
+        <p className="bp-examples-title">示例效果 · 点一张可带入提示词</p>
+        <div className="bp-examples">
           {recent.map((item) => (
             <button
               key={item.id}

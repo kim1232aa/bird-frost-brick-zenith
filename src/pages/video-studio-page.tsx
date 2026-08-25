@@ -103,10 +103,25 @@ export function VideoStudioPage() {
   return (
     <div className="bp-work">
       <aside className="bp-left">
-        <p className="studio-kicker">生视频</p>
+        <p className="studio-kicker">{card?.model || "生视频"}</p>
         <h1>文生视频 / 首帧驱动</h1>
+        <label>
+          描述你的想法
+          <textarea rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述镜头运动、主体和气氛" />
+        </label>
+        <div className="prompt-tools">
+          <span className="bp-count">必填 · {prompt.length} / 20000</span>
+          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() =>
+              void enhancePrompt({ relays, prompt, textModel, kind: "video" })
+                .then(setPrompt)
+                .catch((err) => setError(err instanceof Error ? err.message : "润色失败"))
+            }
+          >
+            提示词模板 / 润色
+          </button>
+        </div>
         <label className="dropzone">
-          <span>首帧（可选）</span>
+          <span>首帧（可选）· 点击上传</span>
           <input
             type="file"
             accept="image/*"
@@ -120,21 +135,7 @@ export function VideoStudioPage() {
           />
           {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>不上传则走文生视频</small>}
         </label>
-        <label>
-          提示词
-          <textarea rows={7} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="描述镜头运动、主体和气氛" />
-        </label>
-        <p className="bp-count">必填 · {prompt.length} / 20000</p>
-        <div className="prompt-tools">
-          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() =>
-              void enhancePrompt({ relays, prompt, textModel, kind: "video" })
-                .then(setPrompt)
-                .catch((err) => setError(err instanceof Error ? err.message : "润色失败"))
-            }
-          >
-            润色提示词
-          </button>
-        </div>
+        <p className="studio-kicker">没思路？点模板</p>
         <div className="chip-row">
           {VIDEO_TEMPLATES.map((item) => (
             <button
@@ -147,6 +148,38 @@ export function VideoStudioPage() {
             </button>
           ))}
         </div>
+        <p className="studio-kicker">选择模型 · {models.length} 条已实测</p>
+        <div className="bp-pick" data-testid="video-models">
+          {groups.map(([provider, list]) => (
+            <div key={provider}>
+              <small>{provider}</small>
+              {list.map((item) => {
+                const key = catalogKey(item);
+                return (
+                  <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
+                    <b>{item.model}</b>
+                    <span>已实测{item.nsfw ? " · NSFW" : ""}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <p className="studio-kicker">时长 / 画幅</p>
+        <div className="studio-seg">
+          {[4, 5, 6, 8, 10].map((item) => (
+            <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
+              {item}s
+            </button>
+          ))}
+        </div>
+        <div className="studio-seg">
+          {["16:9", "9:16", "1:1"].map((item) => (
+            <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
+              {item}
+            </button>
+          ))}
+        </div>
         {isArk ? (
           <label className="flow-check">
             <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
@@ -155,7 +188,7 @@ export function VideoStudioPage() {
         ) : null}
         <div className="bp-cta">
           <p className="studio-hint">
-            {card?.verified ? "已实测可出片" : "这条没有实测过，不会出现在生成菜单"} · {card?.nsfw ? "NSFW 允许" : "安全档"} · 剩余 {remaining}
+            {card?.verified ? "已实测可出片" : "未实测不会出现"} · 剩余 {remaining} 点
           </p>
           <button type="button" className="studio-primary" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
             {busy ? `生成中 · ${busy}` : "生成视频"}
@@ -166,48 +199,51 @@ export function VideoStudioPage() {
       <section className="bp-right">
         <header className="bp-bar">
           <div>
-            <p className="studio-kicker">可跑视频模型 · {models.length}</p>
+            <p className="studio-kicker">{url || busy ? "生成结果" : "示例效果"}</p>
             <strong>{card?.model}</strong>
-            <span className="studio-hint"> {card?.provider}</span>
           </div>
         </header>
-        <div className="bp-models" data-testid="video-models">
-          {groups.map(([provider, list]) => (
-            <div key={provider} className="bp-model-group">
-              <p>{provider}</p>
-              <div>
-                {list.map((item) => {
-                  const key = catalogKey(item);
-                  return (
-                    <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
-                      <b>{item.model}</b>
-                      <span>
-                        {item.verified ? "已实测" : "未实测"}
-                        {item.nsfw ? " · NSFW" : ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+        <WorkbenchStatus
+          busy={busy}
+          error={error}
+          done={url ? `${card?.model || "模型"} 已出片` : ""}
+          idle="右侧先看示例。生成后视频会在上面播放。"
+        />
+        {url || busy ? (
+          <>
+            <div className="bp-stage">
+              {url ? <video src={url} controls autoPlay loop /> : null}
+              <StageOverlay busy={busy} />
             </div>
+            {url ? (
+              <div className="result-actions" style={{ padding: "0 16px 8px" }}>
+                <a className="studio-ghost" href={url} download="studio.mp4" target="_blank" rel="noreferrer">
+                  下载
+                </a>
+                <button
+                  type="button"
+                  className="studio-ghost"
+                  onClick={() => {
+                    dropToCanvas({ kind: "video", url, prompt, model: selection });
+                    void navigate({ to: "/canvas" });
+                  }}
+                >
+                  送入画布
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        <p className="bp-examples-title">示例效果</p>
+        <div className="bp-examples">
+          {recent.map((item) => (
+            <button key={item.id} type="button" className={url === item.urls[0] ? "is-active" : undefined} onClick={() => item.urls[0] && setUrl(item.urls[0])}>
+              {item.kind === "video" ? <video src={item.urls[0]} muted /> : <img src={item.urls[0]} alt="" />}
+              <span>{item.title}</span>
+            </button>
           ))}
         </div>
-        <div className="bp-params">
-          <div className="studio-seg">
-            {[4, 5, 6, 8, 10].map((item) => (
-              <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
-                {item}s
-              </button>
-            ))}
-          </div>
-          <div className="studio-seg">
-            {["16:9", "9:16", "1:1"].map((item) => (
-              <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
-                {item}
-              </button>
-            ))}
-          </div>
-        </div>
+      </section>
         <WorkbenchStatus
           busy={busy}
           error={error}
