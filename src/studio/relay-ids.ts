@@ -4,6 +4,8 @@ const MANAGED_IDS = new Set([
   "preset-superxihe-grok",
   "preset-volcengine-plan",
   "preset-civitai",
+  "preset-modelscope",
+  "preset-huggingface",
   "preset-aliyun-dashscope",
   "preset-aliyun-tokenplan",
   "preset-volcengine-ark",

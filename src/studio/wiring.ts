@@ -7,8 +7,8 @@ const CIVITAI_VIDEO = CIVITAI_ENGINES.filter((item) => item.kind === "video").ma
 
 /**
  * Single wiring table. Add a provider here and it appears in 接线 / catalog / generation.
- * Live keys (user-supplied, disposable): SuperXihe image, SuperXihe Grok, Volcengine Agent Plan, Civitai.
- * Original Boundless slots kept as disabled templates so nothing was deleted.
+ * Live keys (user-supplied): SuperXihe, Volcengine, Civitai, ModelScope, Hugging Face.
+ * Remaining Boundless slots stay as disabled templates so nothing was deleted.
  */
 export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
   {
@@ -90,6 +90,38 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     videoModels: CIVITAI_VIDEO,
     audioModels: [],
     endpoints: { images: "/workflows", videosCreate: "/workflows" },
+  },
+  {
+    id: "preset-modelscope",
+    name: "ModelScope 魔搭",
+    adapter: "modelscope",
+    baseUrl: "https://api-inference.modelscope.cn",
+    apiKey: "ms-b668608e-7597-4812-be00-7a822d17830d",
+    enabled: true,
+    capabilities: ["image"],
+    remark: "官方 API-Inference：POST /v1/images/generations + 异步轮询 /v1/tasks/{id}。",
+    models: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo"],
+    textModels: [],
+    imageModels: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo"],
+    videoModels: [],
+    audioModels: [],
+    endpoints: { images: "/v1/images/generations" },
+  },
+  {
+    id: "preset-huggingface",
+    name: "Hugging Face",
+    adapter: "huggingface",
+    baseUrl: "https://router.huggingface.co",
+    apiKey: "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",
+    enabled: true,
+    capabilities: ["image"],
+    remark: "HF Router /v1/images/generations，失败时回退 hf-inference。",
+    models: ["Tongyi-MAI/Z-Image-Turbo", "black-forest-labs/FLUX.1-schnell"],
+    textModels: [],
+    imageModels: ["Tongyi-MAI/Z-Image-Turbo", "black-forest-labs/FLUX.1-schnell"],
+    videoModels: [],
+    audioModels: [],
+    endpoints: { images: "/v1/images/generations" },
   },
   {
     id: "preset-aliyun-dashscope",
@@ -230,6 +262,7 @@ export function studioRelays(): ApiRelayProvider[] {
       baseUrl: item.baseUrl,
       apiKey: item.apiKey,
       adapterType: item.adapter,
+      protocol: item.adapter,
       enabled: item.enabled,
       capabilities: item.capabilities,
       remark: item.remark,
@@ -239,6 +272,7 @@ export function studioRelays(): ApiRelayProvider[] {
       imageModels: item.imageModels,
       videoModels: item.videoModels,
       audioModels: item.audioModels,
+      endpoints: item.endpoints,
     }),
   );
 }
