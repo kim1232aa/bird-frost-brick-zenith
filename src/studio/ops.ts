@@ -90,7 +90,7 @@ export const useOpsStore = create<OpsState>()(
         const cost = Math.max(1, points || 1);
         const have = get().credits[kind];
         if (have < cost) {
-          throw new Error(`额度不足：${kind} 剩余 ${have}，本次需要 ${cost}。到后台发放或升级。`);
+          throw new Error(`额度不足：${kind} 剩余 ${have}，本次需要 ${cost}。到账户页或请管理员补发。`);
         }
         const row: LedgerRow = {
           id: crypto.randomUUID(),
@@ -147,16 +147,20 @@ export function liveCard(card: ModelCard): ModelCard {
   };
 }
 
+/** All listed models of a kind. Pass generate=true to hide ones without a key. */
 export function liveCatalog(kind?: ModelCard["kind"], generate = false) {
   const ops = useOpsStore.getState();
   return STUDIO_CATALOG.filter((item) => {
     if (kind && item.kind !== kind) return false;
     if (ops.unlisted[catalogKey(item)]) return false;
-    const card = liveCard(item);
-    if (generate && !card.wired) return false;
-    if (generate && kind === "video" && !item.verified) return false;
+    if (generate && !liveCard(item).wired) return false;
     return true;
   }).map(liveCard);
+}
+
+/** Picker list: show every listed model so the user can always choose. */
+export function pickCatalog(kind?: ModelCard["kind"]) {
+  return liveCatalog(kind, false);
 }
 
 export function modelPoints(value: string) {

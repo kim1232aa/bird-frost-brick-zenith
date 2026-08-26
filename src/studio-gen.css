@@ -1,4 +1,4 @@
-/* Composer layout for image / video generate pages. */
+/* ImageKit-style composer: prompt first, compact dropdowns, generate immediately under. */
 
 .gen-page {
   display: flex;
@@ -6,7 +6,7 @@
   gap: 16px;
   max-width: 1080px;
   margin: 0 auto;
-  padding: 8px 0 48px;
+  padding: 4px 0 64px;
 }
 
 .gen-head {
@@ -19,12 +19,44 @@
 
 .gen-head h1 {
   margin: 0;
-  font-size: 1.6rem;
+  font-size: 1.7rem;
+  letter-spacing: -0.03em;
+}
+
+.gen-head .studio-seg {
+  background: #fff;
+  border: 1px solid #e7e5df;
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.gen-head .studio-seg button {
+  border: 0;
+  background: transparent;
+  color: #57534e;
+  border-radius: 8px;
+  padding: 8px 14px;
+  min-height: 36px;
+}
+
+.gen-head .studio-seg button.is-active {
+  background: #00c758;
+  color: #fff;
+}
+
+.gen-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #e7e5df;
+  border-radius: 18px;
+  background: #fff;
 }
 
 .gen-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.8fr);
+  grid-template-columns: minmax(0, 1.7fr) minmax(220px, 0.75fr);
   gap: 16px;
   align-items: stretch;
 }
@@ -37,24 +69,48 @@
   min-width: 0;
 }
 
+.gen-prompt > span,
+.gen-side .model-picker {
+  font-size: 13px;
+  color: #78716c;
+}
+
 .gen-prompt textarea {
   width: 100%;
-  min-height: 180px;
+  min-height: 188px;
   resize: vertical;
   border: 1px solid #e7e5df;
-  border-radius: 16px;
+  border-radius: 14px;
   padding: 14px 16px;
   font: inherit;
-  line-height: 1.5;
-  background: #fff;
+  line-height: 1.55;
+  background: #f8f7f4;
   color: inherit;
 }
 
-.gen-side {
-  padding: 12px;
-  border: 1px solid #e7e5df;
-  border-radius: 16px;
+.gen-prompt textarea:focus {
+  outline: 2px solid #00c75855;
+  border-color: #00c758;
   background: #fff;
+}
+
+.gen-side {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.gen-side select,
+.gen-extra input,
+.gen-extra select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #e7e5df;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
 }
 
 .gen-row {
@@ -69,17 +125,32 @@
   gap: 8px;
 }
 
+button.studio-primary.gen-submit,
 .gen-submit {
   width: 100%;
   min-height: 52px;
-  border: 0;
-  border-radius: 14px;
+  border: 0 !important;
+  border-radius: 14px !important;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: #00c758 !important;
+  color: #fff !important;
+  opacity: 1 !important;
+  box-shadow: 0 8px 20px rgba(0, 199, 88, 0.22);
 }
 
+button.studio-primary.gen-submit:hover:not(:disabled),
+.gen-submit:hover:not(:disabled) {
+  background: #00b34e !important;
+}
+
+button.studio-primary.gen-submit:disabled,
 .gen-submit:disabled {
-  opacity: 0.45;
+  background: #00c758 !important;
+  color: #fff !important;
+  opacity: 0.72 !important;
+  cursor: progress;
 }
 
 .gen-extra {
@@ -88,15 +159,60 @@
   gap: 10px;
 }
 
+.gen-result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .gen-result .bp-stage {
   min-height: 280px;
   border-radius: 16px;
+  border: 1px solid #e7e5df;
+  background: #fff;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.gen-result .bp-stage img,
+.gen-result .bp-stage video {
+  width: 100%;
+  max-height: 640px;
+  object-fit: contain;
+}
+
+.gen-page .bp-pick,
+.gen-page .model-rail,
+.gen-page .model-rail-grid {
+  display: none !important;
+}
+
+.prompt-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+html.dark .gen-card,
+html.dark .gen-head .studio-seg,
+html.dark .gen-result .bp-stage {
+  border-color: #2c2c34;
+  background: #17171d;
 }
 
 html.dark .gen-prompt textarea,
-html.dark .gen-side {
+html.dark .gen-side select,
+html.dark .gen-extra input,
+html.dark .gen-extra select {
   border-color: #2c2c34;
-  background: #17171d;
+  background: #121218;
+  color: #efe9dd;
+}
+
+html.dark .gen-head .studio-seg button {
+  color: #c8c2b6;
 }
 
 @media (max-width: 759px) {
@@ -106,13 +222,20 @@ html.dark .gen-side {
   }
 
   .gen-prompt textarea {
-    min-height: 140px;
+    min-height: 132px;
     font-size: 16px;
   }
 
+  .gen-side select,
+  .gen-extra input {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  button.studio-primary.gen-submit,
   .gen-submit {
     position: sticky;
     bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-    z-index: 12;
+    z-index: 20;
   }
 }

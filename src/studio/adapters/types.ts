@@ -8,7 +8,9 @@ export type StudioAdapterId =
   | "agnes"
   | "dashscope"
   | "fal"
-  | "sensenova";
+  | "sensenova"
+  | "modelscope"
+  | "huggingface";
 
 export type AdapterContext = {
   provider: Pick<ApiRelayProvider, "id" | "baseUrl" | "apiKey" | "apiKeys" | "adapterType" | "endpoints" | "authScheme">;

@@ -4,3 +4,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+screenshots/
+artifacts/
+.vercel/
+attachments/
+*.webp
+*.webm
+.DS_Store

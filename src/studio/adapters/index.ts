@@ -8,6 +8,8 @@ import { agnesAdapter } from "./agnes";
 import { dashscopeAdapter } from "./dashscope";
 import { falAdapter } from "./fal";
 import { sensenovaAdapter } from "./sensenova";
+import { modelscopeAdapter } from "./modelscope";
+import { huggingfaceAdapter } from "./huggingface";
 
 const ADAPTERS: Record<StudioAdapterId, StudioAdapter> = {
   "openai-compat": openaiCompatAdapter,
@@ -18,6 +20,8 @@ const ADAPTERS: Record<StudioAdapterId, StudioAdapter> = {
   dashscope: dashscopeAdapter,
   fal: falAdapter,
   sensenova: sensenovaAdapter,
+  modelscope: modelscopeAdapter,
+  huggingface: huggingfaceAdapter,
 };
 
 export function listStudioAdapters() {
@@ -42,11 +46,15 @@ export function resolveAdapterId(input: {
   if (named === "dashscope") return "dashscope";
   if (named === "fal") return "fal";
   if (named === "sensenova" || named === "miaohua" || named === "sensenova-miaohua") return "sensenova";
+  if (named === "modelscope" || named === "魔搭") return "modelscope";
+  if (named === "huggingface" || named === "hf") return "huggingface";
   if (named === "openai" || named === "openai-compat") return "openai-compat";
   const model = String(input.model || "");
   if (/grok-imagine/i.test(model)) return "xai-imagine";
   if (/seedream|seedance/i.test(model)) return "ark-plan";
   const host = String(input.baseUrl || "").toLowerCase();
+  if (host.includes("modelscope")) return "modelscope";
+  if (host.includes("huggingface") || host.includes("hf.co")) return "huggingface";
   if (host.includes("volces.com") || host.includes("/api/plan/v3")) return "ark-plan";
   if (host.includes("civitai.com")) return "civitai";
   if (host.includes("agnes-ai.com")) return "agnes";
