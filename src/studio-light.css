@@ -1,0 +1,155 @@
+html,
+body {
+  background: #f7f5f1 !important;
+  color: #1c1917 !important;
+}
+
+html.dark,
+html.dark body {
+  background: #101014 !important;
+  color: #efe9dd !important;
+}
+
+html:not(.dark) {
+  color-scheme: light;
+}
+
+html:not(.dark) .studio-root {
+  background: #f7f5f1;
+  color: #1c1917;
+}
+
+html:not(.dark) .studio-topbar {
+  border-bottom-color: #e7e5df;
+  background: rgba(247, 245, 241, 0.92);
+}
+
+html:not(.dark) .studio-nav a {
+  color: #78716c;
+}
+
+html:not(.dark) .studio-nav a.is-active {
+  background: #1c1917;
+  color: #fafaf9;
+}
+
+html:not(.dark) .studio-mark {
+  background: #00c758;
+}
+
+html:not(.dark) .studio-ghost,
+html:not(.dark) .studio-form button,
+html:not(.dark) .shot-actions button,
+html:not(.dark) .shot-body button,
+html:not(.dark) .library-card button {
+  border-color: #d6d3ca;
+  background: #fff;
+  color: #1c1917;
+}
+
+html:not(.dark) .studio-tool-card,
+html:not(.dark) .library-card,
+html:not(.dark) .shot-card,
+html:not(.dark) .studio-form,
+html:not(.dark) .studio-stage,
+html:not(.dark) .shot-board,
+html:not(.dark) .ws-side,
+html:not(.dark) .param-block,
+html:not(.dark) .wire-item,
+html:not(.dark) .admin-row,
+html:not(.dark) .login-card {
+  border-color: #e7e5df;
+  background: #fff;
+}
+
+html:not(.dark) .studio-form textarea,
+html:not(.dark) .studio-form select,
+html:not(.dark) .studio-form input,
+html:not(.dark) .shot-body input,
+html:not(.dark) .wire-editor input,
+html:not(.dark) .wire-editor select,
+html:not(.dark) .admin-row input,
+html:not(.dark) .login-card input {
+  border-color: #e7e5df;
+  background: #fbfaf7;
+  color: #1c1917;
+}
+
+html:not(.dark) .studio-primary {
+  background: linear-gradient(90deg, #05df72, #00d2ef) !important;
+  color: #052e16 !important;
+}
+
+html:not(.dark) .studio-lead,
+html:not(.dark) .studio-hint,
+html:not(.dark) .studio-footnote,
+html:not(.dark) .studio-form p,
+html:not(.dark) .shot-body p,
+html:not(.dark) .library-card p,
+html:not(.dark) .wire-item small {
+  color: #78716c;
+}
+
+html:not(.dark) .flow-board,
+html:not(.dark) .react-flow,
+html:not(.dark) .bench-main,
+html:not(.dark) .ws-result,
+html:not(.dark) .login-page {
+  background: #f4f2ed !important;
+}
+
+html:not(.dark) .flow-node,
+html:not(.dark) .sd-panel,
+html:not(.dark) .char-sheet,
+html:not(.dark) .shot-frame,
+html:not(.dark) .sd2-panel,
+html:not(.dark) .wire-list,
+html:not(.dark) .flow-inspector,
+html:not(.dark) .flow-toolbar {
+  background: #fbfaf7;
+  border-color: #d6d3ca;
+  color: #1c1917;
+}
+
+html:not(.dark) .flow-node select,
+html:not(.dark) .flow-node textarea,
+html:not(.dark) .flow-node input {
+  background: #fff;
+  color: #1c1917;
+  border-color: #d6d3ca;
+}
+
+html:not(.dark) select,
+html:not(.dark) option,
+html:not(.dark) optgroup {
+  color-scheme: light;
+  background: #fff;
+  color: #1c1917;
+}
+
+html:not(.dark) .wire-desk {
+  background: #f7f5f1;
+}
+
+html:not(.dark) .canvas-home-shell,
+html:not(.dark) .canvas-home-shell section,
+html:not(.dark) .canvas-home-shell .bg-\[\#0B0B0F\] {
+  background: #f7f5f1 !important;
+  color: #1c1917 !important;
+}
+
+html:not(.dark) .canvas-home-shell .text-stone-100,
+html:not(.dark) .canvas-home-shell .text-cyan-200 {
+  color: #1c1917 !important;
+}
+
+html:not(.dark) .canvas-home-shell .border-white\/10,
+html:not(.dark) .canvas-home-shell .border-stone-700 {
+  border-color: #e7e5df !important;
+}
+
+html:not(.dark) .canvas-home-shell .bg-stone-900,
+html:not(.dark) .canvas-home-shell .bg-white\/\[0\.03\],
+html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
+  background: #fff !important;
+}
