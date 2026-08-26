@@ -348,6 +348,122 @@ html:not(.dark) .studio-ok {
   color: #15803d;
 }
 
+.acct-alt,
+.wire-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wire-filters button {
+  border: 1px solid #2c2c34;
+  background: #121218;
+  color: #c8c2b6;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.wire-filters button.is-active {
+  background: #efe9dd;
+  color: #101014;
+  border-color: #efe9dd;
+}
+
+.studio-error {
+  margin: 0;
+  color: #f87171;
+  font-size: 13px;
+}
+
+.wire-editor a,
+.acct-card a[href^="http"] {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+html:not(.dark) .wire-filters button {
+  border-color: #e7e5df;
+  background: #fff;
+  color: #57534e;
+}
+
+html:not(.dark) .wire-filters button.is-active {
+  background: #1c1917;
+  color: #fafaf9;
+  border-color: #1c1917;
+}
+
+html:not(.dark) .studio-error {
+  color: #b91c1c;
+}
+
+.wire-add-btn {
+  width: 100%;
+}
+
+.wire-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.wire-row .wire-item {
+  width: 100%;
+}
+
+.wire-row.is-on .wire-item {
+  border-color: #efe9dd;
+}
+
+.wire-item-del,
+.studio-danger {
+  border: 1px solid #7f1d1d;
+  background: #2a1212;
+  color: #fecaca;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.wire-item-del {
+  align-self: stretch;
+}
+
+.studio-danger:hover,
+.wire-item-del:hover {
+  background: #7f1d1d;
+  color: #fff;
+}
+
+.wire-tag {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #2c2c34;
+  color: #c8c2b6;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+html:not(.dark) .wire-item-del,
+html:not(.dark) .studio-danger {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+}
+
+html:not(.dark) .wire-tag {
+  background: #e7e5df;
+  color: #57534e;
+}
+
 @media (max-width: 900px) {
   .acct-steps,
   .acct-grid,
