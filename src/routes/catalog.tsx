@@ -1,8 +1,7 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { CatalogPage } from "@/pages/catalog-page";
 
 export const Route = createFileRoute("/catalog")({
-  beforeLoad: () => {
-    throw redirect({ to: "/admin" });
-  },
-  component: () => null,
+  ssr: false,
+  component: CatalogPage,
 });

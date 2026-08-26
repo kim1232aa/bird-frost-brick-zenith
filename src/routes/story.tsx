@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { FlowCanvasPage } from "@/pages/flow-canvas-page";
+import { StoryDirectorPage } from "@/pages/story-director-page";
 
 export const Route = createFileRoute("/story")({
   ssr: false,
-  component: FlowCanvasPage,
+  component: StoryDirectorPage,
 });

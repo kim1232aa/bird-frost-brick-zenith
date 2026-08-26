@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { FlowCanvasPage } from "@/pages/flow-canvas-page";
+import { BoundlessCanvasWorkspace } from "@/pages/boundless-canvas-workspace";
 
 export const Route = createFileRoute("/canvas/workspace")({
   ssr: false,
-  component: FlowCanvasPage,
+  component: BoundlessCanvasWorkspace,
 });

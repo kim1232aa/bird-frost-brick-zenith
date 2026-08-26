@@ -1,8 +1,7 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { SettingsPage } from "@/pages/settings-page";
 
 export const Route = createFileRoute("/settings")({
-  beforeLoad: () => {
-    throw redirect({ to: "/admin" });
-  },
-  component: () => null,
+  ssr: false,
+  component: SettingsPage,
 });

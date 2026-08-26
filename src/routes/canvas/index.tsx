@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { FlowCanvasPage } from "@/pages/flow-canvas-page";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/canvas/")({
-  ssr: false,
-  component: FlowCanvasPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/canvas/home" });
+  },
+  component: () => null,
 });
