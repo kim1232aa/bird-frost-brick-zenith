@@ -14,7 +14,7 @@ export const Route = createRootRoute({
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: APP_NAME },
       { name: "description", content: "无界创作台：在无限画布上组织文本、图片、视频与生成工作流。" },
-      { name: "theme-color", content: "#0B0B0F" },
+      { name: "theme-color", content: "#f7f5f1" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },

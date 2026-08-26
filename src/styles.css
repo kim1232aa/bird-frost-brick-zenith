@@ -3,11 +3,19 @@
 @import "./app/globals.css";
 @import "./studio.css";
 @import "./studio-extra.css";
+@import "./studio-light.css";
 
 html,
 body,
 #app {
   min-height: 100%;
+  background: #f7f5f1;
+  color: #1c1917;
+}
+
+html.dark,
+html.dark body,
+html.dark #app {
   background: #101014;
   color: #efe9dd;
 }
