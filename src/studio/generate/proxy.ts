@@ -160,13 +160,15 @@ export function allImageUrls(data: unknown): string[] {
   if (typeof data !== "object") return [];
   const record = data as Record<string, unknown>;
   const out: string[] = [];
-  const lists = [record.data, record.images, record.output_images, record.outputImages, record.urls];
+  const lists = [record.data, record.images, record.output_images, record.outputImages, record.urls, record.outputs];
   for (const list of lists) {
     if (!Array.isArray(list)) continue;
     for (const item of list) pushUrl(out, item);
   }
   const output = record.output && typeof record.output === "object" ? (record.output as Record<string, unknown>) : undefined;
   if (output) out.push(...allImageUrls(output));
+  const outputs = record.outputs && typeof record.outputs === "object" && !Array.isArray(record.outputs) ? (record.outputs as Record<string, unknown>) : undefined;
+  if (outputs) out.push(...allImageUrls(outputs));
   pushUrl(out, record.url || record.image_url);
   return Array.from(new Set(out.filter(Boolean)));
 }

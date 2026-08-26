@@ -14,7 +14,10 @@ html:not(.dark) {
   color-scheme: light;
 }
 
-html:not(.dark) .studio-root {
+html:not(.dark) .studio-root,
+html:not(.dark) .studio-root.is-canvas,
+html:not(.dark) .studio-root.is-canvas .studio-page,
+html:not(.dark) .studio-flush {
   background: #f7f5f1;
   color: #1c1917;
 }
@@ -57,7 +60,9 @@ html:not(.dark) .ws-side,
 html:not(.dark) .param-block,
 html:not(.dark) .wire-item,
 html:not(.dark) .admin-row,
-html:not(.dark) .login-card {
+html:not(.dark) .login-card,
+html:not(.dark) .story-logline,
+html:not(.dark) .cast-card {
   border-color: #e7e5df;
   background: #fff;
 }
@@ -66,6 +71,10 @@ html:not(.dark) .studio-form textarea,
 html:not(.dark) .studio-form select,
 html:not(.dark) .studio-form input,
 html:not(.dark) .shot-body input,
+html:not(.dark) .bp-left textarea,
+html:not(.dark) .bp-left input,
+html:not(.dark) .bp-left select,
+html:not(.dark) .model-picker select,
 html:not(.dark) .wire-editor input,
 html:not(.dark) .wire-editor select,
 html:not(.dark) .admin-row input,
@@ -94,7 +103,9 @@ html:not(.dark) .flow-board,
 html:not(.dark) .react-flow,
 html:not(.dark) .bench-main,
 html:not(.dark) .ws-result,
-html:not(.dark) .login-page {
+html:not(.dark) .login-page,
+html:not(.dark) .bp-right,
+html:not(.dark) .story-board {
   background: #f4f2ed !important;
 }
 
@@ -152,4 +163,176 @@ html:not(.dark) .canvas-home-shell .bg-stone-900,
 html:not(.dark) .canvas-home-shell .bg-white\/\[0\.03\],
 html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   background: #fff !important;
+}
+
+.studio-root {
+  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.studio-page.studio-flush,
+.studio-page.studio-flush-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-workspace-shell,
+.canvas-workspace-board,
+.canvas-ant-app,
+.ant-app.canvas-ant-app {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.bp-work {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  min-height: calc(100vh - 64px);
+  height: 100%;
+}
+
+.bp-left {
+  overflow: auto;
+  padding: 20px 18px 28px;
+}
+
+.bp-right {
+  overflow: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bp-left select,
+.model-picker select,
+.bp-model-fields select {
+  height: 42px !important;
+  max-height: 42px !important;
+  min-height: 42px !important;
+  overflow: hidden !important;
+}
+
+.bp-cta {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-top: 10px;
+  background: #f7f5f1;
+}
+
+html:not(.dark) .model-menu-trigger {
+  background: #fff;
+  border-color: #e7e5df;
+  color: #1c1917;
+}
+
+html:not(.dark) .model-menu-vendor,
+html:not(.dark) .model-menu-label {
+  color: #78716c;
+}
+
+html:not(.dark) .model-menu-pop {
+  background: #fff;
+  border-color: #e7e5df;
+  color: #1c1917;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.14);
+}
+
+html:not(.dark) .model-menu-group button {
+  color: #1c1917;
+}
+
+html:not(.dark) .model-menu-group button:hover {
+  background: #f4f2ed;
+}
+
+.story-empty {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  padding: 16px;
+}
+
+.story-empty-card,
+.shot-card,
+.cast-card {
+  border: 1px solid #e7e5df;
+  border-radius: 14px;
+  background: #fff;
+  padding: 12px;
+}
+
+.story-result {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+
+.cast-row {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  overflow: visible !important;
+  flex: 0 0 auto;
+  height: auto !important;
+}
+
+.cast-card {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 2;
+  overflow: visible;
+  min-height: 260px;
+  height: auto;
+}
+
+.cast-card .card-media,
+.cast-card img,
+.cast-card .shot-empty {
+  height: 140px;
+  flex-shrink: 0;
+}
+
+.cast-card .shot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px 12px;
+}
+
+.cast-card .shot-actions button,
+.shot-card .shot-actions button {
+  min-height: 36px;
+  pointer-events: auto;
+}
+
+.shot-grid {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 759px) {
+  .bp-work {
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    overflow: auto;
+  }
+  .bp-right {
+    order: -1;
+    min-height: 46vh;
+  }
 }

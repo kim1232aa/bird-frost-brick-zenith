@@ -10,6 +10,23 @@ function modelscopeBase(raw?: string) {
   return value.replace(/api-inference\.modelscope\.cn/gi, "api-inference.modelscope.ai").replace(/\/+$/, "");
 }
 
+function modelscopeImageSize(size?: string) {
+  const value = String(size || "").trim();
+  if (!value) return "1664x928";
+  if (value === "1K" || value === "1:1" || value === "1024x1024" || value === "1328x1328") return "1328x1328";
+  if (value === "9:16" || value === "720x1280" || value === "928x1664") return "928x1664";
+  if (value === "2K" || value === "3K" || value === "16:9" || value === "1280x720" || value === "1920x1080") return "1664x928";
+  if (/^\d+x\d+$/.test(value)) {
+    const [w, h] = value.split("x").map(Number);
+    if (!w || !h) return "1664x928";
+    const ratio = w / h;
+    if (ratio > 1.3) return "1664x928";
+    if (ratio < 0.77) return "928x1664";
+    return "1328x1328";
+  }
+  return "1664x928";
+}
+
 function taskIdOf(data: Record<string, unknown>) {
   return String(data.task_id || data.taskId || (data.data as { task_id?: string } | undefined)?.task_id || "").trim();
 }
@@ -19,7 +36,8 @@ async function pollImageTask(
   taskId: string,
   baseUrl: string,
 ) {
-  for (let i = 0; i < 40; i += 1) {
+  for (let i = 0; i < 80; i += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, i === 0 ? 2500 : 2000));
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       baseUrl,
@@ -34,10 +52,12 @@ async function pollImageTask(
       if (!urls[0]) throw new Error("ModelScope 任务完成但没有图片地址");
       return urls;
     }
-    if (["FAILED", "CANCELED", "CANCELLED", "ERROR"].includes(status)) {
-      throw new Error(String(data.message || data.error || status));
+    const errObj = data.errors && typeof data.errors === "object" ? (data.errors as Record<string, unknown>) : undefined;
+    const errText = String(data.message || data.error || errObj?.message || "").trim();
+    const retryable = /dequeued|queued|pending|running|timeout|busy|retry/i.test(errText) || /PENDING|RUNNING|QUEUED|DEQUEUED/.test(status);
+    if (["FAILED", "CANCELED", "CANCELLED", "ERROR"].includes(status) && !retryable) {
+      throw new Error(errText || status);
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
   throw new Error("ModelScope 生图超时，请稍后重试");
 }
@@ -55,7 +75,7 @@ export const modelscopeAdapter: StudioAdapter = {
       model: input.model,
       prompt: input.prompt,
       n: input.n || 1,
-      ...(input.size ? { size: input.size } : {}),
+      size: modelscopeImageSize(input.size),
       ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
     };
     if (refs.length === 1) {

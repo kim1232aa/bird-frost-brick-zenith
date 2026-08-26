@@ -1780,19 +1780,12 @@ function sameIdSet(left: Set<string>, right: Set<string>) {
 }
 
 export default function CanvasPage() {
-  const [mounted, setMounted] = useState(false);
   const projectId = useSearchParams().get("id") || "";
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  return mounted ? (
+  return (
     <CanvasWorkspaceErrorBoundary key={projectId}>
       <InfiniteCanvasPage />
     </CanvasWorkspaceErrorBoundary>
-  ) : (
-    <CanvasRefreshShell />
   );
 }
 
@@ -1825,7 +1818,7 @@ class CanvasWorkspaceErrorBoundary extends Component<
 
 function CanvasRefreshShell() {
   return (
-    <main className="fixed inset-0 z-[999] h-screen w-screen overflow-hidden bg-background text-foreground">
+    <main className="canvas-workspace-board relative flex h-full min-h-full w-full flex-1 overflow-hidden bg-[#f4f2ed] text-stone-800">
       <div
         className="absolute inset-0 opacity-60"
         style={{
@@ -1897,11 +1890,11 @@ function CanvasRestoreErrorShell({
   onRepair: () => void;
 }) {
   return (
-    <main className="fixed inset-0 z-[999] grid h-screen w-screen place-items-center bg-stone-950 px-5 text-stone-100">
-      <section className="w-full max-w-md rounded-lg border border-stone-800 bg-stone-900 p-6 shadow-2xl">
-        <p className="text-xs text-stone-400">画布加载异常</p>
+    <main className="canvas-workspace-board relative grid h-full min-h-full w-full flex-1 place-items-center bg-[#f4f2ed] px-5 text-stone-800">
+      <section className="w-full max-w-md rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
+        <p className="text-xs text-stone-500">画布加载异常</p>
         <h1 className="mt-3 text-xl font-semibold">这个画布的数据需要修复</h1>
-        <p className="mt-3 text-sm leading-6 text-stone-300">
+        <p className="mt-3 text-sm leading-6 text-stone-600">
           {message ||
             "启动时读取本地画布数据失败，请先返回画布库或执行加载修复。"}
         </p>
@@ -1938,7 +1931,7 @@ function ConnectionCreateMenu({
   onClose: () => void;
 }) {
   const themeName = useThemeStore((state) => state.theme);
-  const theme = canvasThemes[themeName] || canvasThemes.dark;
+  const theme = canvasThemes[themeName] || canvasThemes.light;
   return (
     <div
       className="absolute z-[120] w-[300px] rounded-[18px] border p-3 shadow-2xl backdrop-blur"
@@ -2071,7 +2064,7 @@ function CanvasEmptyStarter({
   onSeedance2Workflow: () => void;
 }) {
   return (
-    <div className="pointer-events-none absolute inset-x-4 top-1/2 z-30 flex -translate-y-1/2 justify-center sm:left-[300px] sm:right-4">
+    <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center px-4 sm:pl-[300px]" data-canvas-no-zoom>
       <div
         className="pointer-events-auto w-[min(520px,calc(100vw-32px))] rounded-lg border p-4 shadow-xl backdrop-blur"
         style={{
@@ -2149,6 +2142,8 @@ function CanvasStarterAction({
         color: theme.node.text,
       }}
       onClick={onClick}
+      aria-label={label}
+      data-canvas-starter={label}
     >
       {icon}
       <span className="truncate">{label}</span>
@@ -2347,7 +2342,7 @@ function Seedance2WorkflowPanel({
   onClose?: () => void;
   embedded?: boolean;
 }) {
-  const theme = canvasThemes[useThemeStore((state) => state.theme)];
+  const theme = canvasThemes[useThemeStore((state) => state.theme)] || canvasThemes.light;
   const effectiveConfig = useEffectiveConfig();
   const meta = node.metadata || {};
   const fieldStyle = { borderColor: theme.node.stroke, color: theme.node.text, background: theme.node.fill };
@@ -2821,7 +2816,7 @@ function InfiniteCanvasPage() {
   const currentProject = useCanvasStore((state) =>
     state.projects.find((project) => project.id === projectId),
   );
-  const theme = canvasThemes[useThemeStore((state) => state.theme)];
+  const theme = canvasThemes[useThemeStore((state) => state.theme)] || canvasThemes.light;
   const [nodes, setNodes] = useState<CanvasNodeData[]>([]);
   const [connections, setConnections] = useState<CanvasConnection[]>([]);
   const [chatSessions, setChatSessions] = useState<CanvasAssistantSession[]>(
@@ -5555,6 +5550,8 @@ function InfiniteCanvasPage() {
         type === CanvasNodeType.Config
           ? {
               ...defaultCanvasProviderModelMetadata(effectiveConfig, "image"),
+              generationMode: "image" as const,
+              imageOperation: "generate" as const,
               size: effectiveConfig.size,
               quality: effectiveConfig.quality,
               count: getGenerationCount(
@@ -16068,12 +16065,12 @@ function InfiniteCanvasPage() {
 
   return (
     <main
-      className="fixed inset-0 z-[999] flex h-screen w-screen overflow-hidden"
+      className="canvas-workspace-board relative flex h-full min-h-full w-full flex-1 overflow-hidden"
       aria-busy={!projectLoaded}
       style={{
         background: theme.canvas.background,
         color: theme.node.text,
-        pointerEvents: projectLoaded ? "auto" : "none",
+        pointerEvents: "auto",
       }}
     >
       {!projectLoaded ? (
@@ -16726,7 +16723,7 @@ function CanvasTopBar({
 }) {
   const colorTheme = useThemeStore((state) => state.theme);
   const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-  const theme = canvasThemes[colorTheme];
+  const theme = canvasThemes[colorTheme] || canvasThemes.light;
   const titleRef = useRef<HTMLDivElement>(null);
   const accountRef = useRef<HTMLDivElement>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
