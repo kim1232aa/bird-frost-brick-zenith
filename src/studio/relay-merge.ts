@@ -3,7 +3,8 @@ import { studioRelays } from "@/studio/wiring";
 
 /**
  * Re-seed managed templates (enabled + key) while keeping user-added extras.
- * Stale persist with enabled:false used to win over wired templates.
+ * Template keys win over stale persist that wiped keys / set enabled:false.
+ * User-added relays are never dropped.
  */
 export function mergePersistedRelays(saved: ApiRelayProvider[] | undefined): ApiRelayProvider[] {
   const base = studioRelays();
@@ -13,15 +14,19 @@ export function mergePersistedRelays(saved: ApiRelayProvider[] | undefined): Api
     .map((item) => {
       const override = saved.find((row) => row.id === item.id);
       if (!override) return item;
-      const apiKey = override.apiKey || item.apiKey;
+      const userKey = typeof override.apiKey === "string" ? override.apiKey.trim() : "";
+      const apiKey = userKey || item.apiKey;
       const enabled = item.enabled ? Boolean(apiKey) : Boolean(override.enabled && apiKey);
       return {
         ...item,
-        apiKey,
-        enabled,
         name: override.name || item.name,
         baseUrl: override.baseUrl || item.baseUrl,
         remark: override.remark || item.remark,
+        endpoints: override.endpoints || item.endpoints,
+        authScheme: override.authScheme || item.authScheme,
+        protocol: override.protocol || item.protocol,
+        apiKey,
+        enabled,
       };
     })
     .concat(extras);

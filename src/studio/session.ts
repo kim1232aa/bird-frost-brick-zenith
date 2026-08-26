@@ -8,9 +8,30 @@ type StudioSession = {
   relays: ApiRelayProvider[];
   setRelayKey: (id: string, apiKey: string) => void;
   setRelayEnabled: (id: string, enabled: boolean) => void;
-  setRelayFields: (id: string, patch: Partial<Pick<ApiRelayProvider, "name" | "baseUrl" | "apiKey" | "enabled" | "remark" | "adapterType" | "endpoints" | "authScheme" | "protocol" | "imageModels" | "videoModels" | "textModels" | "audioModels">>) => void;
+  setRelayFields: (
+    id: string,
+    patch: Partial<
+      Pick<
+        ApiRelayProvider,
+        | "name"
+        | "baseUrl"
+        | "apiKey"
+        | "enabled"
+        | "remark"
+        | "adapterType"
+        | "endpoints"
+        | "authScheme"
+        | "protocol"
+        | "imageModels"
+        | "videoModels"
+        | "textModels"
+        | "audioModels"
+      >
+    >,
+  ) => void;
   addRelay: (input: Partial<ApiRelayProvider>) => void;
   removeRelay: (id: string) => void;
+  enableWiredRelays: () => void;
   resetRelays: () => void;
 };
 
@@ -43,11 +64,15 @@ export const useStudioSession = create<StudioSession>()(
           ),
         }),
       removeRelay: (id) => set({ relays: get().relays.filter((item) => item.id !== id) }),
+      enableWiredRelays: () =>
+        set({
+          relays: get().relays.map((item) => (item.apiKey ? { ...item, enabled: true } : item)),
+        }),
       resetRelays: () => set({ relays: studioRelays() }),
     }),
     {
       name: "boundless-studio:session",
-      version: 4,
+      version: 5,
       migrate: (persisted) => {
         const saved = (persisted as { relays?: ApiRelayProvider[] } | undefined)?.relays;
         return { relays: mergePersistedRelays(saved) };
