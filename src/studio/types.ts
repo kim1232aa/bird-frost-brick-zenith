@@ -9,6 +9,7 @@ export type StudioEndpointMap = {
   images?: string;
   videosCreate?: string;
   videosPoll?: string;
+  models?: string;
 };
 
 export type StudioProviderBlueprint = {

@@ -1,5 +1,6 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 /** International API-Inference. The wired token is from modelscope.ai, not .cn. */
 const MODELSCOPE_IMAGE_BASE = "https://api-inference.modelscope.ai/v1";
@@ -28,10 +29,10 @@ async function pollImageTask(
       extraHeaders: { "X-ModelScope-Task-Type": "image_generation" },
     });
     const status = String(data.task_status || data.status || "").toUpperCase();
-    const url = firstImageUrl(data);
-    if (["SUCCEED", "SUCCEEDED", "SUCCESS", "COMPLETED"].includes(status) || url) {
-      if (!url) throw new Error("ModelScope 任务完成但没有图片地址");
-      return url;
+    const urls = allImageUrls(data);
+    if (["SUCCEED", "SUCCEEDED", "SUCCESS", "COMPLETED"].includes(status) || urls[0]) {
+      if (!urls[0]) throw new Error("ModelScope 任务完成但没有图片地址");
+      return urls;
     }
     if (["FAILED", "CANCELED", "CANCELLED", "ERROR"].includes(status)) {
       throw new Error(String(data.message || data.error || status));
@@ -47,26 +48,40 @@ export const modelscopeAdapter: StudioAdapter = {
   docs: "https://www.modelscope.ai/docs/model-service/API-Inference/intro",
   async generateImage(ctx, input) {
     const baseUrl = modelscopeBase(ctx.provider.baseUrl);
+    const refs = imageRefs(input);
+    const editing = input.operation === "edit" || /qwen-image-edit/i.test(input.model);
+    if (editing && !refs.length) throw new Error("Qwen-Image-Edit 需要至少一张参考图");
+    const body: Record<string, unknown> = {
+      model: input.model,
+      prompt: input.prompt,
+      n: input.n || 1,
+      ...(input.size ? { size: input.size } : {}),
+      ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+    };
+    if (refs.length === 1) {
+      body.image_url = refs[0];
+      body.image = refs[0];
+    } else if (refs.length > 1) {
+      body.image = refs;
+      body.images = refs;
+    }
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       baseUrl,
       path: "/images/generations",
       extraHeaders: { "X-ModelScope-Async-Mode": "true" },
-      body: {
-        model: input.model,
-        prompt: input.prompt,
-        n: input.n || 1,
-        ...(input.size ? { size: input.size } : {}),
-        ...(input.imageUrl ? { image_url: input.imageUrl } : {}),
-        ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
-      },
+      body,
       timeoutMs: 60_000,
     });
     const id = taskIdOf(data);
-    if (id) return { url: await pollImageTask(ctx, id, baseUrl) };
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("ModelScope 没有返回图片。确认模型名是 Qwen/Qwen-Image 或 Tongyi-MAI/Z-Image-Turbo。");
-    return { url };
+    if (id) {
+      const urls = await pollImageTask(ctx, id, baseUrl);
+      return { url: urls[0], urls };
+    }
+    const urls = allImageUrls(data);
+    const url = urls[0] || firstImageUrl(data);
+    if (!url) throw new Error("ModelScope 没有返回图片。编辑请用 Qwen/Qwen-Image-Edit，生图用 Qwen/Qwen-Image。");
+    return { url, urls: urls.length ? urls : [url] };
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey) return { ok: false, message: "缺少 ModelScope Access Token" };

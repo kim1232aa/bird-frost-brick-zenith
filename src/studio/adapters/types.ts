@@ -16,12 +16,6 @@ export type AdapterContext = {
   provider: Pick<ApiRelayProvider, "id" | "baseUrl" | "apiKey" | "apiKeys" | "adapterType" | "endpoints" | "authScheme">;
 };
 
-export type StudioLora = {
-  air?: string;
-  name?: string;
-  strength?: number;
-};
-
 export type ImageGenInput = {
   model: string;
   prompt: string;
@@ -30,11 +24,18 @@ export type ImageGenInput = {
   height?: number;
   seed?: number;
   imageUrl?: string;
+  /** Up to 3 reference images. Adapters must submit the whole list, not only the first. */
   imageUrls?: string[];
   negativePrompt?: string;
   n?: number;
-  loras?: StudioLora[];
-  operation?: "create" | "edit" | "variant";
+  operation?: "generate" | "edit";
+  loras?: Record<string, number> | Readonly<Record<string, number>>;
+  strength?: number;
+};
+
+export type ImageGenResult = {
+  url: string;
+  urls?: string[];
 };
 
 export type VideoCreateInput = {
@@ -73,7 +74,7 @@ export type StudioAdapter = {
   id: StudioAdapterId;
   label: string;
   docs: string;
-  generateImage?: (ctx: AdapterContext, input: ImageGenInput) => Promise<{ url: string; urls?: string[] }>;
+  generateImage?: (ctx: AdapterContext, input: ImageGenInput) => Promise<ImageGenResult>;
   createVideo?: (ctx: AdapterContext, input: VideoCreateInput) => Promise<{ id: string }>;
   pollVideo?: (ctx: AdapterContext, taskId: string) => Promise<VideoPollResult>;
   generateText?: (ctx: AdapterContext, input: TextGenInput) => Promise<{ text: string }>;

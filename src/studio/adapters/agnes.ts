@@ -1,24 +1,33 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 export const agnesAdapter: StudioAdapter = {
   id: "agnes",
   label: "Agnes AI",
   docs: "https://agnes-ai.com/en/docs/agnes-video-v20",
   async generateImage(ctx, input) {
+    const refs = imageRefs(input);
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/images/generations",
-      body: { model: input.model, prompt: input.prompt, n: 1 },
+      body: {
+        model: input.model,
+        prompt: input.prompt,
+        n: input.n || 1,
+        ...(refs[0] ? { image: refs[0] } : {}),
+        ...(refs.length > 1 ? { images: refs } : {}),
+      },
       timeoutMs: 120_000,
     });
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("Agnes 生图没有返回图片");
-    return { url };
+    const urls = allImageUrls(data);
+    if (!urls[0]) throw new Error("Agnes 生图没有返回图片");
+    return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
     const body: Record<string, unknown> = { model: input.model || "agnes-video-v2.0", prompt: input.prompt };
     if (input.imageUrl) body.image = input.imageUrl;
+    if (input.lastFrameUrl) body.last_frame = input.lastFrameUrl;
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       path: "/videos",

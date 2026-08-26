@@ -1,3 +1,4 @@
+import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { CIVITAI_ENGINES } from "./adapters/civitai";
 import { STUDIO_PROVIDERS } from "./wiring";
 
@@ -17,6 +18,12 @@ export type ModelCard = {
 };
 
 const META: Record<string, Partial<ModelCard>> = {
+  "Qwen/Qwen-Image": { tags: ["文生图", "已接线"], cost: "魔搭", size: "1024", blurb: "通义千问生图。默认走 ModelScope 异步推理。", verified: true },
+  "Tongyi-MAI/Z-Image-Turbo": { tags: ["加速", "已接线"], cost: "魔搭 / HF", size: "1024", blurb: "Z-Image Turbo，适合快速出图。", verified: true },
+  "Qwen/Qwen-Image-Edit": { tags: ["编辑", "图生图"], cost: "魔搭", size: "1024", blurb: "通义编辑。切到编辑 Tab，上传 1 张参考图。", verified: true },
+  "Qwen/Qwen-Image-Edit-2509": { tags: ["编辑", "多参考"], cost: "魔搭", size: "1024", blurb: "一次可提交 1–3 张参考图做编辑。" },
+  "black-forest-labs/FLUX.1-schnell": { tags: ["Flux", "快"], cost: "HF", size: "1024", blurb: "Hugging Face Router 上的 FLUX Schnell。", verified: true },
+  "black-forest-labs/FLUX.2-dev": { tags: ["Flux2", "编辑"], cost: "HF", size: "1024", blurb: "FLUX.2-dev。编辑 Tab 提交参考图。" },
   "doubao-seedream-5.0-lite": { tags: ["2K", "文生图", "图生图"], cost: "99 AFP", size: "2K", blurb: "商品图默认。官方 size=2K，无水印。已实测。", verified: true },
   "gpt-image-2": { tags: ["Images API"], cost: "中转", size: "1024", blurb: "OpenAI Images 兼容。", verified: true },
   "gpt-image-1.5": { tags: ["Images API"], cost: "中转", size: "1024", blurb: "上一档 GPT Image。" },
@@ -47,34 +54,47 @@ for (const engine of CIVITAI_ENGINES) {
   };
 }
 
-function kindOf(provider: (typeof STUDIO_PROVIDERS)[number], model: string): ModelCard["kind"] {
+function kindOf(provider: { videoModels: string[]; audioModels: string[]; imageModels: string[] }, model: string): ModelCard["kind"] {
   if (provider.videoModels.includes(model)) return "video";
   if (provider.audioModels.includes(model)) return "audio";
   if (provider.imageModels.includes(model)) return "image";
   return "text";
 }
 
+function cardFrom(provider: { id: string; name: string; remark: string; apiKey?: string; enabled?: boolean; nsfw?: boolean; allowMatureContent?: boolean }, model: string, kind: ModelCard["kind"]): ModelCard {
+  const extra = META[model] || {};
+  return {
+    providerId: provider.id,
+    provider: provider.name,
+    model,
+    kind,
+    tags: extra.tags || [kind],
+    nsfw: extra.nsfw ?? provider.nsfw ?? Boolean(provider.allowMatureContent),
+    cost: extra.cost || (provider.apiKey ? "已接线" : "待接线"),
+    size: extra.size || "官方",
+    docs: provider.remark,
+    blurb: extra.blurb || provider.remark,
+    wired: Boolean(provider.enabled && provider.apiKey),
+    verified: extra.verified ?? false,
+  };
+}
+
 export const STUDIO_CATALOG: ModelCard[] = STUDIO_PROVIDERS.flatMap((provider) => {
   const models = [...new Set([...provider.imageModels, ...provider.videoModels, ...provider.textModels, ...provider.audioModels])];
-  return models.map((model) => {
-    const extra = META[model] || {};
-    const kind = kindOf(provider, model);
-    return {
-      providerId: provider.id,
-      provider: provider.name,
-      model,
-      kind,
-      tags: extra.tags || provider.capabilities,
-      nsfw: extra.nsfw ?? provider.nsfw ?? false,
-      cost: extra.cost || (provider.enabled ? "已接线" : "待接线"),
-      size: extra.size || "官方",
-      docs: provider.remark,
-      blurb: extra.blurb || provider.remark,
-      wired: Boolean(provider.enabled && provider.apiKey),
-      verified: extra.verified ?? false,
-    } satisfies ModelCard;
-  });
+  return models.map((model) => cardFrom(provider, model, kindOf(provider, model)));
 });
+
+export function cardsFromRelays(relays: ApiRelayProvider[]): ModelCard[] {
+  return relays.flatMap((relay) => {
+    const buckets: Array<[ModelCard["kind"], string[]]> = [
+      ["image", relay.imageModels || []],
+      ["video", relay.videoModels || []],
+      ["text", relay.textModels || []],
+      ["audio", relay.audioModels || []],
+    ];
+    return buckets.flatMap(([kind, models]) => models.filter(Boolean).map((model) => cardFrom({ ...relay, remark: relay.remark, nsfw: Boolean(relay.allowMatureContent) }, model, kind)));
+  });
+}
 
 export function catalogKey(card: Pick<ModelCard, "providerId" | "model">) {
   return `${card.providerId}::${card.model}`;
@@ -89,6 +109,7 @@ export function wiredCatalogByKind(kind: ModelCard["kind"]) {
   return wired.length ? wired : catalogByKind(kind);
 }
 
-export function findCatalog(value: string) {
-  return STUDIO_CATALOG.find((item) => catalogKey(item) === value);
+export function findCatalog(value: string, kind?: ModelCard["kind"]) {
+  const match = (item: ModelCard) => catalogKey(item) === value && (!kind || item.kind === kind);
+  return STUDIO_CATALOG.find(match);
 }

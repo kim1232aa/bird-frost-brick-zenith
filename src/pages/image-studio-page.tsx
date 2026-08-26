@@ -3,20 +3,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { findCatalog, catalogKey } from "@/studio/catalog";
+import { defaultEditKey, isEditModel, isEditOnlyModel } from "@/studio/edit-models";
 import { generateStudioImage } from "@/studio/generate/image";
+import { useStudioJobs } from "@/studio/generate/jobs";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
 import { useStudioHistory } from "@/studio/history";
+import { useMediaDraft } from "@/studio/media-draft";
+import { filesToDataUrls } from "@/studio/image-refs";
 import { useMembershipStore } from "@/studio/membership";
-import { liveCatalog, useOpsStore } from "@/studio/ops";
-import { preferredTextKey } from "@/studio/model-select";
+import { liveCatalog, liveCard, useOpsStore } from "@/studio/ops";
+import { preferredTextKey, StudioModelField } from "@/studio/model-select";
 import { IMAGE_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
 import { STUDIO_ROUTES } from "@/studio/wiring";
 import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
-
-type DeskTab = "generate" | "edit" | "history";
+import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
 
 const ASPECTS: Record<string, { w: number; h: number }> = {
   "1:1": { w: 1024, h: 1024 },
@@ -26,39 +29,73 @@ const ASPECTS: Record<string, { w: number; h: number }> = {
   "4:3": { w: 1024, h: 768 },
 };
 
-const QUALITY: Record<"eco" | "std" | "hq", { label: string; scale: number }> = {
-  eco: { label: "标清", scale: 0.75 },
-  std: { label: "高清 (HD)", scale: 1 },
-  hq: { label: "超清", scale: 1.25 },
-};
+type ImageMode = "t2i" | "i2i" | "edit";
 
 function engineFamily(selection: string) {
   if (/volcengine|seedream/i.test(selection)) return "ark" as const;
-  if (selection.includes("civitai")) return "civitai" as const;
+  if (selection.includes("civitai") || /krea2|flux2|sdxl|anima|z-image-turbo|qwen-3\.0/i.test(selection)) return "civitai" as const;
   if (/gpt-image/i.test(selection)) return "gpt" as const;
   if (/grok-imagine-image/i.test(selection)) return "grok" as const;
-  if (/modelscope|qwen\/qwen-image|z-image/i.test(selection)) return "modelscope" as const;
-  if (/huggingface|flux/i.test(selection)) return "huggingface" as const;
   return "generic" as const;
 }
 
-function isEditModel(model: string) {
-  return /edit/i.test(model);
+function aspectBox(ratio: string) {
+  const [w, h] = ratio.split(":").map(Number);
+  const max = 22;
+  if (!w || !h) return { width: max, height: max };
+  if (w >= h) return { width: max, height: Math.max(8, Math.round((max * h) / w)) };
+  return { width: Math.max(8, Math.round((max * w) / h)), height: max };
 }
 
-export function ImageStudioPage() {
+function supportsLora(family: ReturnType<typeof engineFamily>, model: string) {
+  return family === "civitai" && /sdxl|anima|flux1|krea|z-image/i.test(model);
+}
+
+export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMode }) {
   const navigate = useNavigate();
   const relays = useStudioSession((state) => state.relays);
   const items = useStudioHistory((state) => state.items);
   const addHistory = useStudioHistory((state) => state.add);
   const remaining = useOpsStore((state) => state.credits.image);
   const record = useMembershipStore((state) => state.record);
+  const startJob = useStudioJobs((state) => state.start);
+  const succeedJob = useStudioJobs((state) => state.succeed);
+  const failJob = useStudioJobs((state) => state.fail);
+  const access = useGenerateAccess();
   const allModels = liveCatalog("image", false);
-  const [tab, setTab] = useState<DeskTab>("generate");
+  const [prompt, setPrompt] = useState(IMAGE_TEMPLATES[0].prompt);
+  const [negative, setNegative] = useState("");
+  const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
+  const [textModel, setTextModel] = useState(preferredTextKey());
+  const [mode, setMode] = useState<ImageMode>(initialMode);
+  const [quality, setQuality] = useState<"eco" | "std" | "hq">("std");
+  const [aspect, setAspect] = useState("1:1");
+  const [size, setSize] = useState("2K");
+  const [seed, setSeed] = useState("");
+  const [count, setCount] = useState(1);
+  const references = useMediaDraft((state) => state.references);
+  const setReferences = useMediaDraft((state) => state.setReferences);
+  const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [urls, setUrls] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fromQuery = queryParam("mode");
+    if (fromQuery === "edit" || fromQuery === "i2i" || fromQuery === "t2i") setMode(fromQuery);
+    else setMode(initialMode);
+  }, [initialMode]);
+
+  useEffect(() => {
+    const next = queryParam("model");
+    if (next) setSelection(next);
+  }, []);
+
   const models = useMemo(() => {
-    const filtered = allModels.filter((card) => (tab === "edit" ? isEditModel(card.model) : !isEditModel(card.model)));
-    return filtered.length ? filtered : allModels;
-  }, [allModels, tab]);
+    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model));
+    return allModels.filter((card) => !isEditOnlyModel(card.model));
+  }, [allModels, mode]);
+
   const groups = useMemo(() => {
     const map = new Map<string, typeof models>();
     for (const card of models) {
@@ -68,36 +105,22 @@ export function ImageStudioPage() {
     }
     return [...map.entries()];
   }, [models]);
-  const [prompt, setPrompt] = useState("");
-  const [negative, setNegative] = useState("");
-  const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
-  const [textModel, setTextModel] = useState(preferredTextKey());
-  const [quality, setQuality] = useState<"eco" | "std" | "hq">("std");
-  const [aspect, setAspect] = useState("1:1");
-  const [size, setSize] = useState("2K");
-  const [seed, setSeed] = useState("");
-  const [reference, setReference] = useState("");
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [url, setUrl] = useState("");
 
   useEffect(() => {
-    const next = queryParam("model");
-    if (next) setSelection(next);
-  }, []);
-
-  useEffect(() => {
-    if (selection && models.length && !models.some((card) => catalogKey(card) === selection)) {
-      setSelection(catalogKey(models[0]));
+    if (!models.length) return;
+    if (!models.some((card) => catalogKey(card) === selection)) {
+      setSelection(mode === "edit" ? defaultEditKey(models.map(catalogKey)) : catalogKey(models[0]));
     }
-  }, [models, selection]);
+  }, [models, selection, mode]);
 
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection) || models[0];
   const family = engineFamily(selection);
+  const selectedLive = card ? liveCard(card) : undefined;
   const recent = useMemo(
     () => [...items.filter((item) => item.kind === "image" && item.urls[0]), ...GALLERY_SEED.filter((item) => item.kind === "image")].slice(0, 12),
     [items],
   );
+  const showLora = supportsLora(family, card?.model || "");
 
   useEffect(() => {
     if (family === "ark") setSize(quality === "hq" ? "3K" : "2K");
@@ -105,52 +128,84 @@ export function ImageStudioPage() {
 
   const dims = useMemo(() => {
     const base = ASPECTS[aspect] || ASPECTS["1:1"];
-    const scale = QUALITY[quality].scale;
+    const scale = quality === "eco" ? 0.75 : quality === "hq" ? 1.25 : 1;
     return { width: Math.round(base.w * scale), height: Math.round(base.h * scale) };
   }, [aspect, quality]);
 
-  const generate = async () => {
-    if (!prompt.trim()) {
-      setError("先写一句描述。");
-      return;
-    }
-    if (tab === "edit" && !reference) {
-      setError("编辑模式请先上传参考图。");
-      return;
-    }
-    const fallback = models[0] || { providerId: STUDIO_ROUTES.image.providerId, model: STUDIO_ROUTES.image.model };
-    const { providerId, model } = splitModel(selection || catalogKey(fallback));
-    setBusy("正在生成…");
+  const goMode = (next: ImageMode) => {
+    setMode(next);
     setError("");
+    if (next === "edit") void navigate({ to: "/edit" });
+    else void navigate({ to: "/image" });
+  };
+
+  const addRefs = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = await filesToDataUrls(files, 3);
+    setReferences((current) => [...current, ...next].slice(0, 3));
+    if (mode === "t2i") setMode("i2i");
+  };
+
+  const generate = async () => {
+    if (!access.allowed) {
+      setError(access.blockedReason || "请先登录");
+      return;
+    }
+    const { providerId, model } = splitModel(selection);
+    const refs = mode === "t2i" ? [] : references;
+    if ((mode === "i2i" || mode === "edit") && !refs.length) {
+      setError(mode === "edit" ? "编辑至少上传 1 张参考图" : "图生图至少上传 1 张参考图");
+      return;
+    }
+    setBusy(`正在提交 ${card?.model || model}…`);
+    setError("");
+    const loraMap = showLora
+      ? Object.fromEntries(loras.filter((item) => item.resource.trim()).map((item) => [item.resource.trim(), item.weight]))
+      : undefined;
+    const jobId = startJob({
+      kind: mode === "edit" ? "edit" : "image",
+      prompt,
+      model,
+      providerId,
+      credits: (family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1) * count,
+    });
     try {
       const result = await generateStudioImage({
         relays,
         prompt,
         providerId,
         model,
-        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : `${dims.width}x${dims.height}`,
-        width: dims.width,
-        height: dims.height,
-        seed: seed ? Number(seed) : undefined,
-        imageUrl: reference || undefined,
+        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : undefined,
+        width: family === "civitai" || family === "grok" ? dims.width : undefined,
+        height: family === "civitai" || family === "grok" ? dims.height : undefined,
+        seed: family === "civitai" && seed ? Number(seed) : undefined,
+        imageUrl: refs[0],
+        imageUrls: refs,
         negativePrompt: negative || undefined,
+        n: count,
+        operation: mode === "edit" ? "edit" : "generate",
+        loras: loraMap && Object.keys(loraMap).length ? loraMap : undefined,
       });
-      setUrl(result.url);
+      setBusy("正在写入结果…");
+      setUrls(result.urls);
       record("image");
-      addHistory({ kind: "image", title: prompt.slice(0, 40), prompt, model: result.model, urls: [result.url] });
+      addHistory({ kind: "image", title: prompt.slice(0, 40), prompt, model: result.model, urls: result.urls });
+      succeedJob(jobId, result.urls);
       setBusy("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "生图失败");
+      const message = err instanceof Error ? err.message : "生图失败";
+      setError(message);
+      failJob(jobId, message);
       setBusy("");
     }
   };
 
   const polish = async () => {
-    if (!prompt.trim()) return;
     setBusy("润色提示词…");
     setError("");
     try {
-      setPrompt(await enhancePrompt({ relays, prompt, textModel, kind: "image" }));
+      const next = await enhancePrompt({ relays, prompt, textModel, kind: "image" });
+      setPrompt(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "润色失败");
     } finally {
@@ -158,46 +213,326 @@ export function ImageStudioPage() {
     }
   };
 
-  const onUpload = (file?: File) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setReference(String(reader.result || ""));
-      setTab("edit");
-    };
-    reader.readAsDataURL(file);
+  const sendCanvas = () => {
+    dropToCanvas({ kind: urls[0] ? "image" : "prompt", url: urls[0] || undefined, prompt, model: selection, text: prompt });
+    void navigate({ to: "/canvas" });
   };
 
+  const unitCost = family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1;
+  const creditCost = unitCost * count;
+  const disabledReason = busy
+    ? busy
+    : access.blockedReason
+      ? access.blockedReason
+      : !prompt.trim()
+        ? "请先填写提示词"
+        : !models.length
+          ? mode === "edit"
+            ? "没有可编辑模型。确认 Qwen-Image-Edit 或 FLUX.2-dev 已接线。"
+            : "没有可选手模型"
+          : (mode === "i2i" || mode === "edit") && !references.length
+            ? "先上传 1–3 张参考图"
+            : selectedLive && !selectedLive.wired
+              ? `${card?.model || "该模型"} 待接线，换一个已填密钥的，或去设置填 Key`
+              : remaining < creditCost
+                ? `积分不足，需要 ${creditCost} 点`
+                : "";
+
+  const hero =
+    mode === "edit"
+      ? { kicker: "EDIT", title: "图片编辑", copy: "Qwen-Image-Edit / FLUX.2-dev。上传 1–3 张参考，按提示改图。积分只是本地演示。" }
+      : mode === "i2i"
+        ? { kicker: "IMAGE", title: "图生图", copy: "最多 3 张参考图会全部提交，不再只传第一张。" }
+        : { kicker: "IMAGE", title: "文生图", copy: "选模型、写提示、一次可出 1 / 2 / 4 张。Civitai 可挂 LoRA。" };
+
   return (
-    <div className="gen-page">
-      <header className="gen-head">
-        <div>
-          <p className="studio-kicker">IMAGE</p>
-          <h1>AI 生图</h1>
-        </div>
+    <div className="bp-page">
+      <header className="bp-hero">
+        <p className="studio-kicker">{hero.kicker}</p>
+        <h1>{hero.title}</h1>
+        <p>{hero.copy}</p>
+      </header>
+      <GuestGenerateBanner kind="image" />
+      <div className="bp-work">
+      <aside className="bp-left">
+        <p className="studio-kicker">{card?.model || "生图"}</p>
+        <h1>{card?.model || hero.title}</h1>
         <div className="studio-seg">
-          <button type="button" className={tab === "generate" ? "is-active" : undefined} onClick={() => setTab("generate")}>
-            生成
+          <button type="button" className={mode === "t2i" ? "is-active" : undefined} onClick={() => goMode("t2i")}>
+            文生图
           </button>
-          <button type="button" className={tab === "edit" ? "is-active" : undefined} onClick={() => setTab("edit")}>
+          <button type="button" className={mode === "i2i" ? "is-active" : undefined} onClick={() => goMode("i2i")}>
+            图生图
+          </button>
+          <button type="button" className={mode === "edit" ? "is-active" : undefined} onClick={() => goMode("edit")}>
             编辑
           </button>
-          <button type="button" className={tab === "history" ? "is-active" : undefined} onClick={() => setTab("history")}>
-            历史
+        </div>
+        <div className="bp-model-fields">
+          <StudioModelField kind="image" value={selection} onChange={setSelection} label={mode === "edit" ? "编辑模型" : "生图模型"} cards={models} />
+          <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="润色文本模型" />
+        </div>
+        <label>
+          描述你的想法
+          <textarea rows={6} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={mode === "edit" ? "说明要改哪里、保留什么" : "描述你的想法"} />
+        </label>
+        <div className="prompt-tools">
+          <span className="bp-count">必填 · {prompt.length} / 20000</span>
+          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
+            提示词模板 / 润色
           </button>
         </div>
-      </header>
-
-      {tab === "history" ? (
+        {mode !== "t2i" ? (
+          <div className="ref-stack">
+            <div className="ref-grid">
+              {references.map((url, index) => (
+                <figure key={`${url.slice(0, 24)}-${index}`} className="ref-chip">
+                  <img src={url} alt={`参考 ${index + 1}`} />
+                  <button type="button" onClick={() => setReferences((current) => current.filter((_, i) => i !== index))}>
+                    去掉
+                  </button>
+                </figure>
+              ))}
+              {references.length < 3 ? (
+                <label className="dropzone dropzone-mini">
+                  <span>{references.length ? `再加一张（${references.length}/3）` : mode === "edit" ? "上传要改的图，最多 3 张" : "上传参考图，最多 3 张"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(event) => {
+                      void addRefs(event.target.files);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              ) : null}
+            </div>
+            <small className="studio-hint">1–3 张都会提交给模型，不是只传第一张。</small>
+          </div>
+        ) : (
+          <label className="dropzone">
+            <span>可选：丢一张参考会自动切到图生图</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) => {
+                void addRefs(event.target.files);
+                event.target.value = "";
+              }}
+            />
+            <small>不上传则走文生图</small>
+          </label>
+        )}
+        <p className="studio-kicker">没思路？点模板</p>
+        <div className="chip-row">
+          {IMAGE_TEMPLATES.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              className={prompt === item.prompt ? "is-active" : undefined}
+              onClick={() => setPrompt(item.prompt)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {(family === "civitai" || family === "generic" || mode === "edit") && (
+          <label>
+            负面提示
+            <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
+          </label>
+        )}
+        <p className="studio-kicker">选择模型 · {models.length} 个可切换</p>
+        <div className="bp-pick" data-testid="image-models">
+          {models.length === 0 ? (
+            <p className="studio-hint">
+              {mode === "edit" ? "编辑模型还没接线。去设置启用 ModelScope 的 Qwen-Image-Edit 或 Hugging Face / Civitai 的 FLUX.2-dev。" : "后台还没有上架生图模型。"}
+            </p>
+          ) : null}
+          {groups.map(([provider, list]) => (
+            <div key={provider}>
+              <small>{provider}</small>
+              {list.map((item) => {
+                const key = catalogKey(item);
+                return (
+                  <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
+                    <b>{item.model}</b>
+                    <span>
+                      {item.wired ? "已接线" : "待接线"}
+                      {item.nsfw ? " · NSFW" : ""}
+                      {isEditModel(item.model) ? " · 可编辑" : ""} · {item.cost || "1 点"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+        <p className="studio-kicker">参数 · 能力档</p>
+        <p className="cap-strip">
+          {mode === "t2i" ? "文生图" : mode === "edit" ? "编辑 · 参考 1–3" : "图生图 · 参考 1–3"}
+          {" · "}
+          一次 {count} 张
+          {showLora ? " · LoRA" : ""}
+          {family === "civitai" ? " · 种子" : ""}
+          {family === "ark" ? ` · ${size}` : ` · ${quality}`}
+        </p>
+        <div className="bp-params-col">
+          {family === "ark" ? (
+            <div className="studio-seg">
+              {["2K", "3K"].map((item) => (
+                <button key={item} type="button" className={size === item ? "is-active" : undefined} onClick={() => setSize(item)}>
+                  {item} · {item === "3K" ? "2 点" : "1 点"}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="aspect-grid">
+                {Object.keys(ASPECTS).map((item) => {
+                  const box = aspectBox(item);
+                  return (
+                    <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
+                      <span className="aspect-preview" style={box} />
+                      {item}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="studio-seg">
+                {(["eco", "std", "hq"] as const).map((item) => (
+                  <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
+                    {item === "eco" ? "经济 · 1 点" : item === "hq" ? "稳定 · 2 点" : "标准 · 1 点"}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <div className="studio-seg">
+            {[1, 2, 4].map((item) => (
+              <button key={item} type="button" className={count === item ? "is-active" : undefined} onClick={() => setCount(item)}>
+                {item} 张
+              </button>
+            ))}
+          </div>
+          {family === "civitai" ? (
+            <label className="bp-seed">
+              种子
+              <input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="可空" />
+            </label>
+          ) : null}
+          {showLora ? (
+            <div className="lora-stack">
+              <p className="studio-kicker">Civitai LoRA</p>
+              {loras.map((item, index) => (
+                <div key={index} className="lora-row">
+                  <input
+                    value={item.resource}
+                    onChange={(event) =>
+                      setLoras((current) => current.map((row, i) => (i === index ? { ...row, resource: event.target.value } : row)))
+                    }
+                    placeholder="urn:air:sdxl:lora:civitai:模型@版本"
+                  />
+                  <input
+                    type="number"
+                    min={-2}
+                    max={2}
+                    step={0.05}
+                    value={item.weight}
+                    onChange={(event) =>
+                      setLoras((current) => current.map((row, i) => (i === index ? { ...row, weight: Number(event.target.value) } : row)))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="studio-ghost"
+                    onClick={() =>
+                      setLoras((current) => {
+                        const next = current.filter((_, i) => i !== index);
+                        return next.length ? next : [{ resource: "", weight: 1 }];
+                      })
+                    }
+                  >
+                    去掉
+                  </button>
+                </div>
+              ))}
+              {loras.length < 4 ? (
+                <button type="button" className="studio-ghost" onClick={() => setLoras((current) => [...current, { resource: "", weight: 1 }])}>
+                  加 LoRA
+                </button>
+              ) : null}
+              <small className="studio-hint">填完整 model-version AIR。SDXL / Anima / Flux1 / Krea 才提交。</small>
+            </div>
+          ) : null}
+        </div>
+        <div className="bp-cta">
+          <button type="button" className="bp-generate bp-generate-image" disabled={Boolean(disabledReason)} onClick={() => void generate()}>
+            <span>{busy ? busy : mode === "edit" ? "开始编辑" : "生成图片"}</span>
+            <small>{disabledReason || `${creditCost} 点 · 剩余 ${remaining}`}</small>
+          </button>
+          {error ? <p className="studio-error">{error}</p> : null}
+        </div>
+      </aside>
+      <section className="bp-right">
+        <header className="bp-bar">
+          <div>
+            <p className="studio-kicker">{urls[0] || busy ? "生成结果" : "示例效果"}</p>
+            <strong>{card?.model}</strong>
+            <span className="studio-hint"> {card?.provider}</span>
+          </div>
+        </header>
+        <WorkbenchStatus
+          busy={busy}
+          error={error}
+          done={urls[0] ? `${card?.model || "模型"} 已出图 ×${urls.length}` : ""}
+          idle="右侧先看示例。生成后结果会盖在上面。"
+        />
+        {urls[0] || busy ? (
+          <>
+            <div className={urls.length > 1 ? "bp-stage-grid" : "bp-stage"}>
+              {urls.map((url) => (
+                <img key={url} src={url} alt={prompt} />
+              ))}
+              <StageOverlay busy={busy} />
+            </div>
+            {urls[0] ? (
+              <div className="result-actions" style={{ padding: "0 16px 8px" }}>
+                <a className="studio-ghost" href={urls[0]} download="studio.png" target="_blank" rel="noreferrer">
+                  下载
+                </a>
+                <button type="button" className="studio-ghost" onClick={() => void generate()}>
+                  再生成
+                </button>
+                <button
+                  type="button"
+                  className="studio-ghost"
+                  onClick={() => {
+                    setReferences((current) => [...urls, ...current].slice(0, 3));
+                    goMode("edit");
+                  }}
+                >
+                  拿去编辑
+                </button>
+                <button type="button" className="studio-ghost" onClick={sendCanvas}>
+                  送入画布
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        <p className="bp-examples-title">示例效果 · 点一张可带入提示词</p>
         <div className="bp-examples">
           {recent.map((item) => (
             <button
               key={item.id}
               type="button"
+              className={urls[0] === item.urls[0] ? "is-active" : undefined}
               onClick={() => {
-                if (item.urls[0]) setUrl(item.urls[0]);
+                if (item.urls[0]) setUrls(item.urls);
                 if (item.prompt) setPrompt(item.prompt);
-                setTab("generate");
               }}
             >
               <img src={item.urls[0]} alt={item.title} />
@@ -205,139 +540,8 @@ export function ImageStudioPage() {
             </button>
           ))}
         </div>
-      ) : (
-        <>
-          <div className="gen-composer">
-            <label className="gen-prompt">
-              <span>描述你的想法</span>
-              <textarea
-                rows={8}
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                placeholder={tab === "edit" ? "例如：给图中的狗戴上生日帽" : "例如：一只可爱的猫在阳光下睡觉"}
-              />
-              <div className="prompt-tools">
-                <span className="bp-count">{prompt.length} 字</span>
-                <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
-                  润色
-                </button>
-              </div>
-            </label>
-            <aside className="gen-side">
-              <label className="model-picker">
-                服务商
-                <select
-                  value={card?.providerId || ""}
-                  onChange={(event) => {
-                    const next = models.find((item) => item.providerId === event.target.value);
-                    if (next) setSelection(catalogKey(next));
-                  }}
-                >
-                  {groups.map(([provider, list]) => (
-                    <option key={provider} value={list[0].providerId}>
-                      {provider}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="model-picker">
-                模型
-                <select value={selection} onChange={(event) => setSelection(event.target.value)}>
-                  {models.map((item) => (
-                    <option key={catalogKey(item)} value={catalogKey(item)}>
-                      {item.model}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {family === "ark" ? (
-                <label className="model-picker">
-                  画质
-                  <select value={size} onChange={(event) => setSize(event.target.value)}>
-                    <option value="2K">2K</option>
-                    <option value="3K">3K</option>
-                  </select>
-                </label>
-              ) : (
-                <div className="gen-row">
-                  <label className="model-picker">
-                    画质
-                    <select value={quality} onChange={(event) => setQuality(event.target.value as "eco" | "std" | "hq")}>
-                      <option value="eco">标清</option>
-                      <option value="std">高清 (HD)</option>
-                      <option value="hq">超清</option>
-                    </select>
-                  </label>
-                  <label className="model-picker">
-                    比例
-                    <select value={aspect} onChange={(event) => setAspect(event.target.value)}>
-                      {Object.keys(ASPECTS).map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              )}
-              <p className="studio-hint">
-                {family === "ark" ? size : `${dims.width}x${dims.height}`} · 剩余 {remaining} 点
-              </p>
-            </aside>
-          </div>
-
-          <div className="gen-submit-wrap">
-            <button type="button" className="studio-primary gen-submit" disabled={Boolean(busy) || !prompt.trim()} onClick={() => void generate()}>
-              {busy ? busy : tab === "edit" ? "编辑图片" : "生成图片"}
-            </button>
-            {!prompt.trim() ? <p className="studio-hint">写完描述就可以点生成。</p> : null}
-            {error ? <p className="studio-error">{error}</p> : null}
-          </div>
-
-          <div className="gen-extra">
-            <label className="dropzone">
-              <span>{tab === "edit" ? "参考图（编辑必填）" : "参考图（可选）"}</span>
-              <input type="file" accept="image/*" onChange={(event) => onUpload(event.target.files?.[0])} />
-              {reference ? <img src={reference} alt="" className="ref-thumb" /> : <small>不上传就是文生图</small>}
-            </label>
-            <div className="chip-row">
-              {IMAGE_TEMPLATES.map((item) => (
-                <button key={item.label} type="button" className={prompt === item.prompt ? "is-active" : undefined} onClick={() => setPrompt(item.prompt)}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <label className="model-picker">
-              负面提示（可选）
-              <input value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
-            </label>
-          </div>
-        </>
-      )}
-
-      <section className="gen-result">
-        <WorkbenchStatus busy={busy} error={error} done={url ? `${card?.model || "模型"} 已出图` : ""} idle="结果出在这里。" />
-        <div className="bp-stage">
-          {url ? <img src={url} alt={prompt} /> : <p className="studio-hint">还没有图。上面写描述，点生成。</p>}
-          <StageOverlay busy={busy} />
-        </div>
-        {url ? (
-          <div className="result-actions">
-            <a className="studio-ghost" href={url} download="studio.png" target="_blank" rel="noreferrer">
-              下载
-            </a>
-            <button type="button" className="studio-ghost" onClick={() => void generate()}>
-              再生成
-            </button>
-            <button type="button" className="studio-ghost" onClick={() => { setReference(url); setTab("edit"); }}>
-              用作参考
-            </button>
-            <button type="button" className="studio-ghost" onClick={() => { dropToCanvas({ kind: "image", url, prompt, model: selection, text: prompt }); void navigate({ to: "/canvas" }); }}>
-              送入画布
-            </button>
-          </div>
-        ) : null}
       </section>
+      </div>
     </div>
   );
 }

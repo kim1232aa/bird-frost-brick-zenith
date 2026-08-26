@@ -25,7 +25,7 @@ function ModelSelect({
   onChange: (value: string) => void;
   label?: string;
 }) {
-  return <ModelMenu kind={kind} value={value} onChange={onChange} label={label ?? ""} wiredOnly={kind !== "audio"} />;
+  return <ModelMenu kind={kind} value={value} onChange={onChange} label={label ?? ""} wiredOnly={false} />;
 }
 
 function ChipRow({

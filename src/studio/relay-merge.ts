@@ -45,7 +45,7 @@ function resolveEndpoints(item: ApiRelayProvider, override?: ApiRelayProvider) {
 
 /**
  * Re-seed managed templates while keeping user-added extras.
- * Presets the user deleted stay hidden until reset.
+ * Presets the user deleted stay hidden until「恢复内置模板」.
  * User extras are never dropped. Model lists are unioned so fetched models survive.
  * Known-wrong ModelScope .cn / Hugging Face bare /v1 bases are rewritten to the live endpoints.
  */

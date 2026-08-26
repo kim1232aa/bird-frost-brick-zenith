@@ -7,9 +7,9 @@ import { civitaiAdapter } from "./civitai";
 import { agnesAdapter } from "./agnes";
 import { dashscopeAdapter } from "./dashscope";
 import { falAdapter } from "./fal";
-import { sensenovaAdapter } from "./sensenova";
-import { modelscopeAdapter } from "./modelscope";
 import { huggingfaceAdapter } from "./huggingface";
+import { modelscopeAdapter } from "./modelscope";
+import { sensenovaAdapter } from "./sensenova";
 
 const ADAPTERS: Record<StudioAdapterId, StudioAdapter> = {
   "openai-compat": openaiCompatAdapter,
@@ -19,9 +19,9 @@ const ADAPTERS: Record<StudioAdapterId, StudioAdapter> = {
   agnes: agnesAdapter,
   dashscope: dashscopeAdapter,
   fal: falAdapter,
-  sensenova: sensenovaAdapter,
-  modelscope: modelscopeAdapter,
   huggingface: huggingfaceAdapter,
+  modelscope: modelscopeAdapter,
+  sensenova: sensenovaAdapter,
 };
 
 export function listStudioAdapters() {
@@ -45,21 +45,21 @@ export function resolveAdapterId(input: {
   if (named === "agnes") return "agnes";
   if (named === "dashscope") return "dashscope";
   if (named === "fal") return "fal";
+  if (named === "huggingface" || named === "hf" || named === "hf-inference") return "huggingface";
+  if (named === "modelscope" || named === "ms") return "modelscope";
   if (named === "sensenova" || named === "miaohua" || named === "sensenova-miaohua") return "sensenova";
-  if (named === "modelscope" || named === "魔搭") return "modelscope";
-  if (named === "huggingface" || named === "hf") return "huggingface";
   if (named === "openai" || named === "openai-compat") return "openai-compat";
   const model = String(input.model || "");
   if (/grok-imagine/i.test(model)) return "xai-imagine";
   if (/seedream|seedance/i.test(model)) return "ark-plan";
   const host = String(input.baseUrl || "").toLowerCase();
-  if (host.includes("modelscope")) return "modelscope";
-  if (host.includes("huggingface") || host.includes("hf.co")) return "huggingface";
   if (host.includes("volces.com") || host.includes("/api/plan/v3")) return "ark-plan";
   if (host.includes("civitai.com")) return "civitai";
   if (host.includes("agnes-ai.com")) return "agnes";
   if (host.includes("dashscope") || host.includes("aliyuncs.com")) return "dashscope";
   if (host.includes("fal.run") || host.includes("fal.ai")) return "fal";
+  if (host.includes("modelscope") || host.includes("api-inference.modelscope")) return "modelscope";
+  if (host.includes("huggingface.co") || host.includes("hf.co")) return "huggingface";
   if (host.includes("sensenova")) return "sensenova";
   if (host.includes("x.ai")) return "xai-imagine";
   return "openai-compat";
@@ -69,4 +69,4 @@ export function adapterForProvider(provider: Pick<ApiRelayProvider, "adapterType
   return getStudioAdapter(resolveAdapterId({ adapterType: provider.adapterType, baseUrl: provider.baseUrl, model }));
 }
 
-export type { StudioAdapter, StudioAdapterId, ImageGenInput, VideoCreateInput, TextGenInput } from "./types";
+export type { StudioAdapter, StudioAdapterId, ImageGenInput, ImageGenResult, VideoCreateInput, TextGenInput } from "./types";

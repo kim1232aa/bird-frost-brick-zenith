@@ -41,6 +41,14 @@ export const STUDIO_PLANS: StudioPlan[] = [
   },
 ];
 
+export const STUDIO_CREDIT_PACKS: Array<{ id: string; label: string; kind: StudioUsageKind; amount: number }> = [
+  { id: "img-20", label: "+20 生图点", kind: "image", amount: 20 },
+  { id: "img-100", label: "+100 生图点", kind: "image", amount: 100 },
+  { id: "vid-5", label: "+5 视频点", kind: "video", amount: 5 },
+  { id: "vid-20", label: "+20 视频点", kind: "video", amount: 20 },
+  { id: "txt-200", label: "+200 文本点", kind: "text", amount: 200 },
+];
+
 /**
  * Membership and credits are a localStorage mock for the Web preview.
  * They do not bill a server and must not be treated as a real quota system.
@@ -52,6 +60,7 @@ type MembershipState = {
   record: (kind: StudioUsageKind) => boolean;
   remaining: (kind: StudioUsageKind) => number;
   upgrade: (plan?: StudioPlanId) => void;
+  buyPack: (id: string) => void;
 };
 
 function grantPlanDelta(from: StudioPlanId, to: StudioPlanId) {
@@ -81,6 +90,11 @@ export const useMembershipStore = create<MembershipState>()(
         }
         grantPlanDelta(current, plan);
         set({ plan });
+      },
+      buyPack: (id) => {
+        const pack = STUDIO_CREDIT_PACKS.find((item) => item.id === id);
+        if (!pack) return;
+        useOpsStore.getState().grant(pack.kind, pack.amount, `补充包 ${pack.label}`);
       },
     }),
     { name: "boundless-studio:membership" },

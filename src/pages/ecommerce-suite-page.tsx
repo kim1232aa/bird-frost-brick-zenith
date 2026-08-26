@@ -7,7 +7,7 @@ import { composeEcommercePrompt, ECOMMERCE_PACKS, ECOMMERCE_SCENES } from "@/stu
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioHistory } from "@/studio/history";
 import { useMembershipStore } from "@/studio/membership";
-import { CompactModelSelect } from "@/studio/model-select";
+import { StudioModelField } from "@/studio/model-select";
 import { STUDIO_ROUTES } from "@/studio/wiring";
 import { WorkbenchStatus } from "@/studio/workbench-status";
 
@@ -48,7 +48,7 @@ export function EcommerceSuitePage() {
       const [providerId, model] = selection.split("::");
       const result = await generateStudioImage({
         relays,
-        prompt: `${composeEcommercePrompt(product, shot, sceneId)}${extra ? ` Extra direction: ${extra}` : ""}`,
+        prompt: `${composeEcommercePrompt(product, shot, sceneId, packId)}${extra ? ` Extra direction: ${extra}` : ""}`,
         imageUrl: reference || undefined,
         providerId,
         model,
@@ -95,7 +95,14 @@ export function EcommerceSuitePage() {
   };
 
   return (
-    <div className="bench">
+    <div className="bp-page">
+      <header className="bp-hero">
+        <p className="studio-kicker">ECOMMERCE</p>
+        <h1>电商套图</h1>
+        <p>上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
+      </header>
+      <p className="alert-banner">商品参考图越清楚，套图越稳。没有图也可以先用文字描述试布局。</p>
+      <div className="bench">
       <aside className="bench-side">
         <p className="studio-kicker">ECOMMERCE</p>
         <h1>电商套图</h1>
@@ -136,7 +143,7 @@ export function EcommerceSuitePage() {
             独立高清
           </button>
         </div>
-        <CompactModelSelect kind="image" value={selection} onChange={setSelection} />
+        <StudioModelField kind="image" value={selection} onChange={setSelection} label="生图模型" />
         <label>
           ③ 平台方案
           <select value={packId} onChange={(event) => setPackId(event.target.value)}>
@@ -147,8 +154,14 @@ export function EcommerceSuitePage() {
             ))}
           </select>
         </label>
-        <button type="button" className="studio-primary" disabled={Boolean(progress.includes("生成中"))} onClick={() => void generatePack()}>
-          {progress.includes("生成中") ? progress : `生成整套 ${pack.shots.length}`}
+        <button
+          type="button"
+          className="bp-generate bp-generate-image"
+          disabled={Boolean(progress.includes("生成中")) || !product.trim()}
+          onClick={() => void generatePack()}
+        >
+          <span>{progress.includes("生成中") ? progress : `生成整套 ${pack.shots.length}`}</span>
+          <small>{!product.trim() ? "请先填写产品描述" : progress.includes("生成中") ? progress : `${pack.shots.length} 张 · 本地演示积分`}</small>
         </button>
         <button type="button" className="studio-ghost" disabled={!doneCount} onClick={() => void downloadZip()}>
           打包 ZIP（{doneCount}/{pack.shots.length}）
@@ -215,6 +228,7 @@ export function EcommerceSuitePage() {
           </div>
         </div>
       </section>
+      </div>
     </div>
   );
 }

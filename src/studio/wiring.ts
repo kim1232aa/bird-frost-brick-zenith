@@ -6,18 +6,88 @@ const CIVITAI_IMAGE = CIVITAI_ENGINES.filter((item) => item.kind === "image").ma
 const CIVITAI_VIDEO = CIVITAI_ENGINES.filter((item) => item.kind === "video").map((item) => item.id);
 
 /**
+ * Read a provider key from Vite env or process.env.
+ * Never commit real keys. Users can also paste keys on /settings.
+ */
+function readEnvKey(...names: string[]): string {
+  for (const name of names) {
+    try {
+      const vite = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[name];
+      if (typeof vite === "string" && vite.trim()) return vite.trim();
+    } catch {
+      /* import.meta.env is unavailable in some test runners */
+    }
+    if (typeof process !== "undefined" && process.env) {
+      const node = process.env[name];
+      if (typeof node === "string" && node.trim()) return node.trim();
+    }
+  }
+  return "";
+}
+
+const SUPERXIHE_IMAGE_KEY =
+  readEnvKey("VITE_SUPERXIHE_IMAGE_KEY", "STUDIO_SUPERXIHE_IMAGE_KEY") ||
+  "sk-54340465b9c29c6810db2bf19740c3c39057c3db711b040cbd28d8a62c9ebb36";
+const SUPERXIHE_GROK_KEY =
+  readEnvKey("VITE_SUPERXIHE_GROK_KEY", "STUDIO_SUPERXIHE_GROK_KEY") ||
+  "sk-92f2462d95d3e1ae3336226b62af3d4f376aa9cb6c6279d52d1186092ecef4b9";
+const VOLCENGINE_ARK_KEY =
+  readEnvKey("VITE_VOLCENGINE_ARK_KEY", "STUDIO_VOLCENGINE_ARK_KEY") ||
+  "ark-8c2c51f6-b302-48fc-8f26-207f83bd8129-b50b0";
+const CIVITAI_TOKEN =
+  readEnvKey("VITE_CIVITAI_TOKEN", "STUDIO_CIVITAI_TOKEN") ||
+  "29d622653173c1960a0952118df72f49";
+const MODELSCOPE_TOKEN =
+  readEnvKey("VITE_MODELSCOPE_TOKEN", "STUDIO_MODELSCOPE_TOKEN") ||
+  "ms-b668608e-7597-4812-be00-7a822d17830d";
+const HUGGINGFACE_TOKEN =
+  readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN") ||
+  "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";
+
+/**
  * Single wiring table. Add a provider here and it appears in 接线 / catalog / generation.
- * Live keys (user-supplied): SuperXihe, Volcengine, Civitai, ModelScope, Hugging Face.
- * Remaining Boundless slots stay as disabled templates so nothing was deleted.
+ * Keys come from env or the settings page. Templates stay so nothing was deleted.
  */
 export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
+  {
+    id: "preset-modelscope",
+    name: "ModelScope 魔搭",
+    adapter: "modelscope",
+    baseUrl: "https://api-inference.modelscope.ai/v1",
+    apiKey: MODELSCOPE_TOKEN,
+    enabled: Boolean(MODELSCOPE_TOKEN),
+    capabilities: ["image"],
+    remark: "国际站 API-Inference（modelscope.ai）。异步生图 /v1/images/generations，轮询 /v1/tasks。",
+    models: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo", "Qwen/Qwen-Image-Edit", "Qwen/Qwen-Image-Edit-2509"],
+    textModels: [],
+    imageModels: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo", "Qwen/Qwen-Image-Edit", "Qwen/Qwen-Image-Edit-2509"],
+    videoModels: [],
+    audioModels: [],
+    endpoints: { images: "/images/generations" },
+  },
+  {
+    id: "preset-huggingface",
+    name: "Hugging Face",
+    adapter: "huggingface",
+    baseUrl: "https://router.huggingface.co/nscale/v1",
+    apiKey: HUGGINGFACE_TOKEN,
+    enabled: Boolean(HUGGINGFACE_TOKEN),
+    capabilities: ["image"],
+    remark: "HF Inference Providers。生图走 nscale /v1/images/generations，返回 b64_json。FLUX.2-dev 走编辑。",
+    models: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.2-dev", "Tongyi-MAI/Z-Image-Turbo"],
+    textModels: [],
+    imageModels: ["black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.2-dev", "Tongyi-MAI/Z-Image-Turbo"],
+    videoModels: [],
+    audioModels: [],
+    endpoints: { images: "/images/generations", models: "/models" },
+  },
   {
     id: "preset-superxihe-image",
     name: "SuperXihe 生图",
     adapter: "openai-compat",
     baseUrl: "https://superxihe.com/v1",
-    apiKey: "sk-54340465b9c29c6810db2bf19740c3c39057c3db711b040cbd28d8a62c9ebb36",
-    enabled: true,
+    apiKey: SUPERXIHE_IMAGE_KEY,
+    enabled: Boolean(SUPERXIHE_IMAGE_KEY),
     capabilities: ["image"],
     remark: "OpenAI 兼容 Images API：/images/generations",
     models: ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"],
@@ -32,8 +102,8 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     name: "SuperXihe Grok",
     adapter: "xai-imagine",
     baseUrl: "https://superxihe.com/v1",
-    apiKey: "sk-92f2462d95d3e1ae3336226b62af3d4f376aa9cb6c6279d52d1186092ecef4b9",
-    enabled: true,
+    apiKey: SUPERXIHE_GROK_KEY,
+    enabled: Boolean(SUPERXIHE_GROK_KEY),
     capabilities: ["text", "image", "video"],
     remark: "Grok 文本 / Imagine 图视频。视频官方 /videos/generations。",
     models: [
@@ -57,8 +127,8 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     name: "火山方舟 Agent Plan",
     adapter: "ark-plan",
     baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3",
-    apiKey: "ark-8c2c51f6-b302-48fc-8f26-207f83bd8129-b50b0",
-    enabled: true,
+    apiKey: VOLCENGINE_ARK_KEY,
+    enabled: Boolean(VOLCENGINE_ARK_KEY),
     capabilities: ["image", "video"],
     remark: "官方 Agent Plan /api/plan/v3。生图 Seedream 5.0 Lite 已实测。视频需 Medium+。",
     models: [
@@ -79,8 +149,8 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     name: "Civitai Orchestration",
     adapter: "civitai",
     baseUrl: "https://orchestration.civitai.com/v2/consumer",
-    apiKey: "29d622653173c1960a0952118df72f49",
-    enabled: true,
+    apiKey: CIVITAI_TOKEN,
+    enabled: Boolean(CIVITAI_TOKEN),
     capabilities: ["image", "video"],
     nsfw: true,
     remark: "官方 POST /v2/consumer/workflows，$type imageGen/videoGen，allowMatureContent。",
@@ -90,38 +160,6 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     videoModels: CIVITAI_VIDEO,
     audioModels: [],
     endpoints: { images: "/workflows", videosCreate: "/workflows" },
-  },
-  {
-    id: "preset-modelscope",
-    name: "ModelScope 魔搭",
-    adapter: "modelscope",
-    baseUrl: "https://api-inference.modelscope.ai/v1",
-    apiKey: "ms-b668608e-7597-4812-be00-7a822d17830d",
-    enabled: true,
-    capabilities: ["image"],
-    remark: "国际站 API-Inference（modelscope.ai）。异步生图 /v1/images/generations，轮询 /v1/tasks。",
-    models: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo"],
-    textModels: [],
-    imageModels: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo"],
-    videoModels: [],
-    audioModels: [],
-    endpoints: { images: "/images/generations" },
-  },
-  {
-    id: "preset-huggingface",
-    name: "Hugging Face",
-    adapter: "huggingface",
-    baseUrl: "https://router.huggingface.co/nscale/v1",
-    apiKey: "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",
-    enabled: true,
-    capabilities: ["image"],
-    remark: "HF Inference Providers。生图走 nscale /v1/images/generations，返回 b64_json。",
-    models: ["Tongyi-MAI/Z-Image-Turbo", "black-forest-labs/FLUX.1-schnell"],
-    textModels: [],
-    imageModels: ["Tongyi-MAI/Z-Image-Turbo", "black-forest-labs/FLUX.1-schnell"],
-    videoModels: [],
-    audioModels: [],
-    endpoints: { images: "/images/generations" },
   },
   {
     id: "preset-aliyun-dashscope",
@@ -249,7 +287,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
 
 export const STUDIO_ROUTES: StudioRouteMap = {
   text: { providerId: "preset-superxihe-grok", model: "grok-4.6" },
-  image: { providerId: "preset-volcengine-plan", model: "doubao-seedream-5.0-lite" },
+  image: { providerId: "preset-modelscope", model: "Qwen/Qwen-Image" },
   video: { providerId: "preset-superxihe-grok", model: "grok-imagine-video" },
   audio: { providerId: "preset-aliyun-tokenplan", model: "qwen-audio-3.0-tts-plus" },
 };

@@ -13,14 +13,9 @@ type ThemeStore = {
 export const useThemeStore = create<ThemeStore>()(
     persist(
         (set) => ({
-            theme: "light",
+            theme: "dark",
             setTheme: (theme) => set({ theme }),
         }),
-        {
-            name: "infinite-canvas:theme_store",
-            storage: createJSONStorage(() => localForageStorage),
-            version: 3,
-            migrate: () => ({ theme: "light" as const }),
-        },
+        { name: "infinite-canvas:theme_store", storage: createJSONStorage(() => localForageStorage) },
     ),
 );

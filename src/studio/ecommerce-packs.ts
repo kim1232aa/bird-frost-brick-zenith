@@ -39,8 +39,47 @@ export const ECOMMERCE_SCENES = [
   { id: "outdoor", label: "户外场景", prompt: "natural outdoor daylight lifestyle, shallow depth, product readable" },
 ] as const;
 
-export function composeEcommercePrompt(product: string, shot: EcommerceShot, sceneId = "solid") {
-  const subject = product.trim() || "the uploaded product";
+const PLATFORM_DIRECTION: Record<string, string> = {
+  amazon:
+    "Amazon direction: when the assigned shot is the front hero, the entire image from edge to edge must be pure white RGB(255,255,255), show only the product for sale, contain no props or added graphics, and place the complete product at about 85% of the frame. Secondary shots may use clean neutral studio or restrained lifestyle settings as assigned.",
+  tmall:
+    "Tmall direction: create a strong square mobile-first product visual with premium lighting and useful negative space, but do not render promotional copy, prices, claims, badges, or invented specifications.",
+  temu:
+    "Temu / Shopee direction: create a bold, compact, mobile-first square product composition that reads instantly at thumbnail size. Emphasize the real product, visible function, material detail, realistic scale, and included components without prices, discount graphics, badges, promotional copy, or invented claims.",
+  tiktok:
+    "TikTok Shop direction: the front hero must show the complete product objectively on a pure white background. Secondary images should feel authentic and social-native, showing believable use, handling, scale, texture, and benefits through the scene itself. Do not add creator likenesses, UI, captions, prices, badges, or unverifiable claims.",
+  walmart:
+    "Walmart direction: the front hero must be a centered square image on a seamless pure white RGB(255,255,255) background, professionally lit, tightly but safely cropped, and free of text, logos added by the generator, watermarks, borders, or unrelated props. Secondary shots may show alternate views, true details, scale, or an appropriate lifestyle setting.",
+  ozon:
+    "Ozon direction: create a clean square marketplace image that identifies the product immediately at thumbnail size. Keep the front hero complete, centered, and objectively presented on a simple light neutral background. Secondary shots should communicate real construction, visible function, detail, believable scale, and lifestyle context through the photography itself. Do not add marketplace copy, prices, discount graphics, badges, UI, specifications, or unverifiable claims.",
+};
+
+function identityLock(productBrief: string) {
+  return [
+    "The uploaded reference image(s) are the authoritative identity of ONE exact product/SKU. Extract the product itself from the references and ignore the source page layout, collage structure, dividers, backgrounds, props, neighboring products, captions, and graphic design.",
+    "IDENTITY LOCK: Preserve the same exact silhouette, geometry, proportions, materials, finish, colors, transparency, seams, closures, buttons, ports, logo placement, label layout, typography, packaging, and every visible distinguishing feature. Never redesign, simplify, recolor, mirror, stretch, add, remove, or relocate product features.",
+    "VISIBLE TEXT: Keep branding and legible product text faithful to the references. If small text cannot be reproduced reliably, preserve its placement and visual hierarchy without inventing new claims, measurements, certifications, or promotional copy.",
+    "UNSEEN SURFACES: Extend only the known construction conservatively. Do not invent prominent features, and keep every inferred detail physically plausible.",
+    productBrief.trim()
+      ? `User product/category direction (apply only when it does not conflict with the reference identity): ${productBrief.trim()}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function composeEcommercePrompt(product: string, shot: EcommerceShot, sceneId = "solid", packId = "amazon") {
   const scene = ECOMMERCE_SCENES.find((item) => item.id === sceneId) || ECOMMERCE_SCENES[0];
-  return `Ecommerce product photography of ${subject}. ${shot.prompt}. Scene: ${scene.prompt}. Photoreal, no watermark, no extra logos. Keep product identity locked.`;
+  const platform =
+    PLATFORM_DIRECTION[packId] ||
+    "Catalog direction: prioritize faithful product documentation, clear camera geometry, and a premium commercial finish.";
+  return [
+    `Create ONE standalone, full-resolution e-commerce product image for the assigned shot "${shot.label}".`,
+    identityLock(product),
+    platform,
+    "SINGLE-IMAGE COMPOSITION: Output exactly one continuous photograph filling the entire canvas. Never create a contact sheet, collage, split screen, comparison layout, inset, sidebar, border, gutter, frame, caption, label, number, watermark, or UI. Do not copy the composition or panel layout of the reference image; use only the product identity from it.",
+    "SET CONSISTENCY: This image belongs to one coordinated product shoot. Use neutral commercial color science, realistic materials, consistent product scale, premium lens quality, soft controlled shadows, and clean retouching so it matches the other independently generated shots.",
+    `Scene: ${scene.prompt}.`,
+    `ASSIGNED SHOT: ${shot.prompt}`,
+  ].join("\n");
 }

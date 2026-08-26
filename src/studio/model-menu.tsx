@@ -3,14 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { catalogKey, type ModelCard } from "./catalog";
-import { liveCatalog } from "./ops";
+import { liveCatalog, useOpsStore } from "./ops";
+import { useStudioSession } from "./session";
 
 export function ModelMenu({
   kind,
   value,
   onChange,
   label,
-  wiredOnly = true,
+  wiredOnly = false,
 }: {
   kind: ModelCard["kind"];
   value: string;
@@ -19,6 +20,8 @@ export function ModelMenu({
   wiredOnly?: boolean;
 }) {
   const cards = liveCatalog(kind, wiredOnly);
+  useStudioSession((state) => state.relays);
+  useOpsStore((state) => state.unlisted);
   const groups = useMemo(() => {
     const map = new Map<string, ModelCard[]>();
     for (const card of cards) {
@@ -120,8 +123,9 @@ export function ModelMenu({
                       >
                         <span className="model-menu-row-name">{card.model}</span>
                         <span className="model-menu-row-meta">
-                          {card.nsfw ? "NSFW" : "安全"}
-                          {card.verified ? " · 已实测" : ""}
+                          {card.wired ? "已接线" : "待接线"}
+                          {card.nsfw ? " · NSFW" : ""}
+                          {card.verified ? " · 已实测" : " · 未实测"}
                         </span>
                       </button>
                     );

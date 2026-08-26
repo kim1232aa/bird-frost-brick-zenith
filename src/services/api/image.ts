@@ -1280,8 +1280,16 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
             providerId: providerId || undefined,
             model: context.route.model,
             imageUrl: context.references[0]?.dataUrl || context.references[0]?.url,
+            imageUrls: context.references
+                .map((item) => item.dataUrl || item.url)
+                .filter((item): item is string => Boolean(item))
+                .slice(0, 3),
+            n: context.providerOutputCount,
+            loras: context.advanced.loras,
+            negativePrompt: context.advanced.negativePrompt,
+            seed: typeof context.advanced.seed === "number" ? context.advanced.seed : undefined,
         });
-        return parseImagePayload({ data: [{ url: result.url }] });
+        return parseImagePayload({ data: (result.urls.length ? result.urls : [result.url]).map((url) => ({ url })) });
     }
     const { capability } = context;
     switch (capability.serialization.kind) {

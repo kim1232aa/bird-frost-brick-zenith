@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   ReactFlow,
@@ -644,7 +645,7 @@ function CanvasInner() {
     const people = node.data.cast?.length ? node.data.cast : [{ name: "主角", look: "电影感写实，锁定外貌" }];
     snapshot();
     people.forEach((person, index) => {
-      const created = add("character", { name: person.name, look: person.look, url: person.url }, { x: node.position.x - 460, y: node.position.y + index * 280 });
+      const created = add("character", { name: person.name, look: person.look, url: "url" in person ? String((person as { url?: string }).url || "") : "" }, { x: node.position.x - 460, y: node.position.y + index * 280 });
       setEdges((items) => items.concat({ id: `e-${created}-${id}-${index}`, source: created, target: id, sourceHandle: "out", targetHandle: "char", animated: true }));
     });
   };
@@ -883,10 +884,18 @@ function CanvasInner() {
   const actions = useMemo(
     () => ({
       runNode,
-      analyzeStory,
-      generateCharacters,
-      generateShots,
-      runAllStory,
+      analyzeStory: async (id: string) => {
+        await analyzeStory(id);
+      },
+      generateCharacters: async (id: string, index?: number) => {
+        await generateCharacters(id, index);
+      },
+      generateShots: async (id: string, index?: number) => {
+        await generateShots(id, index);
+      },
+      runAllStory: async (id: string) => {
+        await runAllStory(id);
+      },
       spawnCharacterConfig,
       spawnShotConfig,
       duplicateNode,
@@ -1005,7 +1014,7 @@ function CanvasInner() {
           >
             <MiniMap pannable zoomable />
             <Controls />
-            <Background variant="lines" gap={28} size={1} color="#323238" />
+            <Background variant={BackgroundVariant.Lines} gap={28} size={1} color="#323238" />
           </ReactFlow>
           {empty ? (
             <div className="flow-start-card">

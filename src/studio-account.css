@@ -263,6 +263,51 @@
   border-color: #efe9dd;
 }
 
+.studio-userchip.is-admin {
+  border-color: #05df72;
+}
+
+.studio-userchip .role-pill {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #05df72;
+  color: #052e16;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.studio-userchip.is-login {
+  border-style: dashed;
+}
+
+.acct-demo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+
+.acct-demo div {
+  padding: 10px 12px;
+  border: 1px solid #2c2c34;
+  border-radius: 12px;
+  background: #121218;
+}
+
+.acct-demo dt {
+  font-size: 11px;
+  color: #7d786e;
+}
+
+.acct-demo dd {
+  margin: 4px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+}
+
 .wire-search {
   width: 100%;
   border: 1px solid #2c2c34;
@@ -342,6 +387,20 @@ html:not(.dark) .studio-userchip.is-active {
   background: #1c1917;
   color: #fafaf9;
   border-color: #1c1917;
+}
+
+html:not(.dark) .studio-userchip.is-admin {
+  border-color: #15803d;
+}
+
+html:not(.dark) .studio-userchip .role-pill {
+  background: #15803d;
+  color: #f0fdf4;
+}
+
+html:not(.dark) .acct-demo div {
+  border-color: #e7e5df;
+  background: #fbfaf7;
 }
 
 html:not(.dark) .studio-ok {
@@ -452,6 +511,100 @@ html:not(.dark) .studio-error {
   letter-spacing: 0.04em;
 }
 
+.wire-models {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #2c2c34;
+}
+
+.wire-model-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.wire-model-add input,
+.wire-model-row code {
+  width: 100%;
+  border: 1px solid #2c2c34;
+  background: #121218;
+  color: #efe9dd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.wire-model-row code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.wire-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.wire-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #2c2c34;
+  border-radius: 14px;
+  background: #17171d;
+}
+
+.wire-model-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.wire-model-caps label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #c8c2b6;
+}
+
+.wire-model-del {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: #f87171;
+  font-size: 12px;
+}
+
+html:not(.dark) .wire-models,
+html:not(.dark) .wire-model-row,
+html:not(.dark) .wire-model-add input,
+html:not(.dark) .wire-model-row code {
+  border-color: #e7e5df;
+}
+
+html:not(.dark) .wire-model-row,
+html:not(.dark) .wire-model-add input,
+html:not(.dark) .wire-model-row code {
+  background: #fff;
+  color: #1c1917;
+}
+
+html:not(.dark) .wire-model-caps label {
+  color: #57534e;
+}
+
 html:not(.dark) .wire-item-del,
 html:not(.dark) .studio-danger {
   border-color: #fecaca;
@@ -481,5 +634,9 @@ html:not(.dark) .wire-tag {
   .acct-steps {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .wire-item-del {
+    min-height: 44px;
   }
 }

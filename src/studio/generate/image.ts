@@ -2,7 +2,7 @@ import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { adapterForProvider } from "@/studio/adapters";
 import { STUDIO_PROVIDERS, STUDIO_ROUTES } from "@/studio/wiring";
 import { modelPoints, useOpsStore } from "@/studio/ops";
-import type { StudioLora } from "@/studio/adapters/types";
+import { imageRefs } from "@/studio/image-refs";
 import { providerById } from "./proxy";
 
 export type StudioImageResult = {
@@ -11,10 +11,6 @@ export type StudioImageResult = {
   model: string;
   providerId: string;
 };
-
-function refsOf(input: { imageUrl?: string; imageUrls?: string[] }) {
-  return [...(input.imageUrls || []), input.imageUrl || ""].map((item) => item.trim()).filter(Boolean).slice(0, 3);
-}
 
 export async function generateStudioImage(input: {
   relays: ApiRelayProvider[];
@@ -29,16 +25,17 @@ export async function generateStudioImage(input: {
   seed?: number;
   negativePrompt?: string;
   n?: number;
-  loras?: StudioLora[];
-  operation?: "create" | "edit" | "variant";
+  operation?: "generate" | "edit";
+  loras?: Record<string, number> | Readonly<Record<string, number>>;
+  strength?: number;
 }): Promise<StudioImageResult> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请填写提示词");
   const providerId = input.providerId || STUDIO_ROUTES.image.providerId;
   const model = input.model || STUDIO_ROUTES.image.model;
   const key = `${providerId}::${model}`;
-  const quantity = Math.max(1, Math.min(4, input.n || 1));
-  const ticket = useOpsStore.getState().spend("image", model, modelPoints(key) * quantity);
+  const count = Math.max(1, Math.min(4, input.n || 1));
+  const ticket = useOpsStore.getState().spend("image", model, modelPoints(key) * count);
   try {
     const provider = providerById(providerId, input.relays);
     const blueprint = STUDIO_PROVIDERS.find((item) => item.id === providerId);
@@ -47,28 +44,28 @@ export async function generateStudioImage(input: {
       model,
     );
     if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
-    const imageUrls = refsOf(input);
+    const refs = imageRefs(input);
     const result = await adapter.generateImage(
       { provider },
       {
         model,
         prompt,
         size: input.size,
-        imageUrl: imageUrls[0],
-        imageUrls,
+        imageUrl: refs[0],
+        imageUrls: refs,
         width: input.width,
         height: input.height,
         seed: input.seed,
         negativePrompt: input.negativePrompt,
-        n: quantity,
-        loras: input.loras,
+        n: count,
         operation: input.operation,
+        loras: input.loras,
+        strength: input.strength,
       },
     );
-    const urls = [...(result.urls || []), result.url].filter(Boolean);
-    const unique = [...new Set(urls)];
-    if (!unique[0]) throw new Error("没有返回图片");
-    return { url: unique[0], urls: unique, model, providerId };
+    const urls = (result.urls && result.urls.length ? result.urls : [result.url]).filter(Boolean);
+    if (!urls[0]) throw new Error("没有返回图片");
+    return { url: urls[0], urls, model, providerId };
   } catch (err) {
     useOpsStore.getState().refund(ticket.id);
     throw err;

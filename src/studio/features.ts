@@ -9,6 +9,10 @@ export const STUDIO_FEATURES = {
   membership: true,
   civitai: true,
   audio: true,
+  imageEdit: true,
+  imageToVideo: true,
+  frameExtract: true,
+  libraryZip: true,
 } as const;
 
 export type StudioFeatureId = keyof typeof STUDIO_FEATURES;

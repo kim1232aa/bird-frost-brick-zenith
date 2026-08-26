@@ -1,5 +1,6 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 function explainVideoError(message: string) {
   if (/UnsupportedModel|does not support the agent plan/i.test(message)) {
@@ -13,6 +14,7 @@ export const arkPlanAdapter: StudioAdapter = {
   label: "火山方舟 Agent Plan",
   docs: "https://www.volcengine.com/docs/82379/2375486",
   async generateImage(ctx, input) {
+    const refs = imageRefs(input);
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: ctx.provider.endpoints?.images || "/images/generations",
@@ -23,13 +25,14 @@ export const arkPlanAdapter: StudioAdapter = {
         watermark: false,
         output_format: "png",
         response_format: "url",
-        ...(input.imageUrl ? { image: [input.imageUrl] } : {}),
+        ...(typeof input.n === "number" && input.n > 1 ? { sequential_image_generation: "auto", max_images: input.n } : {}),
+        ...(refs.length ? { image: refs } : {}),
       },
       timeoutMs: 120_000,
     });
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("火山 Agent Plan 生图没有返回图片地址");
-    return { url };
+    const urls = allImageUrls(data);
+    if (!urls[0]) throw new Error("火山 Agent Plan 生图没有返回图片地址");
+    return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
     const content: Array<Record<string, unknown>> = [{ type: "text", text: input.prompt }];

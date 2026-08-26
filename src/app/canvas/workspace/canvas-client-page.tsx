@@ -1576,7 +1576,7 @@ async function requestCustomerVideoTask(
         nativePath: videoCreatePath(customerVideoAdapterId(apiConfig)).replace(/^\//, ""),
         browserUrl: customerVideoCreateUrl(apiConfig),
         body: JSON.stringify(
-          toStudioVideoWire(customerVideoAdapterId(apiConfig), apiConfig.model, {
+          toStudioVideoWire(customerVideoAdapterId(apiConfig), apiConfig.model || "", {
             prompt: String((wirePayload as { prompt?: string }).prompt || payload.prompt || ""),
             duration: Number((wirePayload as { duration?: number }).duration || payload.duration || 5),
             ratio: String((wirePayload as { ratio?: string }).ratio || payload.ratio || "16:9"),
@@ -6620,7 +6620,7 @@ function InfiniteCanvasPage() {
   }, [createProject, router]);
 
   const deleteCurrentProject = useCallback(() => {
-    if (deleteProjectConfirmId !== projectId) {
+    if (!deleteProjectConfirmId || deleteProjectConfirmId !== projectId) {
       setDeleteProjectConfirmId(null);
       return;
     }

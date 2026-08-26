@@ -1,5 +1,6 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 function dashscopeHost(baseUrl: string) {
   if (baseUrl.includes("token-plan")) return "https://dashscope.aliyuncs.com";
@@ -43,6 +44,7 @@ export const dashscopeAdapter: StudioAdapter = {
   docs: "https://help.aliyun.com/zh/model-studio/qwen-image-api",
   async generateImage(ctx, input) {
     const host = dashscopeHost(ctx.provider.baseUrl);
+    const refs = imageRefs(input);
     if (isQwenImage(input.model)) {
       const data = await studioProxyJson<Record<string, unknown>>({
         provider: ctx.provider,
@@ -54,23 +56,27 @@ export const dashscopeAdapter: StudioAdapter = {
             messages: [
               {
                 role: "user",
-                content: [{ text: input.prompt }, ...(input.imageUrl ? [{ image: input.imageUrl }] : [])],
+                content: [{ text: input.prompt }, ...refs.map((url) => ({ image: url }))],
               },
             ],
           },
           parameters: {
             watermark: false,
             prompt_extend: true,
+            n: input.n || 1,
             size: input.size === "3K" ? "2048*2048" : input.size === "1K" ? "1024*1024" : "1328*1328",
           },
         },
         timeoutMs: 120_000,
       });
       const output = data.output as { choices?: Array<{ message?: { content?: Array<{ image?: string; url?: string }> } }> } | undefined;
-      const hit = output?.choices?.[0]?.message?.content?.find((item) => item.image || item.url);
-      const url = String(hit?.image || hit?.url || firstImageUrl(data) || "").trim();
+      const hits = output?.choices?.[0]?.message?.content?.filter((item) => item.image || item.url) || [];
+      const urls = hits.map((item) => String(item.image || item.url || "")).filter(Boolean);
+      const fallback = allImageUrls(data);
+      const merged = urls.length ? urls : fallback;
+      const url = merged[0] || firstImageUrl(data);
       if (!url) throw new Error("Qwen-Image 没有返回图片。官方路径是 /api/v1/services/aigc/multimodal-generation/generation，不是 compatible-mode /images/generations。");
-      return { url };
+      return { url, urls: merged.length ? merged : [url] };
     }
     const created = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
@@ -79,8 +85,8 @@ export const dashscopeAdapter: StudioAdapter = {
       extraHeaders: { "X-DashScope-Async": "enable" },
       body: {
         model: input.model,
-        input: { prompt: input.prompt, ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}), ...(input.imageUrl ? { ref_image: input.imageUrl } : {}) },
-        parameters: { n: 1, size: input.size === "3K" ? "1440*1440" : "1280*1280" },
+        input: { prompt: input.prompt, ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}), ...(refs[0] ? { ref_img: refs[0], ref_image: refs[0] } : {}) },
+        parameters: { n: input.n || 1, size: input.size === "3K" ? "1440*1440" : "1280*1280" },
       },
       timeoutMs: 30_000,
     });
@@ -88,7 +94,7 @@ export const dashscopeAdapter: StudioAdapter = {
     if (!taskId) throw new Error("万相文生图没有返回 task_id。官方路径是 /api/v1/services/aigc/text2image/image-synthesis。");
     const url = await pollTask(ctx, taskId);
     if (!url) throw new Error("万相文生图完成但没有图片地址");
-    return { url };
+    return { url, urls: [url] };
   },
   async createVideo(ctx, input) {
     const data = await studioProxyJson<Record<string, unknown>>({
@@ -98,7 +104,11 @@ export const dashscopeAdapter: StudioAdapter = {
       extraHeaders: { "X-DashScope-Async": "enable" },
       body: {
         model: input.model,
-        input: { prompt: input.prompt, ...(input.imageUrl ? { img_url: input.imageUrl } : {}) },
+        input: {
+          prompt: input.prompt,
+          ...(input.imageUrl ? { img_url: input.imageUrl } : {}),
+          ...(input.lastFrameUrl ? { last_frame_url: input.lastFrameUrl } : {}),
+        },
         parameters: {
           ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
           ...(input.aspectRatio ? { size: input.aspectRatio } : {}),
@@ -134,37 +144,8 @@ export const dashscopeAdapter: StudioAdapter = {
     if (!text) throw new Error("DashScope 没有返回文本");
     return { text };
   },
-  async generateAudio(ctx, input) {
-    const data = await studioProxyJson<Record<string, unknown>>({
-      provider: ctx.provider,
-      path: "/audio/speech",
-      body: { model: input.model, input: input.prompt, voice: input.voice || "Cherry" },
-    });
-    const url = String(data.url || "").trim();
-    if (!url) throw new Error("DashScope 音频没有返回地址");
-    return { url };
-  },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey) return { ok: false, message: "缺少 DashScope Key" };
-    try {
-      await studioProxyJson({
-        provider: ctx.provider,
-        baseUrl: dashscopeHost(ctx.provider.baseUrl),
-        path: "/api/v1/services/aigc/text2image/image-synthesis",
-        extraHeaders: { "X-DashScope-Async": "enable" },
-        body: { model: "wan2.2-t2i-flash", input: { prompt: "probe" }, parameters: { n: 1, size: "512*512" } },
-        timeoutMs: 20_000,
-      });
-      return { ok: true, message: "生图端点可用（text2image/image-synthesis，不是 /images/generations）" };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "失败";
-      if (/404|not found/i.test(message)) {
-        return { ok: false, message: "生图端点 404。百炼不要走 compatible-mode /images/generations，应走 /api/v1/services/aigc/text2image/image-synthesis 或 Qwen-Image 的 multimodal-generation。" };
-      }
-      if (/401|invalid|api.?key|unauthorized|model/i.test(message)) {
-        return { ok: true, message: `生图端点在（官方路径已打通），厂商返回：${message.slice(0, 160)}` };
-      }
-      return { ok: false, message };
-    }
+    return { ok: true, message: "已保存 DashScope Key。生成时走官方异步端点。" };
   },
 };

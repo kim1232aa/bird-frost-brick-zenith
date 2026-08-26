@@ -5,7 +5,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 import { STUDIO_NAV } from "./nav";
 import { useOpsStore } from "@/studio/ops";
-import { accountLabel, useAccountStore } from "@/studio/account";
+import { accountLabel, canEnterOps, useAccountStore } from "@/studio/account";
 
 export function StudioShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -18,9 +18,12 @@ export function StudioShell({ children }: { children: ReactNode }) {
   const imageCredits = useOpsStore((state) => state.credits.image);
   const session = useAccountStore((state) => state.session);
   const isGuest = useAccountStore((state) => state.isGuest);
-  const chip = accountLabel({ session, isGuest });
+  const hydrated = useAccountStore((state) => state.hydrated);
+  const admin = canEnterOps({ session });
+  const chip = accountLabel({ session, isGuest, hydrated });
   const chipHref = session || isGuest ? "/account" : "/login";
   const [menuOpen, setMenuOpen] = useState(false);
+  const nav = STUDIO_NAV.filter((item) => (item.href === "/settings" ? admin : true));
 
   useEffect(() => {
     setMenuOpen(false);
@@ -34,7 +37,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
           无界创作台
         </Link>
         <nav className="studio-nav" aria-label="主导航">
-          {STUDIO_NAV.map((item) => {
+          {nav.map((item) => {
             const active = path === item.href || path.startsWith(`${item.href}/`);
             return (
               <Link key={item.href} to={item.href} className={active ? "is-active" : undefined}>
@@ -44,15 +47,29 @@ export function StudioShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="studio-top-actions">
-          <Link to={chipHref} className={path === chipHref || path === "/account" ? "studio-userchip is-active" : "studio-userchip"}>
-            {chip}
+          <Link
+            to={chipHref}
+            className={[
+              "studio-userchip",
+              path === chipHref || path === "/account" ? "is-active" : "",
+              session?.role === "admin" ? "is-admin" : "",
+              !session && !isGuest ? "is-login" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+          >
+            <span className="chip-full">{chip}</span>
+            <span className="chip-short">{session?.role === "admin" ? "管理" : session ? "账户" : "登录"}</span>
+            {session?.role === "admin" ? <em className="role-pill">管理</em> : null}
           </Link>
           <Link to="/account" className="studio-credits">
             {imageCredits} 积分
           </Link>
-          <Link className={isOps ? "studio-ghost is-active" : "studio-ghost"} to="/admin">
-            运营
-          </Link>
+          {admin ? (
+            <Link className={isOps ? "studio-ghost is-active" : "studio-ghost"} to="/admin">
+              运营
+            </Link>
+          ) : null}
           <button
             type="button"
             className="studio-menu-btn"
@@ -66,7 +83,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
       </header>
       {menuOpen ? (
         <nav className="studio-drawer" aria-label="移动端导航">
-          {STUDIO_NAV.map((item) => {
+          {nav.map((item) => {
             const active = path === item.href || path.startsWith(`${item.href}/`);
             return (
               <Link key={item.href} to={item.href} className={active ? "is-active" : undefined}>
@@ -74,10 +91,10 @@ export function StudioShell({ children }: { children: ReactNode }) {
               </Link>
             );
           })}
-          <Link to="/login">登录</Link>
-          <Link to="/register">注册</Link>
+          {session || isGuest ? <Link to="/account">账户</Link> : <Link to="/login">登录</Link>}
+          {session ? null : <Link to="/register">注册</Link>}
           <Link to="/catalog">模型目录</Link>
-          <Link to="/admin">运营后台</Link>
+          {admin ? <Link to="/admin">运营后台</Link> : null}
         </nav>
       ) : null}
       <div

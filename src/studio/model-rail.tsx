@@ -16,14 +16,14 @@ export function ModelRail({
   useOpsStore((state) => state.unlisted);
   useStudioSession((state) => state.relays);
   const groups = new Map<string, ModelCard[]>();
-  for (const card of liveCatalog(kind, true)) {
+  for (const card of liveCatalog(kind, false)) {
     const list = groups.get(card.provider) || [];
     list.push(card);
     groups.set(card.provider, list);
   }
 
   if (!groups.size) {
-    return <p className="studio-hint">没有已上架且已接线的{kind}模型。到后台启用 Provider 或上架模型。</p>;
+    return <p className="studio-hint">后台还没有上架{kind === "image" ? "生图" : kind === "video" ? "视频" : kind === "text" ? "文本" : "音频"}模型。</p>;
   }
 
   return (
@@ -44,7 +44,7 @@ export function ModelRail({
                   <b>{card.model}</b>
                   <span className="model-card-tags">
                     {card.nsfw ? <i className="tag tag-nsfw">NSFW</i> : <i className="tag">安全</i>}
-                    <i className="tag">已接线</i>
+                    <i className="tag">{card.wired ? "已接线" : "待接线"}</i>
                     {card.tags.slice(0, 2).map((tag) => (
                       <i key={tag} className="tag">
                         {tag}

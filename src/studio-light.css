@@ -4,32 +4,24 @@ body {
   color: #1c1917 !important;
 }
 
-html:not(.dark),
 html.dark,
-html.dark body,
-html.dark #app {
+html.dark body {
+  background: #101014 !important;
+  color: #efe9dd !important;
+}
+
+html:not(.dark) {
   color-scheme: light;
 }
 
-html.dark:not(:has(.studio-root.is-canvas)),
-html.dark:not(:has(.studio-root.is-canvas)) body,
-html.dark:not(:has(.studio-root.is-canvas)) #app {
-  background: #101014 !important;
-  color: #efe9dd !important;
-  color-scheme: dark;
-}
-
-html:not(.dark) .studio-root,
-.studio-root.is-canvas {
+html:not(.dark) .studio-root {
   background: #f7f5f1;
   color: #1c1917;
 }
 
-html:not(.dark) .studio-topbar,
-.studio-root.is-canvas .studio-topbar,
-html.dark .studio-root.is-canvas .studio-topbar {
-  border-bottom-color: #e7e5df !important;
-  background: rgba(247, 245, 241, 0.92) !important;
+html:not(.dark) .studio-topbar {
+  border-bottom-color: #e7e5df;
+  background: rgba(247, 245, 241, 0.92);
 }
 
 html:not(.dark) .studio-nav a {
@@ -41,8 +33,7 @@ html:not(.dark) .studio-nav a.is-active {
   color: #fafaf9;
 }
 
-html:not(.dark) .studio-mark,
-.studio-root.is-canvas .studio-mark {
+html:not(.dark) .studio-mark {
   background: #00c758;
 }
 
@@ -140,105 +131,25 @@ html:not(.dark) .wire-desk {
   background: #f7f5f1;
 }
 
-/* basketikun/infinite-canvas light chrome. Wins over Boundless-Studio
-   #0B0B0F / #101014 / #0c0c10 even if leftover html.dark is present. */
-.studio-root.is-canvas,
-.studio-root.is-canvas .studio-page,
-.studio-root.is-canvas .studio-topbar,
-.canvas-home-shell,
-.canvas-home-shell section,
-.canvas-workspace-shell,
-.bg-\[\#0B0B0F\],
-.canvas-home-shell .bg-\[\#0B0B0F\],
-html.dark .studio-root.is-canvas,
-html.dark .studio-root.is-canvas .studio-page,
-html.dark .studio-root.is-canvas .studio-topbar,
-html.dark .canvas-home-shell,
-html.dark .canvas-home-shell section,
-html.dark .canvas-workspace-shell,
-html.dark .bg-\[\#0B0B0F\] {
+html:not(.dark) .canvas-home-shell,
+html:not(.dark) .canvas-home-shell section,
+html:not(.dark) .canvas-home-shell .bg-\[\#0B0B0F\] {
   background: #f7f5f1 !important;
   color: #1c1917 !important;
 }
 
-.canvas-home-shell .text-stone-100,
-.canvas-home-shell .text-cyan-200,
-html.dark .canvas-home-shell .text-stone-100,
-html.dark .canvas-home-shell .text-cyan-200 {
+html:not(.dark) .canvas-home-shell .text-stone-100,
+html:not(.dark) .canvas-home-shell .text-cyan-200 {
   color: #1c1917 !important;
 }
 
-.canvas-home-shell .border-white\/10,
-.canvas-home-shell .border-stone-700,
-.canvas-home-shell .border-stone-800,
-html.dark .canvas-home-shell .border-white\/10,
-html.dark .canvas-home-shell .border-stone-700,
-html.dark .canvas-home-shell .border-stone-800 {
+html:not(.dark) .canvas-home-shell .border-white\/10,
+html:not(.dark) .canvas-home-shell .border-stone-700 {
   border-color: #e7e5df !important;
 }
 
-.canvas-home-shell .bg-stone-900,
-.canvas-home-shell .bg-stone-900\/70,
-.canvas-home-shell .bg-stone-950,
-.canvas-home-shell .bg-white\/\[0\.03\],
-.canvas-home-shell .bg-white\/\[0\.02\],
-html.dark .canvas-home-shell .bg-stone-900,
-html.dark .canvas-home-shell .bg-stone-900\/70,
-html.dark .canvas-home-shell .bg-stone-950,
-html.dark .canvas-home-shell .bg-white\/\[0\.03\],
-html.dark .canvas-home-shell .bg-white\/\[0\.02\] {
+html:not(.dark) .canvas-home-shell .bg-stone-900,
+html:not(.dark) .canvas-home-shell .bg-white\/\[0\.03\],
+html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   background: #fff !important;
-}
-
-.canvas-home-shell [data-project-view],
-html.dark .canvas-home-shell [data-project-view] {
-  background: #fff !important;
-  border-color: #e7e5df !important;
-  color: #1c1917 !important;
-}
-
-.studio-root.is-canvas .flow-board,
-.studio-root.is-canvas .react-flow,
-.studio-root.is-canvas .react-flow__pane,
-.studio-root.is-canvas .react-flow__renderer,
-.studio-root.is-canvas .react-flow__background,
-.studio-root.is-canvas .react-flow__container,
-.canvas-workspace-shell,
-.canvas-workspace-shell .flow-board,
-.canvas-workspace-shell .react-flow,
-html.dark .studio-root.is-canvas .flow-board,
-html.dark .studio-root.is-canvas .react-flow,
-html.dark .studio-root.is-canvas .react-flow__background,
-html.dark .canvas-workspace-shell,
-html.dark .canvas-workspace-shell .flow-board,
-html.dark .canvas-workspace-shell .react-flow {
-  background: #f4f2ed !important;
-}
-
-.studio-page.studio-flush.studio-flush-scroll {
-  overflow: auto !important;
-  height: auto;
-  min-height: calc(100vh - 64px);
-  background: #f7f5f1;
-}
-
-.canvas-workspace-shell {
-  height: 100%;
-  min-height: calc(100vh - 64px);
-  background: #f4f2ed;
-}
-
-@media (max-width: 1100px) {
-  .studio-root .flow-toolbar,
-  .studio-root .flow-inspector,
-  .canvas-workspace-shell .flow-toolbar,
-  .canvas-workspace-shell .flow-inspector,
-  .canvas-workspace-shell [data-canvas-toolbar],
-  .studio-root.is-canvas .canvas-toolbar,
-  html.dark .studio-root.is-canvas .flow-toolbar,
-  html.dark .studio-root.is-canvas .flow-inspector {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-  }
 }

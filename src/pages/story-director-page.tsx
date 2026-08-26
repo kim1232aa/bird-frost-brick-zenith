@@ -5,7 +5,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { generateStudioImage } from "@/studio/generate/image";
 import { createStudioVideo, waitStudioVideo } from "@/studio/generate/video";
 import { useStudioHistory } from "@/studio/history";
-import { CompactModelSelect, preferredImageKey, preferredTextKey, preferredVideoKey } from "@/studio/model-select";
+import { preferredImageKey, preferredTextKey, preferredVideoKey, StudioModelField } from "@/studio/model-select";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
@@ -251,9 +251,9 @@ export function StoryDirectorPage() {
           故事
           <textarea rows={9} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风。" />
         </label>
-        <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} label="文本模型" />
-        <CompactModelSelect kind="image" value={imageModel} onChange={setImageModel} label="生图模型" />
-        <CompactModelSelect kind="video" value={videoModel} onChange={setVideoModel} label="视频模型" />
+        <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="文本模型" />
+        <StudioModelField kind="image" value={imageModel} onChange={setImageModel} label="生图模型" />
+        <StudioModelField kind="video" value={videoModel} onChange={setVideoModel} label="视频模型" />
         <div className="chip-row">
           {STYLE_PRESETS.slice(0, 6).map((item) => (
             <button key={item} type="button" className={style === item ? "is-active" : undefined} onClick={() => setStyle(item)}>

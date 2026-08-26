@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { adapterForProvider, listStudioAdapters } from "@/studio/adapters";
 import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/protocols";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { useStudioSession } from "@/studio/session";
+import { RelayModelBoard, guessCapabilities } from "@/studio/relay-models";
+import { RequireAdmin } from "@/studio/auth-gate";
 
 type WireFilter = "all" | "ready" | "template" | "paused" | "custom";
 type DeskMode = "edit" | "create";
@@ -36,7 +38,7 @@ function emptyDraft() {
   };
 }
 
-export function SettingsPage() {
+export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const relays = useStudioSession((state) => state.relays);
   const setRelayKey = useStudioSession((state) => state.setRelayKey);
   const setRelayEnabled = useStudioSession((state) => state.setRelayEnabled);
@@ -44,9 +46,9 @@ export function SettingsPage() {
   const addRelay = useStudioSession((state) => state.addRelay);
   const removeRelay = useStudioSession((state) => state.removeRelay);
   const enableWiredRelays = useStudioSession((state) => state.enableWiredRelays);
-  const enableAllRelays = useStudioSession((state) => state.enableAllRelays || state.enableWiredRelays);
+  const enableAllRelays = useStudioSession((state) => state.enableAllRelays);
   const resetRelays = useStudioSession((state) => state.resetRelays);
-  const [active, setActive] = useState(relays[0]?.id || "");
+  const [active, setActive] = useState(() => relays.find((item) => item.enabled && item.apiKey)?.id || relays[0]?.id || "");
   const [mode, setMode] = useState<DeskMode>("edit");
   const [tests, setTests] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
@@ -54,6 +56,14 @@ export function SettingsPage() {
   const [showKey, setShowKey] = useState(false);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState(emptyDraft);
+  const [pane, setPane] = useState<"list" | "editor">("list");
+
+  useEffect(() => {
+    const currentItem = relays.find((item) => item.id === active);
+    if (mode === "edit" && currentItem?.apiKey) return;
+    const ready = relays.find((item) => item.enabled && item.apiKey);
+    if (ready && ready.id !== active) setActive(ready.id);
+  }, [relays, active, mode]);
 
   const current = relays.find((item) => item.id === active) || relays[0];
   const counts = useMemo(() => {
@@ -79,6 +89,7 @@ export function SettingsPage() {
     setDraft(emptyDraft());
     setShowKey(false);
     setNotice("");
+    setPane("editor");
   };
 
   const openEdit = (id: string) => {
@@ -86,6 +97,7 @@ export function SettingsPage() {
     setMode("edit");
     setShowKey(false);
     setNotice("");
+    setPane("editor");
   };
 
   const deleteRelay = (id: string, name: string) => {
@@ -151,6 +163,10 @@ export function SettingsPage() {
       return;
     }
     const models = draft.models.split(/[,，\s]+/).filter(Boolean);
+    const textModels = models.filter((model) => guessCapabilities(model).includes("text"));
+    const imageModels = models.filter((model) => guessCapabilities(model).includes("image"));
+    const videoModels = models.filter((model) => guessCapabilities(model).includes("video"));
+    const audioModels = models.filter((model) => guessCapabilities(model).includes("audio"));
     const created = addRelay({
       name,
       baseUrl,
@@ -160,18 +176,28 @@ export function SettingsPage() {
       authScheme: proto.authScheme,
       endpoints: draft.endpoints,
       enabled: true,
-      imageModels: models,
       models,
+      textModels,
+      imageModels,
+      videoModels,
+      audioModels,
+      capabilities: [
+        ...(textModels.length ? (["text"] as const) : []),
+        ...(imageModels.length ? (["image"] as const) : []),
+        ...(videoModels.length ? (["video"] as const) : []),
+        ...(audioModels.length ? (["audio"] as const) : []),
+      ],
       remark: proto.docs,
     });
     setDraft(emptyDraft());
     setActive(created.id);
     setMode("edit");
+    setPane("editor");
     setNotice(`已新增「${name}」。填密钥后点测试连通即可使用。`);
   };
 
-  return (
-    <div className="wire-desk">
+  const desk = (
+    <div className={pane === "editor" ? `wire-desk ${mode === "create" ? "is-creating" : "is-editing"}` : "wire-desk"}>
       <aside className="wire-list">
         <header>
           <p className="studio-kicker">WIRING</p>
@@ -219,7 +245,7 @@ export function SettingsPage() {
             </button>
           ))}
         </div>
-        {visible.length === 0 ? <p className="studio-hint">没有匹配的供应商。清空搜索，或点「新增供应商」。 </p> : null}
+        {visible.length === 0 ? <p className="studio-hint">没有匹配的供应商。清空搜索，或点「新增供应商」。</p> : null}
         {visible.map((item) => {
           const state = relayState(item);
           const custom = !isManagedRelayId(item.id);
@@ -259,13 +285,16 @@ export function SettingsPage() {
                 <p className="studio-kicker">NEW PROVIDER</p>
                 <h2>新增供应商</h2>
               </div>
+              <button type="button" className="studio-ghost wire-back" onClick={() => setPane("list")}>
+                返回列表
+              </button>
               {current ? (
                 <button type="button" className="studio-ghost" onClick={() => setMode("edit")}>
                   取消
                 </button>
               ) : null}
             </div>
-            <p className="studio-hint">选协议会自动填端点。名称和 Base URL 必填，API Key 可稍后补。加入后出现在左边列表，也能随时删除。</p>
+            <p className="studio-hint">选协议会自动填端点。名称和 Base URL 必填。模型可先空着，加入后点「自动读取模型」再勾选文本 / 图片 / 视频。</p>
             <label className="model-picker">
               协议
               <select value={draft.protocol} onChange={(event) => pickProtocol(event.target.value)}>
@@ -290,7 +319,7 @@ export function SettingsPage() {
               <input type="password" value={draft.apiKey} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} placeholder="可先空着，加入后再填" />
             </label>
             <label className="model-picker">
-              模型（逗号分隔，可后改）
+              模型（可选，逗号分隔；加入后也能自动读取）
               <input value={draft.models} onChange={(event) => setDraft({ ...draft, models: event.target.value })} />
             </label>
             <details className="wire-advanced">
@@ -321,6 +350,9 @@ export function SettingsPage() {
                 <h2>{current.name}</h2>
               </div>
               <div className="result-actions">
+                <button type="button" className="studio-ghost wire-back" onClick={() => setPane("list")}>
+                  返回列表
+                </button>
                 <button type="button" className="studio-primary" onClick={openCreate}>
                   新增
                 </button>
@@ -411,6 +443,7 @@ export function SettingsPage() {
             </div>
             {notice ? <p className="studio-ok">{notice}</p> : null}
             {tests[current.id] ? <p className={tests[current.id].startsWith("通过") ? "studio-ok" : "studio-hint"}>{tests[current.id]}</p> : <p className="studio-hint">填好 Key 后点测试。通过即可去生图 / 生视频使用。</p>}
+            <RelayModelBoard relay={current} />
             <details className="wire-advanced">
               <summary>高级：改接口路径（一般不用动）</summary>
               <div className="param-block">
@@ -440,4 +473,6 @@ export function SettingsPage() {
       </section>
     </div>
   );
+  if (embedded) return desk;
+  return <RequireAdmin>{desk}</RequireAdmin>;
 }

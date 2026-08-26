@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": [
-      "ES2022",
+      "ES2023",
       "DOM",
       "DOM.Iterable"
     ],
@@ -12,10 +12,8 @@
     "strict": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    // `src/lib/db.ts` imports scripts/migration-plan.mjs; checkJs types the
-    // implementation itself instead of a hand-written declaration beside it.
     "allowJs": true,
-    "checkJs": true,
+    "checkJs": false,
     "noEmit": true,
     "types": [
       "vite/client",
@@ -25,6 +23,15 @@
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "next/navigation": [
+        "./src/compat/next-navigation.ts"
+      ],
+      "next/link": [
+        "./src/compat/next-link.tsx"
+      ],
+      "next/image": [
+        "./src/compat/next-image.tsx"
       ]
     },
     "allowImportingTsExtensions": true
@@ -32,10 +39,5 @@
   "include": [
     "src",
     "server"
-  ],
-  "exclude": [
-    "src/**/*.mjs",
-    "src/app/canvas",
-    "src/app/canvas-repair"
   ]
 }

@@ -1,26 +1,30 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 export const openaiCompatAdapter: StudioAdapter = {
   id: "openai-compat",
   label: "OpenAI 兼容",
   docs: "https://platform.openai.com/docs/api-reference",
   async generateImage(ctx, input) {
+    const refs = imageRefs(input);
+    const editing = input.operation === "edit" || refs.length > 0;
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: ctx.provider.endpoints?.images || "/images/generations",
+      path: editing && ctx.provider.endpoints?.images !== "/images/edits" ? (ctx.provider.endpoints?.images || "/images/generations") : ctx.provider.endpoints?.images || "/images/generations",
       body: {
         model: input.model,
         prompt: input.prompt,
         n: input.n || 1,
         ...(input.size ? { size: input.size } : {}),
-        ...(input.imageUrl ? { image: input.imageUrl } : {}),
+        ...(refs.length === 1 ? { image: refs[0] } : {}),
+        ...(refs.length > 1 ? { image: refs[0], images: refs } : {}),
       },
       timeoutMs: 120_000,
     });
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("OpenAI 兼容生图没有返回图片");
-    return { url };
+    const urls = allImageUrls(data);
+    if (!urls[0]) throw new Error("OpenAI 兼容生图没有返回图片");
+    return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
     const data = await studioProxyJson<Record<string, unknown>>({
@@ -32,6 +36,7 @@ export const openaiCompatAdapter: StudioAdapter = {
         ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
         ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
         ...(input.imageUrl ? { image: { url: input.imageUrl } } : {}),
+        ...(input.lastFrameUrl ? { last_frame: { url: input.lastFrameUrl } } : {}),
       },
       timeoutMs: 90_000,
     });

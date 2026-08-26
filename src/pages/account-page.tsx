@@ -2,8 +2,9 @@
 
 import { FormEvent, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { accountLabel, useAccountStore } from "@/studio/account";
-import { MEMBERSHIP_IS_LOCAL_MOCK, STUDIO_PLANS, planById, planLabel, useMembershipStore, type StudioPlanId } from "@/studio/membership";
+import { accountLabel, canEnterOps, useAccountStore } from "@/studio/account";
+import { MEMBERSHIP_IS_LOCAL_MOCK, STUDIO_CREDIT_PACKS, STUDIO_PLANS, planById, planLabel, useMembershipStore, type StudioPlanId } from "@/studio/membership";
+import { useStudioJobs } from "@/studio/generate/jobs";
 import { useOpsStore } from "@/studio/ops";
 import { useStudioSession } from "@/studio/session";
 
@@ -17,10 +18,15 @@ function maskKey(value: string) {
 export function AccountPage() {
   const session = useAccountStore((state) => state.session);
   const isGuest = useAccountStore((state) => state.isGuest);
+  const hydrated = useAccountStore((state) => state.hydrated);
   const logout = useAccountStore((state) => state.logout);
   const updateProfile = useAccountStore((state) => state.updateProfile);
+  const loginDemoAdmin = useAccountStore((state) => state.loginDemoAdmin);
+  const continueAsGuest = useAccountStore((state) => state.continueAsGuest);
   const plan = useMembershipStore((state) => state.plan);
   const upgrade = useMembershipStore((state) => state.upgrade);
+  const buyPack = useMembershipStore((state) => state.buyPack);
+  const jobs = useStudioJobs((state) => state.jobs);
   const credits = useOpsStore((state) => state.credits);
   const ledger = useOpsStore((state) => state.ledger);
   const grant = useOpsStore((state) => state.grant);
@@ -33,11 +39,21 @@ export function AccountPage() {
   const apiCredits = credits.text;
   const wired = relays.filter((item) => item.enabled && item.apiKey).length;
   const enabled = relays.filter((item) => item.enabled).length;
-  const label = accountLabel({ session, isGuest });
+  const admin = canEnterOps({ session });
+  const label = accountLabel({ session, isGuest, hydrated });
   const payload = {
     success: true,
     request_id: "local-preview",
-    data: { web_credits: webCredits, api_credits: apiCredits },
+    data: {
+      web_credits: webCredits,
+      api_credits: apiCredits,
+      plan,
+      jobs: {
+        running: jobs.filter((item) => item.status === "running").length,
+        today: jobs.filter((item) => item.createdAt > Date.now() - 86_400_000).length,
+        total: jobs.length,
+      },
+    },
   };
 
   const saveProfile = (event: FormEvent) => {
@@ -55,9 +71,10 @@ export function AccountPage() {
     <div className="acct-page">
       <header className="acct-hero">
         <p className="studio-kicker">ACCOUNT</p>
-        <h1>{session ? `你好，${session.displayName || session.username}` : isGuest ? "访客模式" : "账户"}</h1>
+        <h1>{session ? `你好，${session.displayName || session.username}` : isGuest ? "访客模式" : "还没登录"}</h1>
         <p className="studio-lead">
-          看积分、换方案、管理接线。当前身份：{label}。
+          当前身份：{label}
+          {session?.role === "admin" ? " · 可以进运营后台。" : " · 不能进后台改接线。"}
           {MEMBERSHIP_IS_LOCAL_MOCK ? " 会员和额度是本地演示，不请求服务器、也不真实扣费。" : ""}
         </p>
       </header>
@@ -65,8 +82,8 @@ export function AccountPage() {
       {!session && !isGuest ? (
         <section className="acct-banner">
           <div>
-            <h2>还没登录</h2>
-            <p className="studio-hint">注册后能记住显示名和方案。也可以访客先去接线。</p>
+            <h2>未登录不能进后台</h2>
+            <p className="studio-hint">可以先看生图页。要出图：登录、注册，或访客继续。运营接线和额度只有管理员能改。</p>
           </div>
           <div className="acct-alt">
             <Link to="/login" className="studio-primary">
@@ -75,6 +92,12 @@ export function AccountPage() {
             <Link to="/register" className="studio-ghost">
               注册
             </Link>
+            <button type="button" className="studio-ghost" onClick={continueAsGuest}>
+              访客继续
+            </button>
+            <button type="button" className="studio-ghost" onClick={() => void loginDemoAdmin()}>
+              登录管理员
+            </button>
           </div>
         </section>
       ) : null}
@@ -172,6 +195,13 @@ export function AccountPage() {
             </article>
           ))}
         </div>
+        <div className="acct-plans" style={{ marginTop: 16 }}>
+          {STUDIO_CREDIT_PACKS.map((pack) => (
+            <button key={pack.id} type="button" className="studio-ghost" onClick={() => { buyPack(pack.id); setSaved(`已加 ${pack.label}（本地演示）。`); }}>
+              {pack.label}
+            </button>
+          ))}
+        </div>
       </section>
 
       <div className="acct-grid">
@@ -181,11 +211,13 @@ export function AccountPage() {
               <p className="studio-kicker">PROVIDERS</p>
               <h2>供应商</h2>
             </div>
-            <Link to="/settings" className="studio-primary">
-              打开接线
+            <Link to={admin ? "/settings" : "/image"} className="studio-primary">
+              {admin ? "打开接线" : "去生图"}
             </Link>
           </div>
-          <p className="studio-hint">在设置页可以新增、删除、全部启用。这里只做总览。</p>
+          <p className="studio-hint">
+            {admin ? "在设置页可以新增、删除、全部启用。这里只做总览。" : "接线由管理员配置。你这边只看已启用的供应商，不能改密钥。"}
+          </p>
           <ul className="acct-relay-list">
             {relays.slice(0, 8).map((item) => (
               <li key={item.id}>
@@ -204,7 +236,9 @@ export function AccountPage() {
             <form className="acct-form studio-form" onSubmit={saveProfile}>
               <p className="studio-kicker">PROFILE</p>
               <h2>资料</h2>
-              <p className="studio-hint">用户名 {session.username}，注册于 {new Date(session.createdAt).toLocaleDateString()}</p>
+              <p className="studio-hint">
+                用户名 {session.username} · {session.role === "admin" ? "管理员" : "普通用户"} · 注册于 {new Date(session.createdAt).toLocaleDateString()}
+              </p>
               <label className="model-picker">
                 显示名称
                 <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
@@ -226,7 +260,7 @@ export function AccountPage() {
             <div>
               <p className="studio-kicker">SESSION</p>
               <h2>{isGuest ? "访客" : "未登录"}</h2>
-              <p className="studio-hint">访客也能接线生图。注册只是方便下次回来认领同一套偏好。</p>
+              <p className="studio-hint">访客能出图，不能进运营后台。注册普通账号只记住显示名和方案。</p>
               <div className="acct-alt">
                 <Link to="/login" className="studio-primary">
                   登录
@@ -248,12 +282,20 @@ export function AccountPage() {
             <p className="studio-hint">最近 12 条本地扣减 / 补发。</p>
           </div>
           <div className="acct-alt">
-            <button type="button" className="studio-ghost" onClick={() => grant("image", 50, "账户页补发")}>
-              补发 50 生图点
-            </button>
-            <Link className="studio-ghost" to="/admin">
-              运营后台
-            </Link>
+            {admin ? (
+              <>
+                <button type="button" className="studio-ghost" onClick={() => grant("image", 50, "账户页补发")}>
+                  补发 50 生图点
+                </button>
+                <Link className="studio-ghost" to="/admin">
+                  运营后台
+                </Link>
+              </>
+            ) : (
+              <Link className="studio-ghost" to="/image">
+                去生图
+              </Link>
+            )}
           </div>
         </div>
         {ledger.length === 0 ? (
@@ -278,9 +320,36 @@ export function AccountPage() {
       </section>
 
       <section className="acct-card">
+        <div className="acct-card-head">
+          <div>
+            <h2>生成任务</h2>
+            <p className="studio-hint">BananaPro 风格本地任务账本。出图/出片会记在这里，失败会退额度。</p>
+          </div>
+        </div>
+        {jobs.length === 0 ? (
+          <p className="studio-hint">还没有任务。去生图、编辑或图生视频后会出现。</p>
+        ) : (
+          <ul className="acct-ledger">
+            {jobs.slice(0, 12).map((job) => (
+              <li key={job.id}>
+                <em>{new Date(job.createdAt).toLocaleString()}</em>
+                <strong>
+                  {job.kind} · {job.status}
+                </strong>
+                <span>
+                  {job.model}
+                  {job.error ? ` · ${job.error.slice(0, 80)}` : job.urls.length ? ` · ${job.urls.length} 个结果` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="acct-card">
         <h2>GET /api/v1/account/balances</h2>
         <pre className="acct-json">{JSON.stringify(payload, null, 2)}</pre>
-        <p className="studio-hint">这是演示字段对齐，不是真实 BananaPro 账单。密钥不要写进仓库。</p>
+        <p className="studio-hint">字段对齐 BananaPro 账单接口。这是本地演示账本，不请求服务器、也不真实扣费。密钥不要写进仓库。</p>
       </section>
     </div>
   );

@@ -212,7 +212,7 @@ export type SeedanceGenerationTaskState = {
     errorMessage?: string;
 };
 
-export type CanvasVideoTaskProvider = "openai" | "seedance" | "dashscope" | "agnes" | "civitai";
+export type CanvasVideoTaskProvider = "openai" | "seedance" | "dashscope" | "agnes" | "civitai" | "xai-imagine";
 
 /**
  * Secret-free identity of the exact relay route that accepted a native video

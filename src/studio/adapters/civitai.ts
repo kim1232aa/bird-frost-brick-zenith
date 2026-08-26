@@ -1,7 +1,18 @@
 import type { StudioAdapter } from "./types";
-import { studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
-type Extra = { imageUrl?: string; width?: number; height?: number; seed?: number; negativePrompt?: string };
+type Extra = {
+  imageUrl?: string;
+  imageUrls?: string[];
+  width?: number;
+  height?: number;
+  seed?: number;
+  negativePrompt?: string;
+  quantity?: number;
+  n?: number;
+  loras?: Record<string, number> | Readonly<Record<string, number>>;
+};
 
 export type CivitaiEngine = {
   id: string;
@@ -11,6 +22,18 @@ export type CivitaiEngine = {
   tags: string[];
   body: (prompt: string, extra?: Extra) => Record<string, unknown>;
 };
+
+function refsOf(extra?: Extra) {
+  return [...(extra?.imageUrls || []), ...(extra?.imageUrl ? [extra.imageUrl] : [])].filter(Boolean).slice(0, 3);
+}
+
+function qty(extra?: Extra) {
+  return Math.max(1, Math.min(4, extra?.quantity || extra?.n || 1));
+}
+
+function loraPatch(extra?: Extra) {
+  return extra?.loras && Object.keys(extra.loras).length ? { loras: extra.loras } : {};
+}
 
 export const CIVITAI_ENGINES: CivitaiEngine[] = [
   {
@@ -27,11 +50,12 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      quantity: 1,
+      quantity: qty(extra),
       ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
       ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
       imageMetadata: JSON.stringify({ app: "boundless-studio", engine: "krea2-turbo" }),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -48,9 +72,10 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      quantity: 1,
+      quantity: qty(extra),
       imageMetadata: JSON.stringify({ app: "boundless-studio", engine: "krea2-raw" }),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -66,8 +91,9 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      quantity: 1,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -75,15 +101,16 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Flux 2 Klein",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "Flux2", "便宜"],
+    tags: ["mature", "Flux2", "便宜", "编辑"],
     body: (prompt, extra) => ({
       engine: "flux2",
       model: "klein",
-      operation: extra?.imageUrl ? "editImage" : "createImage",
+      operation: refsOf(extra).length ? "editImage" : "createImage",
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -91,15 +118,16 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Flux 2 Pro",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "Flux2"],
+    tags: ["mature", "Flux2", "编辑"],
     body: (prompt, extra) => ({
       engine: "flux2",
       model: "pro",
-      operation: extra?.imageUrl ? "editImage" : "createImage",
+      operation: refsOf(extra).length ? "editImage" : "createImage",
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -112,11 +140,13 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       engine: "sdcpp",
       ecosystem: "z-image",
       model: "turbo",
-      operation: extra?.imageUrl ? "createVariant" : "createImage",
+      operation: refsOf(extra).length ? "createVariant" : "createImage",
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -124,14 +154,14 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Grok Image (Civitai)",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "Grok"],
+    tags: ["mature", "Grok", "编辑"],
     body: (prompt, extra) => ({
       engine: "grok",
-      operation: extra?.imageUrl ? "editImage" : "createImage",
+      operation: refsOf(extra).length ? "editImage" : "createImage",
       prompt,
       ...(extra?.width ? { width: extra.width } : {}),
       ...(extra?.height ? { height: extra.height } : {}),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -139,15 +169,16 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Flux 2 Dev",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "Flux2"],
+    tags: ["mature", "Flux2", "编辑"],
     body: (prompt, extra) => ({
       engine: "flux2",
       model: "dev",
-      operation: extra?.imageUrl ? "editImage" : "createImage",
+      operation: refsOf(extra).length ? "editImage" : "createImage",
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -155,7 +186,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "SDXL",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "SDXL"],
+    tags: ["mature", "SDXL", "LoRA"],
     body: (prompt, extra) => ({
       engine: "comfy",
       ecosystem: "sdxl",
@@ -163,9 +194,10 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      quantity: 1,
+      quantity: qty(extra),
       ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -173,7 +205,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Anima",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "动漫"],
+    tags: ["mature", "动漫", "LoRA"],
     body: (prompt, extra) => ({
       engine: "comfy",
       ecosystem: "anima",
@@ -181,8 +213,9 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       prompt,
       width: extra?.width || 1024,
       height: extra?.height || 1024,
-      quantity: 1,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      quantity: qty(extra),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
+      ...loraPatch(extra),
     }),
   },
   {
@@ -190,13 +223,13 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     label: "Qwen Image 3.0 Pro",
     kind: "image",
     nsfw: true,
-    tags: ["mature", "Qwen"],
+    tags: ["mature", "Qwen", "编辑"],
     body: (prompt, extra) => ({
       engine: "qwen",
       model: "3.0-pro",
-      operation: extra?.imageUrl ? "editImage" : "createImage",
+      operation: refsOf(extra).length ? "editImage" : "createImage",
       prompt,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -210,10 +243,10 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       version: "v4.5",
       prompt,
       enableSafetyChecker: false,
-      quantity: 1,
+      quantity: qty(extra),
       ...(extra?.width ? { width: extra.width } : {}),
       ...(extra?.height ? { height: extra.height } : {}),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -227,10 +260,10 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       version: "v5.0-pro",
       prompt,
       enableSafetyChecker: false,
-      quantity: 1,
+      quantity: qty(extra),
       ...(extra?.width ? { width: extra.width } : {}),
       ...(extra?.height ? { height: extra.height } : {}),
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -243,7 +276,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
       engine: "ltx2.3",
       operation: extra?.imageUrl ? "firstLastFrameToVideo" : "createVideo",
       prompt,
-      ...(extra?.imageUrl ? { images: [extra.imageUrl] } : {}),
+      ...(extra?.imageUrl || extra?.imageUrls?.length ? { images: refsOf(extra) } : {}),
     }),
   },
   {
@@ -261,19 +294,23 @@ export function civitaiEngine(model: string) {
 }
 
 export function readCivitaiMediaUrl(data: unknown) {
-  if (!data || typeof data !== "object") return "";
+  return readCivitaiMediaUrls(data)[0] || "";
+}
+
+export function readCivitaiMediaUrls(data: unknown) {
+  if (!data || typeof data !== "object") return [];
   const record = data as {
     images?: Array<{ url?: string; available?: boolean }>;
     videos?: Array<{ url?: string; available?: boolean }>;
     jobs?: Array<{ result?: { blobUrl?: string; blobUrlExpired?: boolean } }>;
-    steps?: Array<{ output?: { videos?: Array<{ url?: string; available?: boolean }>; images?: Array<{ url?: string }> } }>;
+    steps?: Array<{ output?: { videos?: Array<{ url?: string; available?: boolean }>; images?: Array<{ url?: string; available?: boolean }> } }>;
   };
   const stepMedia = (record.steps || []).flatMap((step) => [...(step.output?.videos || []), ...(step.output?.images || [])]);
   const media = [...(record.images || []), ...(record.videos || []), ...stepMedia];
-  const ready = media.find((item) => item.url && item.available !== false) || media.find((item) => item.url);
-  if (ready?.url) return String(ready.url).trim();
-  const jobUrl = record.jobs?.[0]?.result?.blobUrl;
-  return String(jobUrl || "").trim();
+  const urls = media.filter((item) => item.url && item.available !== false).map((item) => String(item.url).trim());
+  const fallback = media.filter((item) => item.url).map((item) => String(item.url).trim());
+  const jobUrl = String(record.jobs?.[0]?.result?.blobUrl || "").trim();
+  return Array.from(new Set([...urls, ...fallback, ...(jobUrl ? [jobUrl] : []), ...allImageUrls(data)]));
 }
 
 function readJobId(data: unknown) {
@@ -299,37 +336,50 @@ export const civitaiAdapter: StudioAdapter = {
   async generateImage(ctx, input) {
     if (!ctx.provider.apiKey) throw new Error("Civitai 需要 API Token");
     const engine = civitaiEngine(input.model);
+    const refs = imageRefs(input);
+    if (input.operation === "edit" && !refs.length) throw new Error("编辑需要至少一张参考图");
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/workflows?wait=60&allowMatureContent=true",
       body: workflowBody(
         "imageGen",
         engine.body(input.prompt, {
-          imageUrl: input.imageUrl,
+          imageUrl: refs[0],
+          imageUrls: refs,
           width: input.width,
           height: input.height,
           seed: input.seed,
           negativePrompt: input.negativePrompt,
+          quantity: input.n || 1,
+          n: input.n,
+          loras: input.loras,
         }),
       ),
       timeoutMs: 180_000,
       baseUrl: CIVITAI_WORKFLOWS,
     });
-    const url = readCivitaiMediaUrl(data);
-    if (!url) throw new Error(civitaiError(data) || "Civitai 没有返回图片地址");
-    return { url };
+    const urls = readCivitaiMediaUrls(data);
+    if (!urls[0]) throw new Error(civitaiError(data) || "Civitai 没有返回图片地址");
+    return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
     if (!ctx.provider.apiKey) throw new Error("Civitai 需要 API Token");
     const engine = civitaiEngine(input.model);
+    const frames = [input.imageUrl, input.lastFrameUrl].filter(Boolean) as string[];
     const inputBody: Record<string, unknown> = {
-      ...engine.body(input.prompt, { imageUrl: input.imageUrl }),
+      ...engine.body(input.prompt, { imageUrl: frames[0], imageUrls: frames }),
       duration: input.duration || 5,
       width: 1280,
       height: 720,
       fps: 24,
     };
-    if (engine.id === "ltx2.3") inputBody.model = "22b-distilled";
+    if (engine.id === "ltx2.3") {
+      inputBody.model = "22b-distilled";
+      if (frames.length) {
+        inputBody.operation = "firstLastFrameToVideo";
+        inputBody.images = frames;
+      }
+    }
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/workflows?wait=0&allowMatureContent=true",

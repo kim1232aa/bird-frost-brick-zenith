@@ -212,7 +212,8 @@ html.dark,
 .studio-form textarea,
 .studio-form select,
 .studio-form input,
-.shot-body input {
+.shot-body input,
+.model-picker select {
   width: 100%;
   border: 1px solid #2c2c34;
   background: #1c1c24;
@@ -220,6 +221,7 @@ html.dark,
   padding: 10px 12px;
   color: #efe9dd;
   font: inherit;
+  min-height: 42px;
 }
 
 .studio-primary {
@@ -399,9 +401,6 @@ html.dark,
   .flow-shell,
   .ws {
     grid-template-columns: 1fr;
-  }
-  .studio-nav {
-    display: none;
   }
 }
 
@@ -1491,10 +1490,6 @@ optgroup {
   .bench,
   .flow-shell {
     grid-template-columns: 1fr;
-  }
-  .flow-inspector,
-  .flow-toolbar {
-    display: none;
   }
 }
 

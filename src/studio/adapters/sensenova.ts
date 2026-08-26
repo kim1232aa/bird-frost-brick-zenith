@@ -1,11 +1,13 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 export const sensenovaAdapter: StudioAdapter = {
   id: "sensenova",
   label: "商汤日日新",
   docs: "https://platform.sensenova.cn/",
   async generateImage(ctx, input) {
+    const refs = imageRefs(input);
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/images/generations",
@@ -13,13 +15,15 @@ export const sensenovaAdapter: StudioAdapter = {
         model: input.model,
         prompt: input.prompt,
         size: input.size || "2048x2048",
-        n: 1,
+        n: input.n || 1,
+        ...(refs[0] ? { image: refs[0] } : {}),
+        ...(refs.length > 1 ? { images: refs } : {}),
       },
       timeoutMs: 120_000,
     });
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("日日新生图没有返回图片");
-    return { url };
+    const urls = allImageUrls(data);
+    if (!urls[0]) throw new Error("日日新生图没有返回图片");
+    return { url: urls[0], urls };
   },
   async generateText(ctx, input) {
     const data = await studioProxyJson<{ choices?: Array<{ message?: { content?: string } }> }>({

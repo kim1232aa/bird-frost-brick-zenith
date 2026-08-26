@@ -62,8 +62,14 @@ export async function studioProxyJson<T = unknown>(input: {
     const start = bytes[i];
     const looksJson = start === 0x7b || start === 0x5b || start === 0x22;
     const contentType = response.headers.get("content-type") || "";
+    const sniffed = sniffMedia(bytes);
+    if (response.ok && !looksJson && bytes.length > 32 && sniffed) {
+      const blob = new Blob([bytes.slice()], { type: sniffed });
+      const url = URL.createObjectURL(blob);
+      return { url, status: "done", video: sniffed.startsWith("video/") ? { url } : undefined } as T;
+    }
     if (response.ok && !looksJson && bytes.length > 256) {
-      const blob = new Blob([buffer], { type: contentType.includes("video") ? contentType : "video/mp4" });
+      const blob = new Blob([bytes.slice()], { type: contentType.includes("video") ? contentType : "video/mp4" });
       const url = URL.createObjectURL(blob);
       return { url, status: "done", video: { url } } as T;
     }
@@ -80,7 +86,7 @@ export async function studioProxyJson<T = unknown>(input: {
       data = JSON.parse(trimmed) as typeof data;
     } catch {
       if (response.ok && bytes.length > 256) {
-        const blob = new Blob([buffer], { type: "video/mp4" });
+        const blob = new Blob([bytes.slice()], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         return { url, status: "done", video: { url } } as T;
       }
@@ -119,17 +125,52 @@ export function providerById(id: string, relays: ApiRelayProvider[]) {
   return found;
 }
 
-export function firstImageUrl(data: unknown): string {
-  if (!data || typeof data !== "object") return "";
-  const record = data as Record<string, unknown>;
-  const list = Array.isArray(record.data) ? record.data : Array.isArray(record.images) ? record.images : [];
-  for (const item of list) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const url = String(row.url || row.image_url || "").trim();
-    if (url) return url;
-    const b64 = String(row.b64_json || row.b64 || "").trim();
-    if (b64) return `data:image/png;base64,${b64}`;
+function sniffMedia(bytes: Uint8Array): string {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
+  if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4";
+  return "";
+}
+
+function pushUrl(out: string[], value: unknown) {
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (/^https?:\/\//i.test(text) || text.startsWith("data:image/") || text.startsWith("blob:")) out.push(text);
+    return;
   }
-  return String(record.url || record.video_url || "").trim();
+  if (!value || typeof value !== "object") return;
+  const row = value as Record<string, unknown>;
+  const url = String(row.url || row.image_url || row.image || "").trim();
+  if (url) {
+    out.push(url);
+    return;
+  }
+  const b64 = String(row.b64_json || row.b64 || "").trim();
+  if (b64) out.push(`data:image/png;base64,${b64}`);
+}
+
+export function allImageUrls(data: unknown): string[] {
+  if (!data) return [];
+  if (typeof data === "string") {
+    const text = data.trim();
+    return /^https?:\/\//i.test(text) || text.startsWith("data:image/") || text.startsWith("blob:") ? [text] : [];
+  }
+  if (typeof data !== "object") return [];
+  const record = data as Record<string, unknown>;
+  const out: string[] = [];
+  const lists = [record.data, record.images, record.output_images, record.outputImages, record.urls];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) pushUrl(out, item);
+  }
+  const output = record.output && typeof record.output === "object" ? (record.output as Record<string, unknown>) : undefined;
+  if (output) out.push(...allImageUrls(output));
+  pushUrl(out, record.url || record.image_url);
+  return Array.from(new Set(out.filter(Boolean)));
+}
+
+export function firstImageUrl(data: unknown): string {
+  return allImageUrls(data)[0] || "";
 }

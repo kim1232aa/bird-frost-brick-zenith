@@ -1,11 +1,11 @@
 /** Built-in wiring slots. Keep in sync with STUDIO_PROVIDERS in wiring.ts. */
 const MANAGED_IDS = new Set([
+  "preset-modelscope",
+  "preset-huggingface",
   "preset-superxihe-image",
   "preset-superxihe-grok",
   "preset-volcengine-plan",
   "preset-civitai",
-  "preset-modelscope",
-  "preset-huggingface",
   "preset-aliyun-dashscope",
   "preset-aliyun-tokenplan",
   "preset-volcengine-ark",

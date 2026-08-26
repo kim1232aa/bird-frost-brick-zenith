@@ -7,8 +7,7 @@
 @import "./studio-forms.css";
 @import "./studio-account.css";
 @import "./brand.css";
-@import "./studio-gen.css";
-@import "./studio-kit.css";
+@import "./studio-mobile.css";
 
 html,
 body,
@@ -18,9 +17,9 @@ body,
   color: #1c1917;
 }
 
-html.dark:not(:has(.studio-root.is-canvas)),
-html.dark:not(:has(.studio-root.is-canvas)) body,
-html.dark:not(:has(.studio-root.is-canvas)) #app {
+html.dark,
+html.dark body,
+html.dark #app {
   background: #101014;
   color: #efe9dd;
 }

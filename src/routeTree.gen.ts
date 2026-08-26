@@ -10,13 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccountRouteImport } from './routes/account'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CanvasRepairRouteImport } from './routes/canvas-repair'
 import { Route as CatalogRouteImport } from './routes/catalog'
 import { Route as EcommerceRouteImport } from './routes/ecommerce'
+import { Route as EditRouteImport } from './routes/edit'
+import { Route as FramesRouteImport } from './routes/frames'
+import { Route as I2vRouteImport } from './routes/i2v'
 import { Route as ImageRouteImport } from './routes/image'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StoryRouteImport } from './routes/story'
 import { Route as VideoRouteImport } from './routes/video'
@@ -33,6 +38,11 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountRoute = AccountRouteImport.update({
+  id: '/account',
+  path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -55,6 +65,21 @@ const EcommerceRoute = EcommerceRouteImport.update({
   path: '/ecommerce',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EditRoute = EditRouteImport.update({
+  id: '/edit',
+  path: '/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FramesRoute = FramesRouteImport.update({
+  id: '/frames',
+  path: '/frames',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const I2vRoute = I2vRouteImport.update({
+  id: '/i2v',
+  path: '/i2v',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ImageRoute = ImageRouteImport.update({
   id: '/image',
   path: '/image',
@@ -68,6 +93,11 @@ const LibraryRoute = LibraryRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -134,13 +164,18 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/admin': typeof AdminRoute
   '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
+  '/edit': typeof EditRoute
+  '/frames': typeof FramesRoute
+  '/i2v': typeof I2vRoute
   '/image': typeof ImageRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
@@ -156,13 +191,18 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/admin': typeof AdminRoute
   '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
+  '/edit': typeof EditRoute
+  '/frames': typeof FramesRoute
+  '/i2v': typeof I2vRoute
   '/image': typeof ImageRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
@@ -179,13 +219,18 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/account': typeof AccountRoute
   '/admin': typeof AdminRoute
   '/canvas-repair': typeof CanvasRepairRoute
   '/catalog': typeof CatalogRoute
   '/ecommerce': typeof EcommerceRoute
+  '/edit': typeof EditRoute
+  '/frames': typeof FramesRoute
+  '/i2v': typeof I2vRoute
   '/image': typeof ImageRoute
   '/library': typeof LibraryRoute
   '/login': typeof LoginRoute
+  '/register': typeof RegisterRoute
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
@@ -203,13 +248,18 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/account'
     | '/admin'
     | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
+    | '/edit'
+    | '/frames'
+    | '/i2v'
     | '/image'
     | '/library'
     | '/login'
+    | '/register'
     | '/settings'
     | '/story'
     | '/video'
@@ -225,13 +275,18 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/account'
     | '/admin'
     | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
+    | '/edit'
+    | '/frames'
+    | '/i2v'
     | '/image'
     | '/library'
     | '/login'
+    | '/register'
     | '/settings'
     | '/story'
     | '/video'
@@ -247,13 +302,18 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/account'
     | '/admin'
     | '/canvas-repair'
     | '/catalog'
     | '/ecommerce'
+    | '/edit'
+    | '/frames'
+    | '/i2v'
     | '/image'
     | '/library'
     | '/login'
+    | '/register'
     | '/settings'
     | '/story'
     | '/video'
@@ -270,13 +330,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountRoute: typeof AccountRoute
   AdminRoute: typeof AdminRoute
   CanvasRepairRoute: typeof CanvasRepairRoute
   CatalogRoute: typeof CatalogRoute
   EcommerceRoute: typeof EcommerceRoute
+  EditRoute: typeof EditRoute
+  FramesRoute: typeof FramesRoute
+  I2vRoute: typeof I2vRoute
   ImageRoute: typeof ImageRoute
   LibraryRoute: typeof LibraryRoute
   LoginRoute: typeof LoginRoute
+  RegisterRoute: typeof RegisterRoute
   SettingsRoute: typeof SettingsRoute
   StoryRoute: typeof StoryRoute
   VideoRoute: typeof VideoRoute
@@ -298,6 +363,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account': {
+      id: '/account'
+      path: '/account'
+      fullPath: '/account'
+      preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -328,6 +400,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EcommerceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/edit': {
+      id: '/edit'
+      path: '/edit'
+      fullPath: '/edit'
+      preLoaderRoute: typeof EditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/frames': {
+      id: '/frames'
+      path: '/frames'
+      fullPath: '/frames'
+      preLoaderRoute: typeof FramesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/i2v': {
+      id: '/i2v'
+      path: '/i2v'
+      fullPath: '/i2v'
+      preLoaderRoute: typeof I2vRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/image': {
       id: '/image'
       path: '/image'
@@ -347,6 +440,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -438,13 +538,18 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccountRoute: AccountRoute,
   AdminRoute: AdminRoute,
   CanvasRepairRoute: CanvasRepairRoute,
   CatalogRoute: CatalogRoute,
   EcommerceRoute: EcommerceRoute,
+  EditRoute: EditRoute,
+  FramesRoute: FramesRoute,
+  I2vRoute: I2vRoute,
   ImageRoute: ImageRoute,
   LibraryRoute: LibraryRoute,
   LoginRoute: LoginRoute,
+  RegisterRoute: RegisterRoute,
   SettingsRoute: SettingsRoute,
   StoryRoute: StoryRoute,
   VideoRoute: VideoRoute,

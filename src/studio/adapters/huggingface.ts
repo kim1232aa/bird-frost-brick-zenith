@@ -1,5 +1,6 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 const HF_ROUTER = "https://router.huggingface.co";
 const HF_IMAGE_BASE = `${HF_ROUTER}/nscale/v1`;
@@ -33,6 +34,8 @@ export const huggingfaceAdapter: StudioAdapter = {
   label: "Hugging Face",
   docs: "https://huggingface.co/docs/inference-providers/index",
   async generateImage(ctx, input) {
+    const refs = imageRefs(input);
+    if (input.operation === "edit" && !refs.length) throw new Error("FLUX.2 编辑需要至少一张参考图");
     let lastError: Error | null = null;
     for (const baseUrl of imageBases(ctx.provider.baseUrl)) {
       try {
@@ -46,19 +49,20 @@ export const huggingfaceAdapter: StudioAdapter = {
             n: input.n || 1,
             response_format: "b64_json",
             ...(input.size ? { size: input.size } : {}),
-            ...(input.imageUrl ? { image: input.imageUrl } : {}),
+            ...(refs.length === 1 ? { image: refs[0] } : {}),
+            ...(refs.length > 1 ? { image: refs[0], images: refs } : {}),
           },
           timeoutMs: 120_000,
         });
-        const url = firstImageUrl(data);
-        if (url) return { url };
+        const urls = allImageUrls(data);
+        if (urls[0]) return { url: urls[0], urls };
         lastError = new Error("Hugging Face 没有返回图片");
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
         if (!retryable(lastError.message)) throw lastError;
       }
     }
-    throw lastError || new Error("Hugging Face 没有返回图片。确认模型在 Inference Router 可用，例如 black-forest-labs/FLUX.1-schnell。");
+    throw lastError || new Error("Hugging Face 没有返回图片。确认模型在 Inference Router 可用，例如 black-forest-labs/FLUX.1-schnell 或 FLUX.2-dev。");
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Hugging Face Token" };

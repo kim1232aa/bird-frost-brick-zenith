@@ -1,5 +1,6 @@
 import type { StudioAdapter } from "./types";
-import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
+import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
+import { imageRefs } from "@/studio/image-refs";
 
 function pollState(data: unknown): { status: "pending" | "completed" | "failed"; url?: string; error?: string } {
   if (!data || typeof data !== "object") return { status: "failed", error: "视频任务返回为空" };
@@ -22,17 +23,19 @@ export const xaiImagineAdapter: StudioAdapter = {
   label: "xAI Imagine",
   docs: "https://docs.x.ai/docs/guides/image-generation",
   async generateImage(ctx, input) {
-    const body: Record<string, unknown> = { model: input.model, prompt: input.prompt, n: 1 };
-    if (input.imageUrl) body.image = { url: input.imageUrl };
+    const refs = imageRefs(input);
+    const body: Record<string, unknown> = { model: input.model, prompt: input.prompt, n: input.n || 1 };
+    if (refs[0]) body.image = { url: refs[0] };
+    if (refs.length > 1) body.images = refs.map((url) => ({ url }));
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/images/generations",
       body,
       timeoutMs: 120_000,
     });
-    const url = firstImageUrl(data);
-    if (!url) throw new Error("Grok Imagine 没有返回图片");
-    return { url };
+    const urls = allImageUrls(data);
+    if (!urls[0]) throw new Error("Grok Imagine 没有返回图片");
+    return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
     const body: Record<string, unknown> = {
@@ -43,6 +46,7 @@ export const xaiImagineAdapter: StudioAdapter = {
     if (input.aspectRatio) body.aspect_ratio = input.aspectRatio;
     if (input.resolution) body.resolution = input.resolution;
     if (input.imageUrl) body.image = { url: input.imageUrl };
+    if (input.lastFrameUrl) body.last_frame_image = { url: input.lastFrameUrl };
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       path: "/videos/generations",

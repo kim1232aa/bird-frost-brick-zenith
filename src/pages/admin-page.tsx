@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { catalogKey, STUDIO_CATALOG } from "@/studio/catalog";
-import { liveCard, useOpsStore } from "@/studio/ops";
+import { catalogKey } from "@/studio/catalog";
+import { liveCard, liveCatalog, useOpsStore } from "@/studio/ops";
 import { SettingsPage } from "@/pages/settings-page";
+import { RequireAdmin } from "@/studio/auth-gate";
 import { useStudioSession } from "@/studio/session";
 
-export function AdminPage() {
+function AdminDesk() {
   const unlisted = useOpsStore((state) => state.unlisted);
   const setListed = useOpsStore((state) => state.setListed);
   const setPoints = useOpsStore((state) => state.setPoints);
@@ -25,7 +26,7 @@ export function AdminPage() {
         <div>
           <p className="studio-kicker">管理员</p>
           <h1>运营后台</h1>
-          <p className="studio-hint">你是管理员。这里改接线、上下架、扣点规则。前台创作页只消费这里放出来的模型。</p>
+          <p className="studio-hint">只有管理员能进。这里改接线、上下架、扣点规则。前台创作页只消费这里放出来的模型。</p>
         </div>
         <dl className="admin-stats">
           <div>
@@ -49,15 +50,15 @@ export function AdminPage() {
           </button>
         ))}
       </div>
-      {tab === "wiring" ? <SettingsPage /> : null}
+      {tab === "wiring" ? <SettingsPage embedded /> : null}
       {tab === "models" ? (
         <div className="admin-table">
-          {STUDIO_CATALOG.map((item) => {
+          {liveCatalog(undefined, false).map((item) => {
             const key = catalogKey(item);
             const card = liveCard(item);
             const listed = !unlisted[key];
             return (
-              <div key={key} className="admin-row">
+              <div key={`${key}::${item.kind}`} className="admin-row">
                 <div>
                   <b>{item.model}</b>
                   <small>
@@ -131,5 +132,13 @@ export function AdminPage() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function AdminPage() {
+  return (
+    <RequireAdmin>
+      <AdminDesk />
+    </RequireAdmin>
   );
 }
