@@ -27,10 +27,12 @@ const queryClient = new QueryClient({
 });
 
 const AUTO_WEBDAV_SYNC_DELAY_MS = 2_500;
+const CONFIG_HYDRATION_FAIL_OPEN_MS = 2_500;
 
 export function CanvasProviders({ children }: { children: ReactNode }) {
   const theme = useThemeStore((state) => state.theme);
   const configHydrated = useConfigStore((state) => state.hydrated);
+  const setHydrated = useConfigStore((state) => state.setHydrated);
   const configHydrationError = useConfigHydrationRuntimeStore((state) => state.error);
   const isConfigHydrationRetrying = useConfigHydrationRuntimeStore((state) => state.isRetrying);
   const channelMode = useConfigStore((state) => state.config.channelMode);
@@ -49,6 +51,14 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
   const syncFingerprint = useMemo(() => buildSyncFingerprint(projects, assets), [projects, assets]);
 
   useEffect(() => {
+    if (configHydrated) return;
+    const timer = window.setTimeout(() => {
+      if (!useConfigStore.getState().hydrated) setHydrated(true);
+    }, CONFIG_HYDRATION_FAIL_OPEN_MS);
+    return () => window.clearTimeout(timer);
+  }, [configHydrated, setHydrated]);
+
+  useEffect(() => {
     if (!configHydrated || channelMode !== "remote") return;
     void loadPublicSettings().catch(() => undefined);
   }, [channelMode, configHydrated, loadPublicSettings]);
@@ -60,12 +70,8 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
     }
     if (imageCleanupReadyRef.current) return;
     imageCleanupReadyRef.current = true;
-
     const protectedImageKeys = collectImageStorageKeys({ projects, assets });
     void (async () => {
-      // Retain the complete cross-store reference set before deleting any old
-      // unretained image. This prevents either persistence store from cleaning
-      // media while the other store is still restoring its references.
       await setStoredImagesRetained(protectedImageKeys, true);
       await cleanupExpiredStoredImages(undefined, protectedImageKeys);
     })().catch((error) => console.warn("Canvas image cleanup failed", error));
@@ -103,10 +109,8 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     const previousDark = root.classList.contains("dark");
     const previousColorScheme = root.style.colorScheme;
-
     root.classList.toggle("dark", dark);
     root.style.colorScheme = theme;
-
     return () => {
       root.classList.toggle("dark", previousDark);
       root.style.colorScheme = previousColorScheme;
@@ -117,7 +121,7 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
     if (configHydrationError) {
       return <ConfigHydrationErrorShell isRetrying={isConfigHydrationRetrying} onRetry={retryConfigHydration} />;
     }
-    return <div className="h-screen bg-stone-950" aria-label="Loading local configuration" />;
+    return <div className="h-screen bg-[#f4f2ed] text-stone-600" aria-label="Loading local configuration" />;
   }
 
   return (
@@ -135,17 +139,17 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
 
 function ConfigHydrationErrorShell({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-stone-950 px-6 text-stone-100" aria-labelledby="config-hydration-error-title">
-      <section className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6 shadow-2xl" role="alert">
+    <main className="flex min-h-screen items-center justify-center bg-[#f4f2ed] px-6 text-stone-800" aria-labelledby="config-hydration-error-title">
+      <section className="w-full max-w-md rounded-xl border border-stone-200 bg-white p-6 shadow-sm" role="alert">
         <h1 id="config-hydration-error-title" className="text-lg font-semibold">
           无法读取本地配置
         </h1>
-        <p className="mt-2 text-sm leading-6 text-stone-300">
+        <p className="mt-2 text-sm leading-6 text-stone-500">
           已保留保存的设置，未写入默认配置。请检查本地应用数据访问权限后重试。
         </p>
         <button
           type="button"
-          className="mt-5 rounded-md bg-stone-100 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-white disabled:cursor-wait disabled:opacity-60"
+          className="mt-5 rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:cursor-wait disabled:opacity-60"
           onClick={onRetry}
           disabled={isRetrying}
           aria-label="Retry loading local configuration"
