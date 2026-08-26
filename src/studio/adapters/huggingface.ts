@@ -1,70 +1,80 @@
 import type { StudioAdapter } from "./types";
 import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
 
-function sizeOf(input: { size?: string; width?: number; height?: number }) {
-  if (input.width && input.height) return { width: input.width, height: input.height };
-  if (input.size && /^\d+x\d+$/i.test(input.size)) {
-    const [w, h] = input.size.split("x").map(Number);
-    return { width: w, height: h };
+const HF_ROUTER = "https://router.huggingface.co";
+const HF_IMAGE_BASE = `${HF_ROUTER}/nscale/v1`;
+const HF_IMAGE_PROVIDERS = ["nscale", "together", "fal-ai", "wavespeed"];
+
+function huggingfaceImageBase(raw?: string) {
+  const value = String(raw || "").trim() || HF_IMAGE_BASE;
+  try {
+    const url = new URL(value);
+    if (!/(^|\.)huggingface\.co$/i.test(url.hostname)) return value.replace(/\/+$/, "");
+    const path = url.pathname.replace(/\/+$/, "") || "";
+    if (path === "" || path === "/v1") return HF_IMAGE_BASE;
+    return `${url.origin}${path}`;
+  } catch {
+    return HF_IMAGE_BASE;
   }
-  return { width: 1024, height: 1024 };
+}
+
+function imageBases(raw?: string) {
+  const preferred = huggingfaceImageBase(raw);
+  const rest = HF_IMAGE_PROVIDERS.map((name) => `${HF_ROUTER}/${name}/v1`).filter((item) => item !== preferred);
+  return [preferred, ...rest];
+}
+
+function retryable(message: string) {
+  return /404|not found|not supported|no provider|does not exist|unknown model|unavailable|not available/i.test(message);
 }
 
 export const huggingfaceAdapter: StudioAdapter = {
   id: "huggingface",
   label: "Hugging Face",
-  docs: "https://huggingface.co/docs/api-inference",
+  docs: "https://huggingface.co/docs/inference-providers/index",
   async generateImage(ctx, input) {
-    const dims = sizeOf(input);
-    const data = await studioProxyJson<Record<string, unknown>>({
-      provider: ctx.provider,
-      baseUrl: "https://router.huggingface.co",
-      path: "/v1/images/generations",
-      body: {
-        model: input.model,
-        prompt: input.prompt,
-        size: `${dims.width}x${dims.height}`,
-        n: 1,
-        response_format: "url",
-      },
-      timeoutMs: 180_000,
-    });
-    const url = firstImageUrl(data);
-    if (url) return { url };
-
-    const fallback = await studioProxyJson<Record<string, unknown> & { url?: string }>({
-      provider: ctx.provider,
-      baseUrl: "https://router.huggingface.co",
-      path: `/hf-inference/models/${encodeURIComponent(input.model)}`,
-      body: {
-        inputs: input.prompt,
-        parameters: {
-          width: dims.width,
-          height: dims.height,
-          ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
-        },
-      },
-      timeoutMs: 180_000,
-    });
-    const blobUrl = String(fallback.url || firstImageUrl(fallback) || "").trim();
-    if (!blobUrl) throw new Error("Hugging Face 没有返回图片。确认模型已开通 Inference，或换 Z-Image-Turbo。");
-    return { url: blobUrl };
+    let lastError: Error | null = null;
+    for (const baseUrl of imageBases(ctx.provider.baseUrl)) {
+      try {
+        const data = await studioProxyJson<Record<string, unknown>>({
+          provider: ctx.provider,
+          baseUrl,
+          path: "/images/generations",
+          body: {
+            model: input.model,
+            prompt: input.prompt,
+            n: input.n || 1,
+            response_format: "b64_json",
+            ...(input.size ? { size: input.size } : {}),
+            ...(input.imageUrl ? { image: input.imageUrl } : {}),
+          },
+          timeoutMs: 120_000,
+        });
+        const url = firstImageUrl(data);
+        if (url) return { url };
+        lastError = new Error("Hugging Face did not return an image");
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        if (!retryable(lastError.message)) throw lastError;
+      }
+    }
+    throw lastError || new Error("Hugging Face did not return an image. Use black-forest-labs/FLUX.1-schnell.");
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Hugging Face Token" };
+    if (!ctx.provider.apiKey) return { ok: false, message: "Missing Hugging Face Token" };
     try {
       await studioProxyJson({
         provider: ctx.provider,
-        baseUrl: "https://router.huggingface.co",
-        path: "/v1/models",
+        baseUrl: huggingfaceImageBase(ctx.provider.baseUrl),
+        path: "/models",
         method: "GET",
-        timeoutMs: 20_000,
+        timeoutMs: 15_000,
       });
-      return { ok: true, message: "Hugging Face Token 可用" };
+      return { ok: true, message: "Hugging Face Router available" };
     } catch (err) {
-      const message = err instanceof Error ? err.message : "失败";
-      if (/401|invalid|unauthorized/i.test(message)) return { ok: false, message };
-      return { ok: true, message: `端点已打通：${message.slice(0, 160)}` };
+      const message = err instanceof Error ? err.message : "failed";
+      if (/401|invalid|unauthorized/i.test(message)) return { ok: false, message: `Token rejected: ${message.slice(0, 160)}` };
+      return { ok: true, message: `Endpoint reachable: ${message.slice(0, 160)}` };
     }
   },
 };
