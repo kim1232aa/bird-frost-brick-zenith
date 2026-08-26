@@ -5,12 +5,19 @@ import { adapterForProvider, listStudioAdapters } from "@/studio/adapters";
 import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/protocols";
 import { useStudioSession } from "@/studio/session";
 
+function relayState(item: { enabled?: boolean; apiKey?: string }) {
+  if (item.enabled && item.apiKey) return { label: "启用 · 已填密钥", className: "wire-state-on" };
+  if (item.apiKey) return { label: "已填密钥 · 未启用", className: "wire-state-paused" };
+  return { label: "模板 · 待填密钥", className: "wire-state-off" };
+}
+
 export function SettingsPage() {
   const relays = useStudioSession((state) => state.relays);
   const setRelayKey = useStudioSession((state) => state.setRelayKey);
   const setRelayEnabled = useStudioSession((state) => state.setRelayEnabled);
   const setRelayFields = useStudioSession((state) => state.setRelayFields);
   const addRelay = useStudioSession((state) => state.addRelay);
+  const enableWiredRelays = useStudioSession((state) => state.enableWiredRelays);
   const resetRelays = useStudioSession((state) => state.resetRelays);
   const [active, setActive] = useState(relays[0]?.id || "");
   const [tests, setTests] = useState<Record<string, string>>({});
@@ -29,19 +36,19 @@ export function SettingsPage() {
   const test = async (id: string) => {
     const relay = relays.find((item) => item.id === id);
     if (!relay) return;
-    setTests((current) => ({ ...current, [id]: "正在打测试端点…" }));
+    setTests((now) => ({ ...now, [id]: "正在打测试端点…" }));
     const adapter = adapterForProvider(relay);
     const start = Date.now();
     try {
       const result = adapter.testConnection
         ? await adapter.testConnection({ provider: relay })
         : { ok: Boolean(relay.apiKey), message: relay.apiKey ? "密钥已保存，该协议未实现独立探测" : "缺少密钥" };
-      setTests((current) => ({
-        ...current,
+      setTests((now) => ({
+        ...now,
         [id]: `${result.ok ? "通过" : "失败"} · ${Date.now() - start}ms · ${result.message}${result.models?.length ? ` · 模型 ${result.models.slice(0, 6).join(", ")}` : ""}`,
       }));
     } catch (err) {
-      setTests((current) => ({ ...current, [id]: `失败 · ${err instanceof Error ? err.message : "错误"}` }));
+      setTests((now) => ({ ...now, [id]: `失败 · ${err instanceof Error ? err.message : "错误"}` }));
     }
   };
 
@@ -69,16 +76,22 @@ export function SettingsPage() {
         <header>
           <p className="studio-kicker">WIRING</p>
           <h1>接线</h1>
-          <p className="studio-hint">先选协议，再填 Base URL / 端点 / Key。协议决定字段怎么发，不是只改一个 URL。</p>
+          <p className="studio-hint">内置供应商全部保留。没填密钥的是模板，不是被删掉。</p>
         </header>
-        {relays.map((item) => (
-          <button key={item.id} type="button" className={item.id === current?.id ? "wire-item is-on" : "wire-item"} onClick={() => setActive(item.id)}>
-            <b>{item.name}</b>
-            <small>
-              {item.protocol || item.adapterType || "openai-compat"} · {item.enabled && item.apiKey ? "启用" : "关闭"}
-            </small>
-          </button>
-        ))}
+        {relays.map((item) => {
+          const state = relayState(item);
+          return (
+            <button key={item.id} type="button" className={item.id === current?.id ? "wire-item is-on" : "wire-item"} onClick={() => setActive(item.id)}>
+              <b>{item.name}</b>
+              <small>
+                {item.protocol || item.adapterType || "openai-compat"} · <span className={state.className}>{state.label}</span>
+              </small>
+            </button>
+          );
+        })}
+        <button type="button" className="studio-ghost" onClick={enableWiredRelays}>
+          启用所有已填密钥
+        </button>
         <button type="button" className="studio-ghost" onClick={resetRelays}>
           恢复内置密钥
         </button>
@@ -160,7 +173,7 @@ export function SettingsPage() {
         ) : null}
         <hr />
         <h2>接入新 API</h2>
-        <p className="studio-hint">选协议 → 端点自动填入 → 改 Base URL / Key → 加入接线表。生成页会按适配器发官方字段，不共用一套参数。</p>
+        <p className="studio-hint">选协议 → 端点自动填入 → 改 Base URL / Key → 加入接线表。</p>
         <label className="model-picker">
           协议
           <select value={draft.protocol} onChange={(event) => pickProtocol(event.target.value)}>
