@@ -52,16 +52,16 @@ export const huggingfaceAdapter: StudioAdapter = {
         });
         const url = firstImageUrl(data);
         if (url) return { url };
-        lastError = new Error("Hugging Face did not return an image");
+        lastError = new Error("Hugging Face 没有返回图片");
       } catch (err) {
         lastError = err instanceof Error ? err : new Error(String(err));
         if (!retryable(lastError.message)) throw lastError;
       }
     }
-    throw lastError || new Error("Hugging Face did not return an image. Use black-forest-labs/FLUX.1-schnell.");
+    throw lastError || new Error("Hugging Face 没有返回图片。确认模型在 Inference Router 可用，例如 black-forest-labs/FLUX.1-schnell。");
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "Missing Hugging Face Token" };
+    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Hugging Face Token" };
     try {
       await studioProxyJson({
         provider: ctx.provider,
@@ -70,11 +70,11 @@ export const huggingfaceAdapter: StudioAdapter = {
         method: "GET",
         timeoutMs: 15_000,
       });
-      return { ok: true, message: "Hugging Face Router available" };
+      return { ok: true, message: "Hugging Face Router 可用" };
     } catch (err) {
-      const message = err instanceof Error ? err.message : "failed";
-      if (/401|invalid|unauthorized/i.test(message)) return { ok: false, message: `Token rejected: ${message.slice(0, 160)}` };
-      return { ok: true, message: `Endpoint reachable: ${message.slice(0, 160)}` };
+      const message = err instanceof Error ? err.message : "失败";
+      if (/401|invalid|unauthorized/i.test(message)) return { ok: false, message: `Token 被拒绝：${message.slice(0, 160)}` };
+      return { ok: true, message: `端点在，厂商返回：${message.slice(0, 160)}` };
     }
   },
 };
