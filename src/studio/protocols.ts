@@ -145,6 +145,33 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
     },
     exampleModels: ["nova-ptc-xl-v1"],
   },
+  {
+    id: "modelscope",
+    label: "ModelScope 魔搭",
+    docs: "https://www.modelscope.ai/docs/model-service/API-Inference/intro",
+    blurb: "Access Token 鉴权。国际站 api-inference.modelscope.ai。生图走 /v1/images/generations，异步轮询 /v1/tasks。",
+    defaultBaseUrl: "https://api-inference.modelscope.ai/v1",
+    authScheme: "Bearer",
+    endpoints: {
+      images: "/images/generations",
+      test: "/images/generations",
+    },
+    exampleModels: ["Qwen/Qwen-Image", "Tongyi-MAI/Z-Image-Turbo"],
+  },
+  {
+    id: "huggingface",
+    label: "Hugging Face",
+    docs: "https://huggingface.co/docs/inference-providers/index",
+    blurb: "hf_ token。生图走 nscale OpenAI 兼容 /v1/images/generations。",
+    defaultBaseUrl: "https://router.huggingface.co/nscale/v1",
+    authScheme: "Bearer",
+    endpoints: {
+      images: "/images/generations",
+      models: "/models",
+      test: "/models",
+    },
+    exampleModels: ["black-forest-labs/FLUX.1-schnell", "Tongyi-MAI/Z-Image-Turbo"],
+  },
 ];
 
 export function protocolById(id: string) {
