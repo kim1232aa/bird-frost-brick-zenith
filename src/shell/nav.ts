@@ -5,5 +5,6 @@ export const STUDIO_NAV = [
   { href: "/story", label: "故事导演", id: "story" },
   { href: "/canvas", label: "无限画布", id: "canvas" },
   { href: "/library", label: "作品", id: "library" },
+  { href: "/account", label: "账户", id: "account" },
   { href: "/settings", label: "设置", id: "settings" },
 ] as const;

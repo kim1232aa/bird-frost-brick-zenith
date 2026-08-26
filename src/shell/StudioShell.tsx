@@ -9,7 +9,10 @@ export function StudioShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const path = pathname.replace(/\/+$/, "") || "/";
   const isOps = path.startsWith("/admin");
-  const flush = isOps || ["/image", "/video", "/ecommerce", "/story", "/library", "/canvas"].includes(path) || path.startsWith("/canvas/");
+  const flush =
+    isOps ||
+    ["/image", "/video", "/ecommerce", "/story", "/library", "/canvas", "/account"].includes(path) ||
+    path.startsWith("/canvas/");
   const imageCredits = useOpsStore((state) => state.credits.image);
 
   return (
@@ -30,7 +33,9 @@ export function StudioShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="studio-top-actions">
-          <span className="studio-credits">{imageCredits} 积分</span>
+          <Link to="/account" className="studio-credits">
+            {imageCredits} 积分
+          </Link>
           <Link className={isOps ? "studio-ghost is-active" : "studio-ghost"} to="/admin">
             运营
           </Link>
