@@ -131,8 +131,11 @@ html:not(.dark) .wire-desk {
   background: #f7f5f1;
 }
 
+html:not(.dark) .studio-root.is-canvas,
+html:not(.dark) .studio-root.is-canvas .studio-page,
 html:not(.dark) .canvas-home-shell,
 html:not(.dark) .canvas-home-shell section,
+html:not(.dark) .bg-\[\#0B0B0F\],
 html:not(.dark) .canvas-home-shell .bg-\[\#0B0B0F\] {
   background: #f7f5f1 !important;
   color: #1c1917 !important;
@@ -144,12 +147,49 @@ html:not(.dark) .canvas-home-shell .text-cyan-200 {
 }
 
 html:not(.dark) .canvas-home-shell .border-white\/10,
-html:not(.dark) .canvas-home-shell .border-stone-700 {
+html:not(.dark) .canvas-home-shell .border-stone-700,
+html:not(.dark) .canvas-home-shell .border-stone-800 {
   border-color: #e7e5df !important;
 }
 
 html:not(.dark) .canvas-home-shell .bg-stone-900,
+html:not(.dark) .canvas-home-shell .bg-stone-900\/70,
+html:not(.dark) .canvas-home-shell .bg-stone-950,
 html:not(.dark) .canvas-home-shell .bg-white\/\[0\.03\],
 html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   background: #fff !important;
+}
+
+html:not(.dark) .canvas-home-shell [data-project-view] {
+  background: #fff !important;
+  border-color: #e7e5df !important;
+  color: #1c1917 !important;
+}
+
+html:not(.dark) .flow-board .react-flow__background {
+  background: #f4f2ed !important;
+}
+
+.studio-page.studio-flush.studio-flush-scroll {
+  overflow: auto !important;
+  height: auto;
+  min-height: calc(100vh - 64px);
+  background: #f7f5f1;
+}
+
+.canvas-workspace-shell {
+  height: 100%;
+  min-height: calc(100vh - 64px);
+  background: #f4f2ed;
+}
+
+html:not(.dark) .canvas-workspace-shell {
+  background: #f4f2ed;
+}
+
+@media (max-width: 1100px) {
+  .studio-root .flow-toolbar,
+  .canvas-workspace-shell .flow-toolbar {
+    display: flex !important;
+  }
 }
