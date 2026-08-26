@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createApiRelayProvider, type ApiRelayProvider } from "@/stores/api-relay-config";
+import { mergePersistedRelays } from "@/studio/relay-merge";
 import { studioRelays } from "@/studio/wiring";
 
 type StudioSession = {
@@ -46,23 +47,16 @@ export const useStudioSession = create<StudioSession>()(
     }),
     {
       name: "boundless-studio:session",
+      version: 4,
+      migrate: (persisted) => {
+        const saved = (persisted as { relays?: ApiRelayProvider[] } | undefined)?.relays;
+        return { relays: mergePersistedRelays(saved) };
+      },
       merge: (persisted, current) => {
-        const saved = (persisted as { relays?: ApiRelayProvider[] } | undefined)?.relays || [];
-        const base = studioRelays();
-        const extras = saved.filter((row) => !base.some((item) => item.id === row.id));
+        const saved = (persisted as { relays?: ApiRelayProvider[] } | undefined)?.relays;
         return {
           ...current,
-          relays: base
-            .map((item) => {
-              const override = saved.find((row) => row.id === item.id);
-              if (!override) return item;
-              return {
-                ...item,
-                apiKey: override.apiKey || item.apiKey,
-                enabled: override.enabled ?? item.enabled,
-              };
-            })
-            .concat(extras),
+          relays: mergePersistedRelays(saved),
         };
       },
     },

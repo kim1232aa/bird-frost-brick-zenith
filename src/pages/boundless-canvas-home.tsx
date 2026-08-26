@@ -6,7 +6,9 @@ import CanvasHomePage from "@/app/canvas/home/page";
 export function BoundlessCanvasHome() {
   return (
     <CanvasProviders>
-      <CanvasHomePage />
+      <div className="canvas-home-shell">
+        <CanvasHomePage />
+      </div>
     </CanvasProviders>
   );
 }
