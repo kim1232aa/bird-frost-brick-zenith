@@ -1,0 +1,369 @@
+/* Account / login / membership / guided wiring.
+   Light + dark. Does not hide existing studio controls. */
+
+.acct-page {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px 20px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.studio-flush > .acct-page {
+  padding-top: 24px;
+}
+
+.acct-hero h1,
+.acct-card h2,
+.acct-plan h3 {
+  margin: 4px 0 8px;
+  letter-spacing: -0.04em;
+}
+
+.acct-hero h1 {
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  line-height: 1.15;
+}
+
+.acct-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acct-steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 12px;
+  border: 1px solid #2c2c34;
+  border-radius: 14px;
+  background: #17171d;
+}
+
+.acct-steps b {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 99px;
+  background: #efe9dd;
+  color: #101014;
+  font-size: 12px;
+  flex: none;
+}
+
+.acct-steps span {
+  font-size: 13px;
+}
+
+.acct-steps-compact {
+  grid-template-columns: 1fr;
+}
+
+.acct-steps-compact li {
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
+.acct-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 16px;
+}
+
+.acct-card,
+.acct-stat,
+.acct-plan,
+.acct-banner {
+  border: 1px solid #2c2c34;
+  border-radius: 20px;
+  background: #17171d;
+  padding: 20px;
+}
+
+.acct-card,
+.acct-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.acct-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.acct-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.acct-stat strong {
+  display: block;
+  font-size: 1.8rem;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.acct-stat span,
+.acct-plan p,
+.acct-faq span,
+.acct-relay-list span,
+.acct-ledger em {
+  color: #9b968c;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.acct-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.acct-bar-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.acct-bar {
+  height: 8px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: #2c2c34;
+}
+
+.acct-bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #05df72, #00d2ef);
+}
+
+.acct-plans {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.acct-plan ul {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: #c8c2b6;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.acct-plan.is-on {
+  border-color: #efe9dd;
+  box-shadow: 0 0 0 1px #efe9dd;
+}
+
+.acct-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.acct-banner-tight {
+  padding: 14px 16px;
+}
+
+.acct-banner h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.acct-faq,
+.acct-relay-list,
+.acct-ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.acct-faq li,
+.acct-relay-list li,
+.acct-ledger li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #2c2c34;
+}
+
+.acct-faq li:last-child,
+.acct-relay-list li:last-child,
+.acct-ledger li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.acct-ledger li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+}
+
+.acct-ledger span {
+  font-size: 12px;
+  color: #7d786e;
+}
+
+.acct-json {
+  margin: 0;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 14px;
+  border-radius: 12px;
+  background: #101014;
+  color: #d8d4cc;
+}
+
+.studio-ok {
+  color: #6dca8a;
+  font-size: 13px;
+}
+
+.studio-userchip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid #3a3a44;
+  background: #17171d;
+  color: #efe9dd;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.studio-userchip.is-active {
+  background: #efe9dd;
+  color: #101014;
+  border-color: #efe9dd;
+}
+
+.wire-search {
+  width: 100%;
+  border: 1px solid #2c2c34;
+  background: #17171d;
+  color: #efe9dd;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.wire-advanced {
+  border: 1px solid #2c2c34;
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: #121218;
+}
+
+.wire-advanced summary {
+  cursor: pointer;
+  color: #c8c2b6;
+  font-size: 13px;
+}
+
+.wire-advanced .param-block {
+  margin-top: 12px;
+}
+
+html:not(.dark) .acct-steps li,
+html:not(.dark) .acct-card,
+html:not(.dark) .acct-stat,
+html:not(.dark) .acct-plan,
+html:not(.dark) .acct-banner,
+html:not(.dark) .wire-advanced,
+html:not(.dark) .studio-userchip {
+  border-color: #e7e5df;
+  background: #fff;
+  color: #1c1917;
+}
+
+html:not(.dark) .acct-steps b {
+  background: #1c1917;
+  color: #fafaf9;
+}
+
+html:not(.dark) .acct-stat span,
+html:not(.dark) .acct-plan p,
+html:not(.dark) .acct-faq span,
+html:not(.dark) .acct-relay-list span,
+html:not(.dark) .acct-ledger em,
+html:not(.dark) .acct-ledger span {
+  color: #78716c;
+}
+
+html:not(.dark) .acct-bar {
+  background: #e7e5df;
+}
+
+html:not(.dark) .acct-faq li,
+html:not(.dark) .acct-relay-list li,
+html:not(.dark) .acct-ledger li,
+html:not(.dark) .acct-plan.is-on {
+  border-color: #e7e5df;
+}
+
+html:not(.dark) .acct-json {
+  background: #f6f7f8;
+  color: #1c1917;
+}
+
+html:not(.dark) .wire-search {
+  border-color: #e7e5df;
+  background: #fbfaf7;
+  color: #1c1917;
+}
+
+html:not(.dark) .studio-userchip.is-active {
+  background: #1c1917;
+  color: #fafaf9;
+  border-color: #1c1917;
+}
+
+html:not(.dark) .studio-ok {
+  color: #15803d;
+}
+
+@media (max-width: 900px) {
+  .acct-steps,
+  .acct-grid,
+  .acct-stats,
+  .acct-plans,
+  .acct-ledger li,
+  .acct-banner {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .acct-plans,
+  .acct-stats,
+  .acct-steps {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}
