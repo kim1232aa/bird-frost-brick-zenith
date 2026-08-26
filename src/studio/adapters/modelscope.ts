@@ -1,117 +1,91 @@
 import type { StudioAdapter } from "./types";
 import { firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
 
-type TaskPayload = {
-  task_id?: string;
-  task_status?: string;
-  output_images?: string[];
-  output_videos?: string[];
-  message?: string;
-  error?: string;
-};
+/** International API-Inference. The wired token is from modelscope.ai, not .cn. */
+const MODELSCOPE_IMAGE_BASE = "https://api-inference.modelscope.ai/v1";
 
-function host(baseUrl: string) {
-  const raw = (baseUrl || "https://api-inference.modelscope.cn").replace(/\/+$/, "");
-  return raw.endsWith("/v1") ? raw.slice(0, -3) : raw;
+function modelscopeBase(raw?: string) {
+  const value = String(raw || "").trim() || MODELSCOPE_IMAGE_BASE;
+  return value.replace(/api-inference\.modelscope\.cn/gi, "api-inference.modelscope.ai").replace(/\/+$/, "");
 }
 
-function sizeOf(input: { size?: string; width?: number; height?: number }) {
-  if (input.width && input.height) return `${input.width}x${input.height}`;
-  if (input.size && /^\d+x\d+$/i.test(input.size)) return input.size;
-  if (input.size === "3K" || input.size === "hq") return "1664x1664";
-  if (input.size === "1K" || input.size === "eco") return "768x768";
-  return "1024x1024";
+function taskIdOf(data: Record<string, unknown>) {
+  return String(data.task_id || data.taskId || (data.data as { task_id?: string } | undefined)?.task_id || "").trim();
 }
 
-async function pollTask(ctx: Parameters<NonNullable<StudioAdapter["generateImage"]>>[0], taskId: string, kind: "image_generation" | "video_generation") {
+async function pollImageTask(
+  ctx: Parameters<NonNullable<StudioAdapter["generateImage"]>>[0],
+  taskId: string,
+  baseUrl: string,
+) {
   for (let i = 0; i < 40; i += 1) {
-    const data = await studioProxyJson<TaskPayload>({
+    const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
-      baseUrl: host(ctx.provider.baseUrl),
-      path: `/v1/tasks/${encodeURIComponent(taskId)}`,
+      baseUrl,
+      path: `/tasks/${encodeURIComponent(taskId)}`,
       method: "GET",
-      extraHeaders: { "X-ModelScope-Task-Type": kind },
       timeoutMs: 30_000,
+      extraHeaders: { "X-ModelScope-Task-Type": "image_generation" },
     });
-    const status = String(data.task_status || "").toUpperCase();
-    const image = data.output_images?.[0] || firstImageUrl(data);
-    const video = data.output_videos?.[0];
-    if (status === "SUCCEED" || image || video) {
-      return { image, video };
+    const status = String(data.task_status || data.status || "").toUpperCase();
+    const url = firstImageUrl(data);
+    if (["SUCCEED", "SUCCEEDED", "SUCCESS", "COMPLETED"].includes(status) || url) {
+      if (!url) throw new Error("ModelScope 任务完成但没有图片地址");
+      return url;
     }
-    if (status === "FAILED") {
-      throw new Error(data.message || data.error || "ModelScope 任务失败");
+    if (["FAILED", "CANCELED", "CANCELLED", "ERROR"].includes(status)) {
+      throw new Error(String(data.message || data.error || status));
     }
-    await new Promise((resolve) => window.setTimeout(resolve, 2500));
+    await new Promise((resolve) => window.setTimeout(resolve, 1500));
   }
-  throw new Error("ModelScope 任务超时，请稍后再试");
+  throw new Error("ModelScope 生图超时，请稍后重试");
 }
 
 export const modelscopeAdapter: StudioAdapter = {
   id: "modelscope",
   label: "ModelScope 魔搭",
-  docs: "https://www.modelscope.cn/docs/model-service/API-Inference/intro",
+  docs: "https://www.modelscope.ai/docs/model-service/API-Inference/intro",
   async generateImage(ctx, input) {
-    const created = await studioProxyJson<TaskPayload & { data?: Array<{ url?: string }> }>({
+    const baseUrl = modelscopeBase(ctx.provider.baseUrl);
+    const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
-      baseUrl: host(ctx.provider.baseUrl),
-      path: "/v1/images/generations",
+      baseUrl,
+      path: "/images/generations",
       extraHeaders: { "X-ModelScope-Async-Mode": "true" },
       body: {
         model: input.model,
         prompt: input.prompt,
-        size: sizeOf(input),
+        n: input.n || 1,
+        ...(input.size ? { size: input.size } : {}),
+        ...(input.imageUrl ? { image_url: input.imageUrl } : {}),
         ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
-        ...(typeof input.seed === "number" ? { seed: input.seed } : {}),
-        ...(input.imageUrl ? { image: input.imageUrl, images: [input.imageUrl] } : {}),
       },
       timeoutMs: 60_000,
     });
-    const immediate = created.output_images?.[0] || firstImageUrl(created);
-    if (immediate) return { url: immediate };
-    const taskId = String(created.task_id || "").trim();
-    if (!taskId) throw new Error("ModelScope 没有返回 task_id 或图片");
-    const done = await pollTask(ctx, taskId, "image_generation");
-    if (!done.image) throw new Error("ModelScope 完成但没有图片地址");
-    return { url: done.image };
-  },
-  async generateText(ctx, input) {
-    const data = await studioProxyJson<{ choices?: Array<{ message?: { content?: string } }> }>({
-      provider: ctx.provider,
-      baseUrl: `${host(ctx.provider.baseUrl)}/v1`,
-      path: "/chat/completions",
-      body: {
-        model: input.model,
-        messages: [
-          ...(input.system ? [{ role: "system", content: input.system }] : []),
-          { role: "user", content: input.prompt },
-        ],
-      },
-      timeoutMs: 90_000,
-    });
-    const text = data.choices?.[0]?.message?.content?.trim() || "";
-    if (!text) throw new Error("ModelScope 没有返回文本");
-    return { text };
+    const id = taskIdOf(data);
+    if (id) return { url: await pollImageTask(ctx, id, baseUrl) };
+    const url = firstImageUrl(data);
+    if (!url) throw new Error("ModelScope 没有返回图片。确认模型名是 Qwen/Qwen-Image 或 Tongyi-MAI/Z-Image-Turbo。");
+    return { url };
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey) return { ok: false, message: "缺少 ModelScope Access Token" };
+    const baseUrl = modelscopeBase(ctx.provider.baseUrl);
     try {
       await studioProxyJson({
         provider: ctx.provider,
-        baseUrl: host(ctx.provider.baseUrl),
-        path: "/v1/images/generations",
+        baseUrl,
+        path: "/images/generations",
         extraHeaders: { "X-ModelScope-Async-Mode": "true" },
-        body: { model: "Tongyi-MAI/Z-Image-Turbo", prompt: "probe", size: "512x512" },
+        body: { model: "Tongyi-MAI/Z-Image-Turbo", prompt: "probe", n: 1 },
         timeoutMs: 20_000,
       });
-      return { ok: true, message: "魔搭生图端点可用 /v1/images/generations" };
+      return { ok: true, message: "魔搭推理端点可用" };
     } catch (err) {
       const message = err instanceof Error ? err.message : "失败";
-      if (/401|invalid|unauthorized|token/i.test(message)) {
-        return { ok: false, message: `Token 无效：${message.slice(0, 160)}` };
-      }
-      if (/404|not found/i.test(message)) return { ok: false, message };
-      return { ok: true, message: `端点已打通，厂商返回：${message.slice(0, 160)}` };
+      if (/401|invalid|unauthorized|forbidden/i.test(message)) return { ok: false, message: `Token 被拒绝：${message.slice(0, 160)}` };
+      if (/404|not found/i.test(message)) return { ok: false, message: `端点 404。Base 应为 ${MODELSCOPE_IMAGE_BASE}` };
+      return { ok: true, message: `端点在，厂商返回：${message.slice(0, 160)}` };
     }
   },
 };
