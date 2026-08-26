@@ -33,7 +33,11 @@ export function useSearchParams() {
   useEffect(() => {
     const update = () => setSearch(window.location.search);
     window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
+    window.addEventListener("hashchange", update);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener("hashchange", update);
+    };
   }, []);
   return useMemo(() => new URLSearchParams(search), [search]);
 }
