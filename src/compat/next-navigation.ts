@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 function notifyNavigation() {
   window.dispatchEvent(new PopStateEvent("popstate"));
+  window.dispatchEvent(new Event("tanstack-router-sync"));
 }
 
 export function navigate(href: string, replace = false) {
@@ -34,9 +35,11 @@ export function useSearchParams() {
     const update = () => setSearch(window.location.search);
     window.addEventListener("popstate", update);
     window.addEventListener("hashchange", update);
+    window.addEventListener("tanstack-router-sync", update);
     return () => {
       window.removeEventListener("popstate", update);
       window.removeEventListener("hashchange", update);
+      window.removeEventListener("tanstack-router-sync", update);
     };
   }, []);
   return useMemo(() => new URLSearchParams(search), [search]);
@@ -47,7 +50,11 @@ export function usePathname() {
   useEffect(() => {
     const update = () => setPathname(window.location.pathname);
     window.addEventListener("popstate", update);
-    return () => window.removeEventListener("popstate", update);
+    window.addEventListener("tanstack-router-sync", update);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener("tanstack-router-sync", update);
+    };
   }, []);
   return pathname;
 }

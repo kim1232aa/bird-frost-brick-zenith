@@ -19,11 +19,8 @@ export const useThemeStore = create<ThemeStore>()(
         {
             name: "infinite-canvas:theme_store",
             storage: createJSONStorage(() => localForageStorage),
-            version: 2,
-            migrate: (persisted) => {
-                const state = (persisted || {}) as { theme?: ThemeName };
-                return { theme: state.theme === "dark" ? "dark" : "light" };
-            },
+            version: 3,
+            migrate: () => ({ theme: "light" as const }),
         },
     ),
 );
