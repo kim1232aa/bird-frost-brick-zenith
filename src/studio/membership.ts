@@ -10,6 +10,12 @@ const PLAN_LIMITS: Record<StudioPlanId, Record<StudioUsageKind, number>> = {
   pro: { text: 20_000, image: 2_000, video: 400 },
 };
 
+/**
+ * Membership and credits are a localStorage mock for the Web preview.
+ * They do not bill a server and must not be treated as a real quota system.
+ */
+export const MEMBERSHIP_IS_LOCAL_MOCK = true;
+
 type MembershipState = {
   plan: StudioPlanId;
   record: (kind: StudioUsageKind) => boolean;
@@ -37,7 +43,7 @@ export const useMembershipStore = create<MembershipState>()(
 );
 
 export function planLabel(plan: StudioPlanId) {
-  return plan === "pro" ? "专业版" : "工作室";
+  return plan === "pro" ? "专业版（本地演示）" : "工作室（本地演示）";
 }
 
 export function planLimits(plan: StudioPlanId) {
