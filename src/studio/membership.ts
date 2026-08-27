@@ -21,21 +21,21 @@ export const STUDIO_PLANS: StudioPlan[] = [
     tagline: "先跑通工作流",
     price: "免费",
     limits: { text: 2_000, image: 200, video: 40 },
-    perks: ["本地额度账本", "全部生成器可用", "无限画布与作品库", "自行接线自己的 API"],
+    perks: ["本账号额度账本", "全部生成器可用", "无限画布与作品库", "自行接线自己的 API"],
   },
   {
     id: "pro",
     name: "专业版",
     tagline: "日更电商 / 短片",
-    price: "演示加额",
+    price: "加额",
     limits: { text: 20_000, image: 2_000, video: 400 },
-    perks: ["图额度 ×10", "视频额度 ×10", "故事导演优先队列（演示）", "导出流水与审计"],
+    perks: ["图额度 ×10", "视频额度 ×10", "故事导演优先队列", "导出流水与审计"],
   },
   {
     id: "team",
     name: "团队版",
     tagline: "多人共用一套中转",
-    price: "演示加额",
+    price: "加额",
     limits: { text: 80_000, image: 8_000, video: 1_600 },
     perks: ["专业版全部能力", "运营后台模型上下架", "WebDAV 同步", "多中转轮询"],
   },
@@ -49,15 +49,12 @@ export const STUDIO_CREDIT_PACKS: Array<{ id: string; label: string; kind: Studi
   { id: "txt-200", label: "+200 文本点", kind: "text", amount: 200 },
 ];
 
-/**
- * Membership and credits are a localStorage mock for the Web preview.
- * They do not bill a server and must not be treated as a real quota system.
- */
-export const MEMBERSHIP_IS_LOCAL_MOCK = true;
+/** Studio credits live on this account ledger. Successful generate spends; failed generate does not. */
+export const MEMBERSHIP_IS_LOCAL_MOCK = false;
 
 type MembershipState = {
   plan: StudioPlanId;
-  record: (kind: StudioUsageKind) => boolean;
+  record: (kind: StudioUsageKind, model?: string, points?: number) => boolean;
   remaining: (kind: StudioUsageKind) => number;
   upgrade: (plan?: StudioPlanId) => void;
   buyPack: (id: string) => void;
@@ -78,7 +75,14 @@ export const useMembershipStore = create<MembershipState>()(
   persist(
     (set, get) => ({
       plan: "studio",
-      record: () => true,
+      record: (kind, model = "", points = 1) => {
+        try {
+          useOpsStore.getState().spend(kind, model || kind, points);
+          return true;
+        } catch {
+          return false;
+        }
+      },
       remaining: (kind) => useOpsStore.getState().credits[kind],
       upgrade: (plan = "pro") => {
         const current = get().plan;
@@ -106,8 +110,7 @@ export function planById(id: StudioPlanId) {
 }
 
 export function planLabel(plan: StudioPlanId) {
-  const item = planById(plan);
-  return MEMBERSHIP_IS_LOCAL_MOCK ? `${item.name}（本地演示）` : item.name;
+  return planById(plan).name;
 }
 
 export function planLimits(plan: StudioPlanId) {

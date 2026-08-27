@@ -6,6 +6,7 @@ import { liveCatalog } from "./ops";
 import { ModelMenu } from "./model-menu";
 import { useOpsStore } from "./ops";
 import { useStudioSession } from "./session";
+import { useCurrentModels, type CurrentModelKind } from "./current-models-store";
 
 export function CompactModelSelect({
   kind,
@@ -21,24 +22,25 @@ export function CompactModelSelect({
   return <ModelMenu kind={kind} value={value} onChange={onChange} label={label} wiredOnly={false} />;
 }
 
-function prefer(kind: ModelCard["kind"], favorite?: (card: ModelCard) => boolean) {
-  const wired = liveCatalog(kind, true);
+function prefer(kind: CurrentModelKind) {
+  const saved = useCurrentModels.getState()[kind];
   const listed = liveCatalog(kind, false);
+  if (saved && listed.some((card) => catalogKey(card) === saved)) return saved;
+  const wired = liveCatalog(kind, true);
   const pool = wired.length ? wired : listed;
-  const hit = favorite ? pool.find(favorite) : undefined;
-  return hit ? catalogKey(hit) : pool[0] ? catalogKey(pool[0]) : "";
+  return pool[0] ? catalogKey(pool[0]) : "";
 }
 
 export function preferredVideoKey() {
-  return prefer("video", (item) => item.model === "grok-imagine-video");
+  return prefer("video");
 }
 
 export function preferredImageKey() {
-  return prefer("image", (item) => item.model === "grok-imagine-image" || item.model === "grok-imagine-image-quality" || item.model === "Qwen/Qwen-Image");
+  return prefer("image");
 }
 
 export function preferredTextKey() {
-  return prefer("text", (item) => item.model === "grok-4.6");
+  return prefer("text");
 }
 
 export function preferredAudioKey() {
@@ -87,7 +89,9 @@ export function StudioModelField({
         disabled={!cards.length}
         onChange={(event) => {
           const next = event.target.value;
-          if (next) onChange(next);
+          if (!next) return;
+          useCurrentModels.getState().setKind(kind, next);
+          onChange(next);
         }}
       >
         {cards.length === 0 ? <option value="">暂无上架模型，去后台看看</option> : null}
