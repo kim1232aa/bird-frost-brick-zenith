@@ -140,10 +140,19 @@ export function buildProviderProxyHeaders(provider: { proxyMode?: unknown; proxy
 
 export function buildLocalRelayProxyHeaders(provider: { id?: string; baseUrl: string; apiKey: string; apiKeys?: string[]; proxyMode?: unknown; proxyUrl?: string }, contentType?: string, overrideKey?: string) {
     const effectiveKey = (overrideKey || rotateRelayApiKey(provider)).trim();
+    let builtin: Record<string, string> = {};
+    try {
+        if (new URL(provider.baseUrl).hostname.toLowerCase() === "api.x.ai") {
+            builtin = { "x-boundless-builtin": "xai" };
+        }
+    } catch {
+        /* ignore */
+    }
     return {
         [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl,
         ...buildProviderProxyHeaders(provider),
         ...(effectiveKey ? { Authorization: `Bearer ${effectiveKey}` } : {}),
+        ...builtin,
         ...(contentType ? { "Content-Type": contentType } : {}),
     };
 }

@@ -150,6 +150,14 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    warmup: {
+      clientFiles: [
+        "./src/pages/boundless-canvas-home.tsx",
+        "./src/pages/boundless-canvas-workspace.tsx",
+        "./src/app/canvas/home/page.tsx",
+        "./src/app/canvas/workspace/canvas-client-page.tsx",
+      ],
+    },
   },
   preview: {
     host: "127.0.0.1",

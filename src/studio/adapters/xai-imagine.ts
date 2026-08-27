@@ -31,22 +31,28 @@ export const xaiImagineAdapter: StudioAdapter = {
       provider: ctx.provider,
       path: "/images/generations",
       body,
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
     });
     const urls = allImageUrls(data);
     if (!urls[0]) throw new Error("Grok Imagine 没有返回图片");
     return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
-    const body: Record<string, unknown> = {
+    const stills = Array.from(
+      new Set([input.imageUrl, ...(input.imageUrls || []), input.lastFrameUrl].map((item) => String(item || "").trim()).filter(Boolean)),
+    ).slice(0, 5);
+    const first = input.imageUrl || stills[0];
+    const last = input.lastFrameUrl && input.lastFrameUrl !== first ? input.lastFrameUrl : stills.length > 1 ? stills[stills.length - 1] : undefined;
+    const body = {
       model: input.model,
       prompt: input.prompt,
+      ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
+      ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
+      ...(input.resolution ? { resolution: input.resolution } : {}),
+      ...(first ? { image: { url: first } } : {}),
+      ...(last ? { last_frame_image: { url: last } } : {}),
+      ...(stills.length ? { image_urls: stills } : {}),
     };
-    if (typeof input.duration === "number") body.duration = input.duration;
-    if (input.aspectRatio) body.aspect_ratio = input.aspectRatio;
-    if (input.resolution) body.resolution = input.resolution;
-    if (input.imageUrl) body.image = { url: input.imageUrl };
-    if (input.lastFrameUrl) body.last_frame_image = { url: input.lastFrameUrl };
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       path: "/videos/generations",
@@ -71,11 +77,18 @@ export const xaiImagineAdapter: StudioAdapter = {
     if (state.status !== "completed" || !state.url) return state;
     if (/^https?:\/\//i.test(state.url) && !state.url.includes("/videos/")) return state;
     const path = state.url.startsWith("/v1/") ? state.url.replace(/^\/v1/, "") : `/videos/${taskId}/content`;
+    let builtin: Record<string, string> = {};
+    try {
+      if (new URL(ctx.provider.baseUrl).hostname.toLowerCase() === "api.x.ai") builtin = { "x-boundless-builtin": "xai" };
+    } catch {
+      /* ignore */
+    }
     const response = await fetch(`/local-relay-proxy${path.startsWith("/") ? path : `/${path}`}`, {
       headers: {
         Authorization: ctx.provider.apiKey ? `Bearer ${ctx.provider.apiKey}` : "",
         "x-local-relay-base-url": ctx.provider.baseUrl,
         "Accept-Encoding": "identity",
+        ...builtin,
       },
     });
     if (!response.ok) throw new Error(`视频文件下载失败 ${response.status}`);

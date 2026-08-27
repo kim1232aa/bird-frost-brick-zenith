@@ -65,7 +65,7 @@ export async function generateStudioImage(input: {
         },
       ),
       new Promise<never>((_, reject) => {
-        window.setTimeout(() => reject(new Error("生图超时，请换模型或稍后重试")), 90_000);
+        window.setTimeout(() => reject(new Error("生图超时，请换模型或稍后重试")), 180_000);
       }),
     ]);
     const urls = (result.urls && result.urls.length ? result.urls : [result.url]).filter(Boolean);

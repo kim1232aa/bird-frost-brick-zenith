@@ -44,7 +44,7 @@ type CanvasStoryDirectorPanelProps = {
 };
 
 const aspectOptions = ["16:9", "9:16", "1:1"].map((value) => ({ value, label: value }));
-const stylePresetValues = ["电影感写实", "国风仙侠", "暗黑奇幻", "赛博朋克", "日系动画", "美式漫画", "水彩绘本", "黏土动画", "像素游戏", "黑白分镜"];
+const stylePresetValues = ["清凉写真", "电影感写实", "国风仙侠", "暗黑奇幻", "赛博朋克", "日系动画", "美式漫画", "水彩绘本", "黏土动画", "像素游戏", "黑白分镜"];
 const customStyleValue = "__custom_style__";
 const styleOptions = [...stylePresetValues.map((value) => ({ value, label: value })), { value: customStyleValue, label: "自定义" }];
 const storyboardModeOptions = [
@@ -174,15 +174,54 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
             <div className="shrink-0" data-canvas-no-drag>
                 <Input.TextArea
                     className="thin-scrollbar !resize-y !overflow-y-auto !rounded-xl"
-                    style={{ ...controlStyle, height: 280, minHeight: 280, overflowY: "auto" }}
+                    style={{ ...controlStyle, height: 128, minHeight: 128, overflowY: "auto" }}
                     value={storyText}
                     placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风要求。"
                     onChange={(event) => onConfigChange(node.id, { storyText: event.target.value, content: event.target.value })}
                 />
             </div>
 
-            <div data-story-director-config-area className="mt-auto shrink-0 pt-3">
-                <div className="grid grid-cols-[minmax(120px,1.35fr)_minmax(112px,1.05fr)_minmax(80px,.7fr)_minmax(96px,.9fr)_minmax(80px,.75fr)] gap-2" data-canvas-no-drag>
+            <div className="mt-3 grid grid-cols-2 gap-2 [&>*]:min-w-0" data-canvas-no-drag>
+                <DirectorAction
+                    icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+                    title="一键全流程"
+                    description="分析、角色图、分镜图"
+                    disabled={!canRun || isAnalyzing || isGenerating}
+                    onClick={() => onRunAll(node)}
+                />
+                <DirectorAction
+                    icon={<FileText className="size-4" />}
+                    title="分析故事"
+                    description="生成角色/场景/分镜 JSON"
+                    disabled={!canRun || isAnalyzing || isGenerating}
+                    onClick={() => onAnalyzeStory(node)}
+                />
+                <DirectorAction
+                    icon={<ImageIcon className="size-4" />}
+                    title="补齐缺失角色图"
+                    description={hasAnalysis ? (missingCharacterCount ? `缺 ${missingCharacterCount} 个，5并发` : "角色图已齐全") : "需先分析故事"}
+                    disabled={!hasAnalysis || !missingCharacterCount || isAnalyzing || isGenerating}
+                    onClick={() => onGenerateCharacters(node)}
+                />
+                <DirectorAction
+                    icon={<ListChecks className="size-4" />}
+                    title={storyboardMode === "grid9" ? "生成9宫格" : "生成分镜图"}
+                    description={storyboardMode === "grid9" ? "每9镜一张，5并发" : "按镜头提交"}
+                    disabled={!shots.length || isAnalyzing || isGenerating}
+                    onClick={() => onGenerateShots(node)}
+                />
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
+                <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
+                    角色图配置节点
+                </Button>
+                <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
+                    分镜图配置节点
+                </Button>
+            </div>
+
+            <div data-story-director-config-area className="thin-scrollbar mt-auto max-h-[240px] shrink-0 overflow-y-auto pt-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-canvas-no-drag>
                     <LabeledControl label="画风预设">
                         <Select
                             className="!w-full"
@@ -335,46 +374,6 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     图片模型在本面板选择。角色图/分镜图优先用这里选的 provider/model；连了 Config 节点时仍用 Config。生成还是编辑由模型能力决定，不用先选手动 operation。
                 </div>
 
-                <div className="mt-3 grid grid-cols-4 gap-2" data-canvas-no-drag>
-                    <DirectorAction
-                        icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
-                        title="一键全流程"
-                        description="分析、角色图、分镜图"
-                        disabled={!canRun || isAnalyzing || isGenerating}
-                        onClick={() => onRunAll(node)}
-                    />
-                    <DirectorAction
-                        icon={<FileText className="size-4" />}
-                        title="分析故事"
-                        description="生成角色/场景/分镜 JSON"
-                        disabled={!canRun || isAnalyzing || isGenerating}
-                        onClick={() => onAnalyzeStory(node)}
-                    />
-                    <DirectorAction
-                        icon={<ImageIcon className="size-4" />}
-                        title="补齐缺失角色图"
-                        description={hasAnalysis ? (missingCharacterCount ? `缺 ${missingCharacterCount} 个，5并发` : "角色图已齐全") : "需先分析故事"}
-                        disabled={!hasAnalysis || !missingCharacterCount || isAnalyzing || isGenerating}
-                        onClick={() => onGenerateCharacters(node)}
-                    />
-                    <DirectorAction
-                        icon={<ListChecks className="size-4" />}
-                        title={storyboardMode === "grid9" ? "生成9宫格" : "生成分镜图"}
-                        description={storyboardMode === "grid9" ? "每9镜一张，5并发" : "按镜头提交"}
-                        disabled={!shots.length || isAnalyzing || isGenerating}
-                        onClick={() => onGenerateShots(node)}
-                    />
-                </div>
-
-                <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
-                    <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
-                        角色图配置节点
-                    </Button>
-                    <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
-                        分镜图配置节点
-                    </Button>
-                </div>
-
                 <div className="mt-3 grid grid-cols-3 gap-2">
                     <SummaryTile label="角色" value={`${importantCharacters.length} 个 / 缺 ${missingCharacterCount}`} />
                     <SummaryTile label="场景" value={`${scenes.length} 个`} />
@@ -409,7 +408,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                         <SectionHeader icon={<ListChecks className="size-3.5" />} label="分镜队列" />
                         <div className="mt-2 space-y-1.5">
                             {shots.map((shot) => (
-                                <ResultRow key={shot.id} title={`${shot.index}. ${shot.title}`} meta={`${shot.appearingCharacterIds.length} 角色 · ${shot.status}`} done={shot.status === "done"} loading={shot.status === "generating"} />
+                                <ResultRow key={shot.id} title={`${shot.index}. ${shot.title}`} meta={`${shot.appearingCharacterIds?.length || 0} 角色 · ${shot.status || "待生成"}`} done={shot.status === "done"} loading={shot.status === "generating"} />
                             ))}
                         </div>
                     </section>
@@ -470,7 +469,7 @@ function nearestGrid9ShotCount(value: number) {
 
 function DirectorAction({ icon, title, description, disabled, onClick }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void }) {
     return (
-        <Button type="default" className="!h-auto !min-h-[76px] !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
+        <Button type="default" className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
             <span className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0">{icon}</span>
                 <span className="min-w-0">

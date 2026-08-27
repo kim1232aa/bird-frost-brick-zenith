@@ -47,6 +47,7 @@ export type CanvasData = {
 };
 
 export const STYLE_PRESETS = [
+  "清凉写真",
   "电影感写实",
   "国风仙侠",
   "暗黑奇幻",

@@ -34,6 +34,7 @@ export const VIDEO_CAPABILITY_PROFILE_IDS = [
     "civitai-unknown",
     "openai-video",
     "openai-unknown",
+    "xai-imagine-video",
 ];
 export const VIDEO_GENERATION_PARAMETER_NAMES = [
     "duration",
@@ -456,6 +457,19 @@ const VIDEO_CAPABILITY_PROFILES = defineVideoCapabilityProfiles({
         supportsReferenceSetWithFirst: false,
         requiresExplicitProfile: true,
         intentPolicy: "none",
+    },
+    "xai-imagine-video": {
+        id: "xai-imagine-video",
+        provider: "openai",
+        label: "xAI Grok Imagine Video",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: true, min: 1, max: 5 },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: true,
+        supportsReferenceSetWithFrames: true,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
+        intentPolicy: "frames-or-reference-set",
     },
 });
 const VIDEO_GENERATION_PARAMETER_LABELS = {
@@ -1023,6 +1037,8 @@ export function resolveVideoModelCapability(options) {
     // explicit per-model capability profile.
     if (explicitAdapter === "openai" && isExactOpenAiVideoModel(model))
         return resolvedProfile("openai-video", model, provider, false);
+    if (/grok-imagine-video/i.test(model) || explicitAdapter === "xai-imagine" || explicitAdapter === "xai")
+        return resolvedProfile("xai-imagine-video", model, provider, false);
     return resolvedProfile("openai-unknown", model, provider, false);
 }
 function videoParameterOptionLabel(name, field, value) {

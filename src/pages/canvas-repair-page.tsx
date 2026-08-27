@@ -27,7 +27,7 @@ export function CanvasRepairPage() {
     <div className="studio-form" style={{ maxWidth: 560, margin: "48px auto" }}>
       <p className="studio-kicker">REPAIR</p>
       <h1>画布修复</h1>
-      <p className="studio-hint">如果原版画布打不开，多半是本机保存的项目数据坏了。清理后从画布库新建。</p>
+      <p className="studio-hint">画布库读不出来时才需要这一步。清理的是本机保存的画布项目，不会动顶栏设置里的模型接线。</p>
       <button type="button" className="studio-primary" onClick={() => void clear()}>
         清理本机画布缓存
       </button>

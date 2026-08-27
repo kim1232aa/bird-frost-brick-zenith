@@ -39,6 +39,15 @@ export async function studioProxyJson<T = unknown>(input: {
   const timer = window.setTimeout(() => controller.abort(), input.timeoutMs || 120_000);
   const scheme = input.authScheme || "Bearer";
   const method = input.method || "POST";
+  const baseUrl = input.baseUrl || input.provider.baseUrl;
+  let builtinHeader: Record<string, string> = {};
+  try {
+    if (new URL(baseUrl).hostname.toLowerCase() === "api.x.ai") {
+      builtinHeader = { "x-boundless-builtin": "xai" };
+    }
+  } catch {
+    /* ignore invalid base */
+  }
   try {
     const response = await fetch(`/local-relay-proxy${path}`, {
       method,
@@ -48,8 +57,9 @@ export async function studioProxyJson<T = unknown>(input: {
         ...(scheme === "x-api-key"
           ? { "x-api-key": apiKey || "" }
           : { Authorization: apiKey ? `${scheme} ${apiKey}` : "" }),
-        "x-local-relay-base-url": input.baseUrl || input.provider.baseUrl,
+        "x-local-relay-base-url": baseUrl,
         "Accept-Encoding": "identity",
+        ...builtinHeader,
         ...(input.extraHeaders || {}),
       },
       body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(input.body ?? {}),

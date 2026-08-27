@@ -13,7 +13,8 @@ import { syncAppDataToWebdav } from "@/services/app-sync";
 import { cleanupExpiredStoredImages, collectImageStorageKeys, setStoredImagesRetained } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { retryConfigHydration, useConfigHydrationRuntimeStore, useConfigStore } from "@/stores/use-config-store";
-import { useCanvasStore } from "./stores/use-canvas-store";
+import { importLatestStorySeed, useCanvasStore } from "./stores/use-canvas-store";
+import { STORY_SEED_STAMP } from "@/studio/canvas/seed-stamp";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -44,6 +45,11 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
   const lastSyncedFingerprintRef = useRef("");
   const imageCleanupReadyRef = useRef(false);
   const syncFingerprint = useMemo(() => buildSyncFingerprint(projects, assets), [projects, assets]);
+
+  useEffect(() => {
+    if (!canvasHydrated) return;
+    void importLatestStorySeed();
+  }, [canvasHydrated, STORY_SEED_STAMP]);
 
   useEffect(() => {
     if (!configHydrated || channelMode !== "remote") return;
@@ -122,9 +128,9 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       const state = useCanvasStore.getState();
       if (!state.hydrated && state.hydrationStatus === "loading") {
-        useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
+        void useCanvasStore.persist.rehydrate();
       }
-    }, 800);
+    }, 4_000);
     return () => window.clearTimeout(timer);
   }, [canvasHydrated]);
 

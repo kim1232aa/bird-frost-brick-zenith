@@ -34,6 +34,20 @@ export function jsonError(status: number, message: string) {
   return Response.json({ message, error: { message } }, { status });
 }
 
+function isAbortError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { name?: string; message?: string; code?: string; cause?: { code?: string; message?: string; name?: string } };
+  const code = record.code || record.cause?.code || "";
+  const name = record.name || record.cause?.name || "";
+  const message = `${record.message || ""} ${record.cause?.message || ""}`;
+  return code === "ECONNRESET" || code === "EPIPE" || code === "ABORT_ERR" || name === "AbortError" || /aborted|abort/i.test(message);
+}
+
+function abortOrProxyError(error: unknown, fallback: string) {
+  if (isAbortError(error)) return new Response(null, { status: 499, statusText: "Client Closed Request" });
+  return jsonError(500, error instanceof Error && error.message.trim() ? error.message : fallback);
+}
+
 function stripHeaders(headers: Headers, extra: string[] = []) {
   const next = new Headers();
   const blocked = new Set([...HOP_HEADERS, ...CONTROL_HEADERS, ...extra].map((name) => name.toLowerCase()));
@@ -96,26 +110,30 @@ export function buildRelayTarget(baseUrl: string, relayPath: string, search: str
 }
 
 export async function proxyLocalRelay(request: Request, splat: string) {
-  const baseUrl = request.headers.get("x-local-relay-base-url") || "";
-  const builtin = (request.headers.get("x-boundless-builtin") || "").trim().toLowerCase();
-  let target: URL;
   try {
-    target = buildRelayTarget(baseUrl, splat, new URL(request.url).search);
-  } catch (error) {
-    return jsonError(400, error instanceof Error ? error.message : "自定义 API Base URL 无效");
-  }
-
-  const headers = stripHeaders(request.headers);
-  if (builtin === "xai") {
-    if (target.hostname.toLowerCase() !== "api.x.ai") {
-      return jsonError(400, "内置 xAI 通道只能转发到 api.x.ai");
+    const baseUrl = request.headers.get("x-local-relay-base-url") || "";
+    const builtin = (request.headers.get("x-boundless-builtin") || "").trim().toLowerCase();
+    let target: URL;
+    try {
+      target = buildRelayTarget(baseUrl, splat, new URL(request.url).search);
+    } catch (error) {
+      return jsonError(400, error instanceof Error ? error.message : "自定义 API Base URL 无效");
     }
-    const key = process.env.XAI_API_KEY;
-    if (!key) return jsonError(503, "当前环境未接入 xAI，请改用自定义中转并填写 API Key");
-    headers.set("Authorization", `Bearer ${key}`);
-  }
 
-  return forward(request, target, headers, RELAY_TIMEOUT_MS);
+    const headers = stripHeaders(request.headers);
+    if (builtin === "xai") {
+      if (target.hostname.toLowerCase() !== "api.x.ai") {
+        return jsonError(400, "内置 xAI 通道只能转发到 api.x.ai");
+      }
+      const key = process.env.XAI_API_KEY;
+      if (!key) return jsonError(503, "当前环境未接入 xAI，请改用自定义中转并填写 API Key");
+      headers.set("Authorization", `Bearer ${key}`);
+    }
+
+    return await forward(request, target, headers, RELAY_TIMEOUT_MS);
+  } catch (error) {
+    return abortOrProxyError(error, "中转转发失败");
+  }
 }
 
 export async function proxyWebDav(request: Request) {

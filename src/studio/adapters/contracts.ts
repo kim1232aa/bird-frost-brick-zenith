@@ -23,6 +23,9 @@ export type XaiImagineVideoRequest = {
   aspect_ratio?: string;
   resolution?: string;
   image?: { url: string };
+  last_frame_image?: { url: string };
+  images?: Array<{ url: string }>;
+  image_urls?: string[];
 };
 
 export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<string, unknown> {
@@ -34,6 +37,11 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
   if (input.aspect_ratio) body.aspect_ratio = input.aspect_ratio;
   if (input.resolution) body.resolution = input.resolution;
   if (input.image?.url) body.image = { url: input.image.url };
+  if (input.last_frame_image?.url) body.last_frame_image = { url: input.last_frame_image.url };
+  const extras = (input.images || []).map((item) => item?.url).filter(Boolean);
+  const urls = Array.from(new Set([...(input.image_urls || []), ...extras].filter(Boolean)));
+  // Grok Imagine relay/official rejects `images: [{url}]` with HTTP 400 and accepts `image_urls`.
+  if (urls.length) body.image_urls = urls;
   return body;
 }
 

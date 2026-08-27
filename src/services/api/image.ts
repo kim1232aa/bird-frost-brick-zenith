@@ -1283,7 +1283,7 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
             imageUrls: context.references
                 .map((item) => item.dataUrl || item.url)
                 .filter((item): item is string => Boolean(item))
-                .slice(0, 3),
+                .slice(0, 5),
             n: context.providerOutputCount,
             loras: context.advanced.loras,
             negativePrompt: context.advanced.negativePrompt,

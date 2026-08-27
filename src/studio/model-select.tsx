@@ -34,7 +34,7 @@ export function preferredVideoKey() {
 }
 
 export function preferredImageKey() {
-  return prefer("image", (item) => item.model === "Qwen/Qwen-Image" || item.model === "doubao-seedream-5.0-lite");
+  return prefer("image", (item) => item.model === "grok-imagine-image" || item.model === "grok-imagine-image-quality" || item.model === "Qwen/Qwen-Image");
 }
 
 export function preferredTextKey() {

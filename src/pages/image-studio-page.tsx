@@ -142,7 +142,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const addRefs = async (files: FileList | null) => {
     if (!files?.length) return;
     const next = await filesToDataUrls(files, 3);
-    setReferences((current) => [...current, ...next].slice(0, 3));
+    setReferences((current) => [...current, ...next].slice(0, 5));
     if (mode === "t2i") setMode("i2i");
   };
 
@@ -510,7 +510,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                   type="button"
                   className="studio-ghost"
                   onClick={() => {
-                    setReferences((current) => [...urls, ...current].slice(0, 3));
+                    setReferences((current) => [...urls, ...current].slice(0, 5));
                     goMode("edit");
                   }}
                 >

@@ -1,13 +1,15 @@
 import type { ImageGenInput } from "./adapters/types";
 
-export function imageRefs(input: Pick<ImageGenInput, "imageUrl" | "imageUrls">): string[] {
+export const MAX_IMAGE_REFS = 5;
+
+export function imageRefs(input: Pick<ImageGenInput, "imageUrl" | "imageUrls">, max = MAX_IMAGE_REFS): string[] {
   const list = [...(input.imageUrls || []), ...(input.imageUrl ? [input.imageUrl] : [])]
     .map((item) => String(item || "").trim())
     .filter(Boolean);
-  return Array.from(new Set(list)).slice(0, 3);
+  return Array.from(new Set(list)).slice(0, max);
 }
 
-export async function filesToDataUrls(files: FileList | File[] | null | undefined, max = 3): Promise<string[]> {
+export async function filesToDataUrls(files: FileList | File[] | null | undefined, max = MAX_IMAGE_REFS): Promise<string[]> {
   const list = [...(files || [])].filter((file) => file.type.startsWith("image/")).slice(0, max);
   return Promise.all(
     list.map(

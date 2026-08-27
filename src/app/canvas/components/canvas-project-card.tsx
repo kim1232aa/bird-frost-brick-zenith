@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Download, Image as ImageIcon, Pencil, Trash2, X } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { Button, Input } from "antd";
 
 import { resolveImageUrl } from "@/services/image-storage";
@@ -11,6 +11,7 @@ import { useCanvasStore, type CanvasProject } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { CanvasNodeType } from "../types";
 import { exportCanvasProjects } from "../utils/canvas-export";
+import { prefetchCanvasWorkspace } from "@/pages/canvas-workspace-fallback";
 
 type CanvasProjectCardProps = {
     project: CanvasProject;
@@ -18,7 +19,7 @@ type CanvasProjectCardProps = {
 };
 
 export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectCardProps) {
-    const router = useRouter();
+    const navigate = useNavigate();
     const renameProject = useCanvasStore((state) => state.renameProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const editingId = useCanvasUiStore((state) => state.editingProjectId);
@@ -30,7 +31,10 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
     const editing = editingId === project.id;
     const selected = selectedIds.includes(project.id);
-    const open = () => router.push("/canvas/workspace?id=" + encodeURIComponent(project.id));
+    const open = () => {
+        prefetchCanvasWorkspace();
+        void navigate({ to: "/canvas/workspace", search: { id: project.id } });
+    };
     const saveTitle = () => {
         renameProject(project.id, editingTitle);
         stopEditing();
@@ -85,6 +89,7 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
             <article
                 data-project-view="list"
                 className={"group flex min-h-20 cursor-pointer items-center gap-3 rounded-lg border bg-white px-3 py-2.5 shadow-sm transition hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
+                onPointerEnter={prefetchCanvasWorkspace}
                 onClick={() => !editing && open()}
             >
                 {selectionCheckbox("size-4 shrink-0 accent-stone-950 dark:accent-stone-100")}
@@ -128,6 +133,7 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
         <article
             data-project-view="grid"
             className={"group cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
+            onPointerEnter={prefetchCanvasWorkspace}
             onClick={() => !editing && open()}
         >
             <div className="relative aspect-video overflow-hidden bg-stone-100">

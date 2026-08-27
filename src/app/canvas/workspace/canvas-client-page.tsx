@@ -330,6 +330,7 @@ import {
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import {
   flushCanvasPersistence,
+  importLatestStorySeed,
   useCanvasStore,
   type CanvasProject,
 } from "../stores/use-canvas-store";
@@ -1805,10 +1806,11 @@ class CanvasWorkspaceErrorBoundary extends Component<
 
   render() {
     if (!this.state.error) return this.props.children;
+    const detail = this.state.error.message || "未知渲染错误";
     return (
       <CanvasRestoreErrorShell
-        message="画布运行时加载失败，可能是浏览器里保存的画布数据异常。请先返回画布库新建画布，或清理本机画布缓存。"
-        onRetry={() => window.location.reload()}
+        message={`画布组件渲染出错：${detail}。这是界面代码问题，不是你的画布文件坏了。点重试会重新挂载画布。`}
+        onRetry={() => this.setState({ error: null })}
         onBack={() => (window.location.href = "/canvas/home")}
         onRepair={() => (window.location.href = "/canvas-repair")}
       />
@@ -3007,6 +3009,14 @@ function InfiniteCanvasPage() {
     setPendingDeleteNodeIds([]);
     setClearConfirmProjectId(null);
     setDeleteProjectConfirmId(null);
+    setDialogNodeId(null);
+    const snapshot = projectId
+      ? useCanvasStore.getState().projects.find((item) => item.id === projectId)
+      : null;
+    if (!snapshot || snapshot.nodes.length === 0) {
+      setNodes([]);
+      setConnections([]);
+    }
     if (!hydrated) return;
     let cancelled = false;
     const mediaRestoreController = new AbortController();
@@ -3149,10 +3159,7 @@ function InfiniteCanvasPage() {
     };
 
     if (!projectId) {
-      const id = createProject(
-        `无限画布 ${useCanvasStore.getState().projects.length + 1}`,
-      );
-      router.replace(`/canvas/workspace?id=${encodeURIComponent(id)}`);
+      router.replace("/canvas/home");
       return;
     }
     const project = openProject(projectId);
@@ -3172,11 +3179,19 @@ function InfiniteCanvasPage() {
       };
     }
     if (!project) {
-      const id = createProject(
-        `无限画布 ${useCanvasStore.getState().projects.length + 1}`,
-      );
-      router.replace(`/canvas/workspace?id=${encodeURIComponent(id)}`);
-      return;
+      void importLatestStorySeed().then(() => {
+        if (cancelled) return;
+        const recovered = useCanvasStore.getState().openProject(projectId);
+        if (recovered) {
+          void restoreProjectState(recovered);
+          return;
+        }
+        setRestoreError("找不到这个画布。它可能还没导入完成，或已经从本机库里删掉了。请回画布库打开已有项目，不要在这里新建空画布。");
+      });
+      return () => {
+        cancelled = true;
+        mediaRestoreController.abort();
+      };
     }
 
     void restoreProjectState(project);
@@ -8605,7 +8620,7 @@ function InfiniteCanvasPage() {
             item.type === CanvasNodeType.Text ||
             item.type === CanvasNodeType.StoryDirector,
         )?.metadata?.content ||
-        "";
+        "清凉写真NWSF";
       const sourceBounds = targetNodes.length
         ? targetNodes.reduce(
             (acc, node) => ({
@@ -8625,7 +8640,7 @@ function InfiniteCanvasPage() {
       const node = createCanvasNode(CanvasNodeType.StoryDirector, position, {
         storyText: sourceText,
         content: sourceText,
-        storyStyle: "电影感写实",
+        storyStyle: "清凉写真",
         storyShotCount: 5,
         storyAspectRatio: "16:9",
         storyWorkflow: "idle",
@@ -18500,7 +18515,7 @@ function sanitizeCanvasNodes(nodes: CanvasNodeData[] | undefined) {
           x: readFiniteNumber(node.position?.x, 0),
           y: readFiniteNumber(node.position?.y, 0),
         };
-        return normalizeEmptyVideoNodeToSeedance2Placeholder({
+        return normalizeEmptyVideoNodeToSeedance2Placeholder(normalizeStoryDirectorNode({
           ...node,
           title:
             typeof node.title === "string" && node.title.trim()
@@ -18513,9 +18528,70 @@ function sanitizeCanvasNodes(nodes: CanvasNodeData[] | undefined) {
             node.metadata && typeof node.metadata === "object"
               ? node.metadata
               : {},
-        });
+        }));
       }),
   ));
+}
+
+function normalizeStoryDirectorNode(node: CanvasNodeData): CanvasNodeData {
+  if (node.type !== CanvasNodeType.StoryDirector) return node;
+  const metadata = node.metadata && typeof node.metadata === "object" ? node.metadata : {};
+  const shots = Array.isArray(metadata.storyShots) ? metadata.storyShots : [];
+  const characters = Array.isArray(metadata.storyCharacters) ? metadata.storyCharacters : [];
+  const scenes = Array.isArray(metadata.storyScenes) ? metadata.storyScenes : [];
+  return {
+    ...node,
+    metadata: {
+      ...metadata,
+      storyShots: shots.map((shot, index) => ({
+        id: shot?.id || `shot-${index + 1}`,
+        index: typeof shot?.index === "number" ? shot.index : index + 1,
+        title: shot?.title || `镜头 ${index + 1}`,
+        sceneId: shot?.sceneId,
+        appearingCharacterIds: Array.isArray(shot?.appearingCharacterIds) ? shot.appearingCharacterIds : [],
+        excludedCharacterIds: Array.isArray(shot?.excludedCharacterIds) ? shot.excludedCharacterIds : [],
+        action: shot?.action || "",
+        camera: shot?.camera || "",
+        emotion: shot?.emotion,
+        continuityNote: shot?.continuityNote,
+        characterState: shot?.characterState,
+        visualContent: shot?.visualContent,
+        voiceover: shot?.voiceover,
+        imagePrompt: shot?.imagePrompt || "",
+        finalPrompt: shot?.finalPrompt,
+        resultNodeIds: Array.isArray(shot?.resultNodeIds) ? shot.resultNodeIds : [],
+        status: shot?.status || "pending",
+        errorDetails: shot?.errorDetails,
+      })),
+      storyCharacters: characters.map((character, index) => ({
+        id: character?.id || `char-${index + 1}`,
+        name: character?.name || `角色 ${index + 1}`,
+        aliases: character?.aliases,
+        roleType: character?.roleType || "protagonist",
+        importance: character?.importance || "main",
+        appearance: character?.appearance || "",
+        personality: character?.personality,
+        relationshipSummary: character?.relationshipSummary,
+        visualPrompt: character?.visualPrompt || "",
+        negativePrompt: character?.negativePrompt,
+        referenceNodeId: character?.referenceNodeId,
+        referenceImageUrl: character?.referenceImageUrl,
+        assetSource: character?.assetSource,
+        assetLocked: character?.assetLocked,
+        status: character?.status || "draft",
+        errorDetails: character?.errorDetails,
+      })),
+      storyScenes: scenes.map((scene, index) => ({
+        id: scene?.id || `scene-${index + 1}`,
+        name: scene?.name || `场景 ${index + 1}`,
+        description: scene?.description || "",
+        mood: scene?.mood,
+        visualStyle: scene?.visualStyle,
+        referenceNodeId: scene?.referenceNodeId,
+        referenceImageUrl: scene?.referenceImageUrl,
+      })),
+    },
+  };
 }
 
 function normalizeEmptyVideoNodeToSeedance2Placeholder(
@@ -20287,7 +20363,7 @@ function sourceImagesForStoryShot(
   nodes: CanvasNodeData[],
   characterById: Map<string, StoryCharacter>,
 ): ReferenceImage[] {
-  return shot.appearingCharacterIds.flatMap((characterId) => {
+  return (shot.appearingCharacterIds || []).flatMap((characterId) => {
     const character = characterById.get(characterId);
     const node = character?.referenceNodeId
       ? nodes.find((item) => item.id === character.referenceNodeId)
@@ -20550,7 +20626,7 @@ function storyShotHasReferenceIntent(
   shots: readonly StoryShot[],
 ) {
   return (
-    shots.some((shot) => shot.appearingCharacterIds.length > 0) ||
+    shots.some((shot) => (shot.appearingCharacterIds || []).length > 0) ||
     storyDirectorSourceIdsForKind(director, "reference").length > 0 ||
     storyDirectorSourceIdsForKind(director, "character").length > 0 ||
     storyDirectorSourceIdsForKind(director, "scene").length > 0 ||

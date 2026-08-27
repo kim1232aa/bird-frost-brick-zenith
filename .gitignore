@@ -8,6 +8,12 @@ screenshots/
 artifacts/
 .vercel/
 attachments/
+.tanstack/
+.output/
+dist/
 *.webp
 *.webm
 .DS_Store
+*.log
+/tmp/
+.grok/status

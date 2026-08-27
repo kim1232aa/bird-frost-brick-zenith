@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import { useRouter as useTanstackRouter, useRouterState } from "@tanstack/react-router";
 
 function notifyNavigation() {
-  window.dispatchEvent(new PopStateEvent("popstate"));
   window.dispatchEvent(new Event("tanstack-router-sync"));
 }
 

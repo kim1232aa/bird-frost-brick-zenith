@@ -14,6 +14,7 @@ export async function createStudioVideo(input: {
   resolution?: string;
   imageUrl?: string;
   lastFrameUrl?: string;
+  imageUrls?: string[];
   generateAudio?: boolean;
   negativePrompt?: string;
 }) {
@@ -41,6 +42,7 @@ export async function createStudioVideo(input: {
         resolution: input.resolution,
         imageUrl: input.imageUrl,
         lastFrameUrl: input.lastFrameUrl,
+        imageUrls: input.imageUrls,
         generateAudio: input.generateAudio,
         negativePrompt: input.negativePrompt,
       },
@@ -77,7 +79,7 @@ export async function waitStudioVideo(input: {
   onTick?: (n: number) => void;
 }) {
   try {
-    for (let i = 0; i < 40; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       input.onTick?.(i + 1);
       const state = await pollStudioVideo(input);
       if (state.status === "completed" && state.url) return state.url;

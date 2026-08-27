@@ -11,11 +11,11 @@ type CanvasNodeSpec = {
 export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Image]: { width: 340, height: 240, title: "New Generation" },
     [CanvasNodeType.Text]: { width: 340, height: 240, title: "Note" },
-    [CanvasNodeType.Config]: { width: 440, height: 600, title: "生成配置" },
+    [CanvasNodeType.Config]: { width: 400, height: 520, title: "生成配置" },
     [CanvasNodeType.Video]: { width: 420, height: 236, title: "Video" },
     [CanvasNodeType.Audio]: { width: 340, height: 120, title: "Audio" },
-    [CanvasNodeType.StoryDirector]: { width: 640, height: 760, title: "故事导演" },
-    [CanvasNodeType.Seedance2Workflow]: { width: 640, height: 760, title: "Seedance2 视频工作流" },
+    [CanvasNodeType.StoryDirector]: { width: 520, height: 640, title: "故事导演" },
+    [CanvasNodeType.Seedance2Workflow]: { width: 520, height: 640, title: "Seedance2 视频工作流" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 
 export const NODE_SPECS = {
@@ -41,7 +41,7 @@ export const NODE_SPECS = {
     },
     [CanvasNodeType.StoryDirector]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.StoryDirector],
-        metadata: { status: "idle", storyText: "", storyStyle: "电影感写实", storyShotCount: 5, storyAspectRatio: "16:9", storyWorkflow: "idle", storyStoryboardMode: "single" },
+        metadata: { status: "idle", storyText: "清凉写真NWSF", content: "清凉写真NWSF", storyStyle: "清凉写真", storyShotCount: 5, storyAspectRatio: "16:9", storyWorkflow: "idle", storyStoryboardMode: "single" },
     },
     [CanvasNodeType.Seedance2Workflow]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow],

@@ -28,13 +28,21 @@ for a different name **under that directory**.
 
 ## Built output
 
-Serve the build with `npm run preview` (loopback `127.0.0.1:8081`) and reuse the
-dev verdict as a baseline — the JSON reports `divergesFromBaseline`, so you only
-re-read the built screenshots when it flags.
+Serve the build with `npm run preview:restart` (loopback `127.0.0.1:8081`) and
+reuse the dev verdict as a baseline — the JSON reports `divergesFromBaseline`, so
+you only re-read the built screenshots when it flags.
 
 ```bash
+npm run preview:restart   # built output on 127.0.0.1:8081 — QA only, never the live preview
 node scripts/browser-smoke.mjs http://127.0.0.1:8081/ /workspace/screenshots/app-builder-built.png --baseline /workspace/screenshots/app-builder-preview.json
+npm run preview:stop      # frees :8081 when the built-output QA is done
 ```
+
+`preview:restart` (`scripts/preview.mjs`) kills whatever holds `:8081` — the
+port's owner, whoever started it — then serves the current build in the
+background and returns once it answers. Use it instead of bare
+`npm run preview`: `vite preview` is strictPort, so a preview left running from
+an earlier build both fails a plain start and keeps serving stale output.
 
 ## How deep to go
 

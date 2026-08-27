@@ -1,19 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { App, Button } from "antd";
-import { Download, FileUp, LayoutGrid, List, Plus, Settings2, Wrench } from "lucide-react";
+import { Download, FileUp, LayoutGrid, List, Plus } from "lucide-react";
 
 import { readZip } from "@/lib/zip";
 import { getDesktopSetting, setDesktopSetting } from "@/services/desktop-storage";
-import { openApiSettings } from "@/services/settings-dialog";
-import { planLabel, useMembershipStore } from "@/studio/membership";
+import { canEnterOps, useAccountStore } from "@/studio/account";
 import { STUDIO_ROUTES } from "@/studio/wiring";
 import { setMediaBlob, deleteStoredMedia, getAllStoredMediaKeys } from "@/services/file-storage";
 import { setImageBlob, deleteStoredImages, getAllStoredImageKeys } from "@/services/image-storage";
-import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 import { CanvasDeleteProjectsDialog } from "../components/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "../components/canvas-project-card";
 import type { CanvasExportFile } from "../export-types";
@@ -21,6 +18,7 @@ import { useCanvasStore } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { exportCanvasProjects } from "../utils/canvas-export";
 import { importCanvasArchive, type CanvasArchive, type CanvasArchiveImportHandlers } from "../utils/canvas-import";
+import { prefetchCanvasWorkspace } from "@/pages/canvas-workspace-fallback";
 
 export type CanvasHomeViewMode = "list" | "grid";
 
@@ -107,56 +105,35 @@ export default function CanvasPage() {
     const inputRef = useRef<HTMLInputElement>(null);
     const [viewMode, setViewMode] = useState<CanvasHomeViewMode>("list");
     const hydrated = useCanvasStore((state) => state.hydrated);
+    const hydrationStatus = useCanvasStore((state) => state.hydrationStatus);
+    const hydrationError = useCanvasStore((state) => state.hydrationError);
+    const retryHydration = useCanvasStore((state) => state.retryHydration);
     const projects = useCanvasStore((state) => state.projects);
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
+    const session = useAccountStore((state) => state.session);
+    const admin = canEnterOps({ session });
 
     useEffect(() => {
         let active = true;
         void getDesktopSetting(CANVAS_HOME_VIEW_STORAGE_KEY).then((savedViewMode) => {
             if (active && (savedViewMode === "grid" || savedViewMode === "list")) setViewMode(savedViewMode);
         });
+        prefetchCanvasWorkspace();
         return () => { active = false; };
     }, []);
-
-    useEffect(() => {
-        if (typeof window === "undefined") return;
-        const raw = window.localStorage.getItem("boundless-studio:canvas-drop");
-        if (!raw) return;
-        window.localStorage.removeItem("boundless-studio:canvas-drop");
-        try {
-            const payload = JSON.parse(raw) as { kind?: string; url?: string; prompt?: string; model?: string; text?: string };
-            if (payload.kind === "story") return;
-            const id = pushMediaToCanvasWorkspace({
-                kind: payload.kind === "video" ? "video" : payload.url ? "image" : "text",
-                url: payload.url,
-                prompt: payload.prompt || payload.text,
-                model: payload.model,
-                title: (payload.prompt || payload.text || "画布素材").slice(0, 18),
-            });
-            void navigate({ to: "/canvas/workspace", search: { id } });
-        } catch {
-            /* keep the project library usable if the drop payload is stale */
-        }
-    }, [navigate]);
 
     const changeViewMode = (nextViewMode: CanvasHomeViewMode) => {
         setViewMode(nextViewMode);
         void setDesktopSetting(CANVAS_HOME_VIEW_STORAGE_KEY, nextViewMode);
     };
 
-    const enterProject = (id: string) => {
-        void navigate({ to: "/canvas/workspace", search: { id } });
-    };
     const createAndEnter = () => {
         const id = createProject(getNextCanvasProjectTitle(projects));
         void navigate({ to: "/canvas/workspace", search: { id } });
     };
-    const plan = useMembershipStore((state) => state.plan);
-    const remainingVideo = useMembershipStore((state) => state.remaining("video"));
-    const remainingImage = useMembershipStore((state) => state.remaining("image"));
     const importCanvas = async (file?: File) => {
         if (!file) return;
         try {
@@ -204,12 +181,9 @@ export default function CanvasPage() {
                     <div>
                         <p className="text-xs tracking-[0.2em] text-emerald-600">BOUNDLESS STUDIO</p>
                         <h1 className="mt-2 text-3xl font-semibold tracking-tight">无限画布</h1>
-                        <p className="mt-2 max-w-xl text-sm text-stone-500">在一张浅色无限画布上组织文本、图片、视频和故事导演。节点、连线、Seedance 工作流都会保存在这台浏览器里。</p>
+                        <p className="mt-2 max-w-xl text-sm text-stone-500">在一张浅色无限画布上组织文本、图片、视频和故事导演。项目保存在这台浏览器；改模型去顶栏设置，这里只管理画布。</p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button type="button" onClick={() => openApiSettings("relay")} className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
-                            {planLabel(plan)} · 图 {remainingImage} · 视频 {remainingVideo}
-                        </button>
                         <div className="flex items-center rounded-md border border-stone-200 bg-white p-0.5" role="group" aria-label="画布显示方式">
                             <Button
                                 type={viewMode === "list" ? "primary" : "text"}
@@ -238,7 +212,7 @@ export default function CanvasPage() {
                             新建画布
                         </Button>
                         <Button disabled={!hydrated} icon={<FileUp className="size-4" />} onClick={() => inputRef.current?.click()}>
-                            导入画布
+                            导入
                         </Button>
                         <Button
                             disabled={!hydrated || !projects.length}
@@ -247,22 +221,14 @@ export default function CanvasPage() {
                                 const downloadProjects = selectedIds.length ? projects.filter((project) => selectedIds.includes(project.id)) : projects;
                                 void exportCanvasProjects(downloadProjects, selectedIds.length ? `无限画布-${selectedIds.length}个项目` : "无限画布-全部项目");
                             }}
-                            title={selectedIds.length ? `下载选中的 ${selectedIds.length} 个画布` : "下载全部画布"}
+                            title={selectedIds.length ? `导出选中的 ${selectedIds.length} 个画布` : "导出全部画布"}
                         >
-                            下载画布
+                            导出
                         </Button>
-                        <Button icon={<Settings2 className="size-4" />} onClick={() => openApiSettings("relay")}>
-                            设置
-                        </Button>
-                        <Link href="/canvas-repair">
-                            <Button icon={<Wrench className="size-4" />}>修复加载</Button>
-                        </Link>
                         {selectedIds.length ? (
-                            <>
-                                <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>
-                                    删除选中
-                                </Button>
-                            </>
+                            <Button disabled={!hydrated} onClick={() => setDeleteIds(selectedIds)}>
+                                删除选中
+                            </Button>
                         ) : null}
                         {projects.length ? (
                             <Button disabled={!hydrated} onClick={() => setDeleteIds(projects.map((project) => project.id))}>
@@ -272,13 +238,36 @@ export default function CanvasPage() {
                     </div>
                 </header>
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                    <WiringChip label="文本" value={STUDIO_ROUTES.text.model} hint="Grok 4.6" />
-                    <WiringChip label="生图" value={STUDIO_ROUTES.image.model} hint="火山 Seedream 5.0 Lite" />
-                    <WiringChip label="生视频" value={STUDIO_ROUTES.video.model} hint="xAI Imagine /videos/generations" />
-                </div>
+                <section className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
+                    <div className="mb-3 flex items-baseline justify-between gap-3">
+                        <p className="text-xs tracking-wider text-stone-400">当前接线 · 只读</p>
+                        {admin ? (
+                            <Link to="/settings" className="text-xs text-emerald-700 hover:text-emerald-900">
+                                去设置改模型
+                            </Link>
+                        ) : (
+                            <span className="text-xs text-stone-400">模型由管理员在设置里配置</span>
+                        )}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                        <WiringChip label="文本" value={STUDIO_ROUTES.text.model} hint="Grok 4.6" />
+                        <WiringChip label="生图" value={STUDIO_ROUTES.image.model} hint="Grok Imagine 生图 · 最多 5 张参考" />
+                        <WiringChip label="生视频" value={STUDIO_ROUTES.video.model} hint="Grok Imagine 视频 · 首尾帧 + 分镜静帧" />
+                    </div>
+                </section>
 
-                {!hydrated ? (
+                {hydrationStatus === "error" ? (
+                    <section className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-stone-800" role="alert">
+                        <h2 className="text-lg font-medium">画布库没能读出来</h2>
+                        <p className="mt-2 max-w-xl text-sm text-stone-600">{hydrationError || "本机保存的项目数据损坏或被拦截。先重试；仍不行再清理缓存。"}</p>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                            <Button type="primary" onClick={() => void retryHydration()}>重试读取</Button>
+                            <Link to="/canvas-repair">
+                                <Button>清理缓存</Button>
+                            </Link>
+                        </div>
+                    </section>
+                ) : !hydrated ? (
                     <section className="flex min-h-[360px] items-center justify-center rounded-2xl border border-stone-200 bg-white text-sm text-stone-500">正在加载画布...</section>
                 ) : projects.length ? (
                     <div className={viewMode === "list" ? "flex flex-col gap-2" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"} data-view-mode={viewMode}>
@@ -289,7 +278,7 @@ export default function CanvasPage() {
                 ) : (
                     <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-white text-center">
                         <h2 className="text-xl font-medium text-stone-900">从一张空白画布开始</h2>
-                        <p className="mt-3 max-w-md text-sm text-stone-500">节点、连线、故事导演、Seedance 工作流都会保存在这台浏览器里。随时可导入导出压缩包。</p>
+                        <p className="mt-3 max-w-md text-sm text-stone-500">节点、连线、故事导演、视频工作流都会保存在这台浏览器里。随时可导入导出压缩包。</p>
                         <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={createAndEnter}>
                             新建画布
                         </Button>
@@ -305,10 +294,10 @@ export default function CanvasPage() {
 
 function WiringChip({ label, value, hint }: { label: string; value: string; hint: string }) {
     return (
-        <button type="button" onClick={() => openApiSettings("routing")} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-emerald-300">
+        <div className="rounded-xl border border-stone-100 bg-stone-50 px-4 py-3 text-left">
             <div className="text-[11px] uppercase tracking-wider text-stone-400">{label}</div>
             <div className="mt-1 truncate font-mono text-sm text-stone-900">{value || "未接线"}</div>
             <div className="mt-1 text-xs text-stone-500">{hint}</div>
-        </button>
+        </div>
     );
 }

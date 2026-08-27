@@ -643,20 +643,34 @@ async function createXaiImagineVideoTask(
     generationParameters: VideoGenerationParameters,
 ): Promise<VideoGenerationTask> {
     const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent);
-    let imageUrl = "";
-    if (publicIntent.kind === "first_frame") imageUrl = publicIntent.firstFrame;
-    else if (publicIntent.kind !== "none") {
-        throw new Error(`${capability.providerLabel} / ${model}：xAI Imagine 视频仅支持文生视频或单张首帧图生视频`);
+    const stills = Array.from(new Set(videoReferenceIntentItems(publicIntent).map((url) => String(url || "").trim()).filter(Boolean))).slice(0, 5);
+    let first = "";
+    let last = "";
+    if (publicIntent.kind === "first_frame" || publicIntent.kind === "reference_set_with_first") first = publicIntent.firstFrame;
+    else if (publicIntent.kind === "first_last_frame" || publicIntent.kind === "reference_set_with_frames") {
+        first = publicIntent.firstFrame || stills[0] || "";
+        last = publicIntent.lastFrame || stills[stills.length - 1] || "";
+    } else if (publicIntent.kind === "reference_set") {
+        first = stills[0] || "";
+        last = stills.length > 1 ? stills[stills.length - 1] : "";
+    } else if (publicIntent.kind !== "none" && stills.length) {
+        first = stills[0];
+        last = stills.length > 1 ? stills[stills.length - 1] : "";
     }
+    if (!first) first = stills[0] || "";
+    if (last && last === first) last = stills.find((url) => url !== first) || "";
     const duration = typeof generationParameters.duration === "number" ? generationParameters.duration : Number(config.videoSeconds) || 6;
     const resolution = String(generationParameters.resolution || config.vquality || "720p").replace(/p$/i, "") + "p";
+    const aspect = String(generationParameters.aspectRatio || "16:9");
     const body = buildXaiImagineVideoBody({
         model,
         prompt,
         duration: Math.max(1, Math.min(15, Math.round(duration))),
-        aspect_ratio: "16:9",
+        aspect_ratio: aspect,
         resolution: ["480p", "720p", "1080p"].includes(resolution) ? resolution : "720p",
-        ...(imageUrl ? { image: { url: imageUrl } } : {}),
+        ...(first ? { image: { url: first } } : {}),
+        ...(last ? { last_frame_image: { url: last } } : {}),
+        image_urls: stills,
     });
     try {
         const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";

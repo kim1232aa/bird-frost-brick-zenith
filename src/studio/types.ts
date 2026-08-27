@@ -1,4 +1,5 @@
 import type { StudioAdapterId } from "./adapters/types";
+import type { VideoCapabilityProfileId } from "@/services/api/video-model-capabilities";
 
 export type StudioCapability = "text" | "image" | "video" | "audio";
 
@@ -28,6 +29,7 @@ export type StudioProviderBlueprint = {
   audioModels: string[];
   endpoints: StudioEndpointMap;
   nsfw?: boolean;
+  videoCapabilityProfiles?: Record<string, VideoCapabilityProfileId>;
 };
 
 export type StudioRouteMap = Record<StudioCapability, { providerId: string; model: string }>;

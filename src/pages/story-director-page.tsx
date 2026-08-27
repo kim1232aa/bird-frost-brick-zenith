@@ -8,6 +8,7 @@ import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
 import { characterLock, draftPlan, type StoryCast, type StoryShot } from "@/studio/story/plan";
+import { shotImageRefs, stillSizeForQuality, storyStillUrls, videoStillBundle } from "@/studio/story/director-helpers";
 import { WorkbenchStatus } from "@/studio/workbench-status";
 import { pushStoryToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
@@ -15,11 +16,11 @@ export function StoryDirectorPage() {
   const navigate = useNavigate();
   const relays = useStudioSession((state) => state.relays);
   const addHistory = useStudioHistory((state) => state.add);
-  const [idea, setIdea] = useState("雨夜码头，女警探林晚追踪一枚会发光的铜铃。克制、潮湿、霓虹，电影感写实。");
+  const [idea, setIdea] = useState("清凉写真NWSF");
   const [textModel, setTextModel] = useState(preferredTextKey());
   const [imageModel, setImageModel] = useState(preferredImageKey());
   const [videoModel, setVideoModel] = useState(preferredVideoKey());
-  const [style, setStyle] = useState("电影感写实");
+  const [style, setStyle] = useState("清凉写真");
   const [mode, setMode] = useState<"single" | "grid9">("single");
   const [shotCount, setShotCount] = useState(5);
   const [ratio, setRatio] = useState("16:9");
@@ -41,12 +42,20 @@ export function StoryDirectorPage() {
   }, []);
 
   useEffect(() => {
+    const image = preferredImageKey();
+    const video = preferredVideoKey();
+    const text = preferredTextKey();
+    if (image.includes("grok-imagine-image")) setImageModel(image);
+    if (video.includes("grok-imagine-video")) setVideoModel(video);
+    if (text.includes("grok-4")) setTextModel(text);
+  }, [relays]);
+
+  useEffect(() => {
     const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
     setLogline(local.logline);
     setScenes(local.scenes);
     setCast(local.cast);
     setShots(local.shots);
-    // Seed the board so the right pane is never a blank void.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -90,10 +99,11 @@ export function StoryDirectorPage() {
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
-        prompt: `character bible portrait, locked identity, studio, ${person.look}, name ${person.name}, ${style}`,
+        prompt: `character bible portrait, locked identity, studio, adult 24+, ${person.look}, name ${person.name}, ${style}`,
         size: "1024x1024",
       });
       setCast((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "ready" } : item)));
+      people[index] = { ...people[index], url: result.url, status: "ready" };
       addHistory({ kind: "image", title: `角色 ${person.name}`, prompt: person.look, model: result.model, urls: [result.url] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "角色图失败";
@@ -105,46 +115,56 @@ export function StoryDirectorPage() {
     }
   };
 
-  const renderShot = async (index: number, boardShots = shots) => {
+  const renderShot = async (index: number, boardShots = shots, people = cast) => {
     const shot = boardShots[index];
-    if (!shot) return;
+    if (!shot) return "";
     setJob({ type: "shot", index });
     setBusy(`正在生成第 ${index + 1} 镜…`);
     setError("");
     try {
       const { generateStudioImage } = await import("@/studio/generate/image");
+      const refs = shotImageRefs(people, boardShots, index);
       const result = await generateStudioImage({
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
-        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast.length ? cast : [])}`,
-        imageUrl: cast.find((item) => item.url)?.url,
-        size: ratio === "9:16" ? "720x1280" : ratio === "1:1" ? "1024x1024" : "1280x720",
+        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast.length ? cast : [])}. Adult 24+ fashion photoshoot still, photorealistic.`,
+        imageUrl: refs[0],
+        imageUrls: refs,
+        size: stillSizeForQuality(quality, ratio),
       });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done", error: "" } : item)));
       addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, urls: [result.url] });
+      return result.url;
     } catch (err) {
       const message = err instanceof Error ? err.message : "这一镜出图失败";
       setError(message);
       setShots((current) => current.map((item, i) => (i === index ? { ...item, status: "error", error: message } : item)));
+      return "";
     } finally {
       setBusy("");
       setJob(null);
     }
   };
 
-  const renderVideo = async (index: number) => {
-    const shot = shots[index];
+  const renderVideo = async (index: number, boardShots = shots) => {
+    const shot = boardShots[index];
     if (!shot) return;
     setJob({ type: "video", index });
-    setBusy(`正在生成第 ${index + 1} 镜视频…`);
+    setBusy(`正在用 ${storyStillUrls(boardShots).length || 1} 张分镜静帧生成视频…`);
     setError("");
     try {
       const { createStudioVideo, waitStudioVideo } = await import("@/studio/generate/video");
+      const stills = videoStillBundle(boardShots, index);
+      if ((stills.all.length || 0) < 2) {
+        throw new Error("视频需要至少 2 张分镜静帧。Grok Imagine 可吃最多 5 张，不能只用一张。");
+      }
       const created = await createStudioVideo({
         relays,
-        prompt: `${shot.prompt}. Camera: ${shot.camera || "slow push in"}`,
-        imageUrl: shot.url,
+        prompt: `${shot.prompt}. Camera: ${shot.camera || "slow push in"}. Continuity across ${stills.all.length} storyboard stills, adult 24+ fashion photoshoot.`,
+        imageUrl: stills.first,
+        lastFrameUrl: stills.last,
+        imageUrls: stills.all,
         duration: shot.duration || 5,
         aspectRatio: ratio,
         providerId: videoSel.providerId,
@@ -171,33 +191,38 @@ export function StoryDirectorPage() {
       if (people[i].url || people[i].locked) continue;
       setProgress(`${done}/${missing.length || 1} 角色图 ${people[i].name}`);
       await renderCharacter(i, people);
+      if (!people[i].url) await renderCharacter(i, people);
       done += 1;
       setProgress(`${done}/${missing.length || 1} 角色图完成`);
     }
   };
 
-  const fillShots = async (boardShots = shots) => {
-    const missing = boardShots.filter((item) => !item.url);
+  const fillShots = async (boardShots = shots, people = cast) => {
+    const next = [...boardShots];
+    const missing = next.filter((item) => !item.url);
     let done = 0;
-    for (let i = 0; i < boardShots.length; i += 1) {
-      if (boardShots[i].url) continue;
-      setProgress(`${done}/${missing.length || 1} 分镜 ${boardShots[i].title}`);
-      await renderShot(i, boardShots);
+    for (let i = 0; i < next.length; i += 1) {
+      if (next[i].url) continue;
+      setProgress(`${done}/${missing.length || 1} 分镜 ${next[i].title}`);
+      let url = await renderShot(i, next, people);
+      if (!url) url = await renderShot(i, next, people);
+      if (url) next[i] = { ...next[i], url, status: "done" };
       done += 1;
       setProgress(`${done}/${missing.length || 1} 分镜完成`);
     }
+    return next;
   };
 
   const runStillPipeline = async (board?: { cast: StoryCast[]; shots: StoryShot[] }) => {
     const people = board?.cast || cast;
     const boardShots = board?.shots || shots;
     await fillCast(people);
-    await fillShots(boardShots);
+    return fillShots(boardShots, people);
   };
 
   const oneClickAll = async () => {
     setJob({ type: "all" });
-    setBusy("一键：拆分镜 → 角色图 → 全部分镜");
+    setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
     setError("");
     const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
     setLogline(local.logline);
@@ -206,12 +231,21 @@ export function StoryDirectorPage() {
     setShots(local.shots);
     try {
       const { planStory } = await import("@/studio/story/plan");
-      const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
+      let plan = local;
+      try {
+        plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
+      } catch (analyzeErr) {
+        setError(analyzeErr instanceof Error ? `分析失败，改用本地分镜：${analyzeErr.message}` : "分析失败，改用本地分镜");
+      }
       setLogline(plan.logline);
       setScenes(plan.scenes);
       setCast(plan.cast);
       setShots(plan.shots);
-      await runStillPipeline(plan);
+      const stills = await runStillPipeline(plan);
+      if (stills.some((item) => item.url)) {
+        setBusy("正在用全部分镜静帧生成视频…");
+        await renderVideo(0, stills);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -298,6 +332,7 @@ export function StoryDirectorPage() {
             推到画布
           </button>
           {error ? <p className="studio-error">{error}</p> : null}
+          {progress ? <p className="studio-hint">{progress}</p> : null}
         </div>
       </aside>
       <section className="bp-right story-board">
@@ -366,7 +401,7 @@ export function StoryDirectorPage() {
                     </button>
                   </div>
                 </article>
-              );
+                );
               })}
             </div>
             <p className="studio-kicker">分镜队列</p>
@@ -395,7 +430,7 @@ export function StoryDirectorPage() {
                       {index + 1}. {shot.title}
                     </b>
                     <p>
-                      {shot.camera} · {shot.scene} · {shot.characters.join(" / ")} · {shot.duration || 5}s
+                      {shot.camera} · {shot.scene} · {(shot.characters || []).join(" / ")} · {shot.duration || 5}s
                     </p>
                     <p>台词：{shot.dialogue || "无对白"}</p>
                     {shot.error ? <p className="studio-error">{shot.error}</p> : null}
@@ -409,7 +444,7 @@ export function StoryDirectorPage() {
                     </div>
                   </div>
                 </article>
-              );
+                );
               })}
             </div>
           </div>

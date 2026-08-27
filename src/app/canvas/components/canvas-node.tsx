@@ -3713,18 +3713,18 @@ function Seedance2WorkflowContent({ node, theme }: NodeContentRendererProps) {
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 text-base font-semibold">
                         <Film className="size-5 shrink-0 text-orange-300" />
-                        <span className="truncate">{node.title || "Seedance2 video workflow"}</span>
+                        <span className="truncate">{node.title || "Seedance2 视频工作流"}</span>
                     </div>
-                    <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>story director - video placeholder - Seedance2 API</div>
+                    <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>故事导演 → 视频占位 → Seedance2</div>
                 </div>
                 <span className="rounded-full border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>{mode}</span>
             </div>
             <div className="grid grid-cols-4 gap-2">
                 <div className="contents" data-seedance2-workflow-shot-count-state={shotCountDisplay.state}>
-                    <StoryMetric label="shots" value={shotCountDisplay.label} theme={theme} />
+                    <StoryMetric label="镜头" value={shotCountDisplay.label} theme={theme} />
                 </div>
-                <StoryMetric label="generations" value={`${generateCount}`} theme={theme} />
-                <StoryMetric label="continuous" value={continuous ? "on" : "off"} theme={theme} />
+                <StoryMetric label="生成数" value={`${generateCount}`} theme={theme} />
+                <StoryMetric label="连续" value={continuous ? "开" : "关"} theme={theme} />
                 <StoryMetric label="尺寸" value={node.metadata?.seedanceRatio || "16:9"} theme={theme} />
             </div>
             <div className="rounded-xl border p-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
@@ -3798,14 +3798,14 @@ function StoryDirectorContent({ node, theme }: NodeContentRendererProps) {
             </div>
 
             <div className="grid grid-cols-3 gap-2">
-                <StoryMetric label="character refs" value={`${characterRefs}`} theme={theme} />
-                <StoryMetric label="scene refs" value={`${sceneRefs}`} theme={theme} />
-                <StoryMetric label="other refs" value={`${propRefs}`} theme={theme} />
+                <StoryMetric label="角色参考" value={`${characterRefs}`} theme={theme} />
+                <StoryMetric label="场景参考" value={`${sceneRefs}`} theme={theme} />
+                <StoryMetric label="其它参考" value={`${propRefs}`} theme={theme} />
             </div>
 
             <div className="min-h-0 flex-1 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
                 <div className="line-clamp-[7] whitespace-pre-wrap break-words text-xs leading-5" style={{ color: text ? theme.node.text : theme.node.placeholder }}>
-                    {text || "Open the panel to paste story text. Connect character, scene, and other images as references."}
+                    {text || "打开面板粘贴故事文本。可连接角色、场景和其它参考图。"}
                 </div>
             </div>
         </div>

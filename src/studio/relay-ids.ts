@@ -1,5 +1,8 @@
 /** Built-in wiring slots. Keep in sync with STUDIO_PROVIDERS in wiring.ts. */
 const MANAGED_IDS = new Set([
+  "preset-grok-relay",
+  "preset-xai-official",
+  "preset-hansyai",
   "preset-modelscope",
   "preset-huggingface",
   "preset-superxihe-image",
@@ -16,6 +19,10 @@ const MANAGED_IDS = new Set([
   "legacy-default-relay",
 ]);
 
-export function isManagedRelayId(id: string) {
-  return MANAGED_IDS.has(id);
+export function isManagedRelayId(id: string | null | undefined): boolean {
+  return Boolean(id) && MANAGED_IDS.has(String(id));
+}
+
+export function managedRelayIds(): string[] {
+  return Array.from(MANAGED_IDS);
 }

@@ -205,8 +205,10 @@ export const useCanvasStore = create<CanvasStore>()(
             },
             importProject: (source) => {
                 const now = new Date().toISOString();
+                const requested = typeof source.id === "string" ? source.id.trim() : "";
+                const id = requested && !get().projects.some((item) => item.id === requested) ? requested : nanoid();
                 const project: CanvasProject = {
-                    id: nanoid(),
+                    id,
                     title: source.title || "导入画布",
                     createdAt: source.createdAt || now,
                     updatedAt: now,
@@ -282,6 +284,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     hydrationError: null,
                     projects: extras.length ? [...extras, ...state.projects] : [...state.projects],
                 });
+                void importLatestStorySeed();
             },
         },
     ),
@@ -330,7 +333,39 @@ export function setCanvasStorageScope(scopeId?: string | null) {
 if (typeof window !== "undefined") {
     window.setTimeout(() => {
         const current = useCanvasStore.getState();
-        if (current.hydrated || current.hydrationStatus === "error") return;
-        useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
-    }, 700);
+        if (current.hydrated || current.hydrationStatus === "error" || canvasPersistenceUnlocked) return;
+        void useCanvasStore.persist.rehydrate();
+    }, 4_000);
+}
+
+const LATEST_STORY_SEED_URL = "/recovery/latest-story-canvas.json";
+
+export async function importLatestStorySeed() {
+    if (typeof window === "undefined" || !canvasPersistenceUnlocked) return;
+    try {
+        const response = await fetch(`${LATEST_STORY_SEED_URL}?t=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as { project?: Partial<CanvasProject> };
+        const project = payload?.project;
+        if (!project || !Array.isArray(project.nodes) || project.nodes.length === 0) return;
+        const current = useCanvasStore.getState();
+        const title = String(project.title || "").trim();
+        const id = String(project.id || "").trim();
+        const existing = current.projects.find((item) => (id && item.id === id) || (title && item.title === title));
+        if (existing) {
+            const seedHasMedia = project.nodes.some((node) => Boolean(node.metadata?.content || node.metadata?.backendUrl));
+            const existingHasMedia = (existing.nodes || []).some((node) => Boolean(node.metadata?.content || node.metadata?.backendUrl));
+            if ((existing.nodes || []).length >= project.nodes.length && existingHasMedia && !seedHasMedia) return;
+            current.updateProject(existing.id, {
+                nodes: project.nodes,
+                connections: project.connections || [],
+                viewport: project.viewport || existing.viewport,
+            });
+            if (title && existing.title !== title) current.renameProject(existing.id, title);
+            return;
+        }
+        current.importProject(project);
+    } catch {
+        /* seed is optional until a live run writes it */
+    }
 }

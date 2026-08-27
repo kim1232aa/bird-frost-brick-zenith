@@ -22,6 +22,8 @@ Google, X, and email/password.** No other social/OAuth provider (GitHub, Apple,
 Discord, …), no magic links, passkeys, OTP, phone/SMS, or anonymous sign-in. Do
 not add entries to `GROK_PROVIDERS`. Method detail and the email/password switch
 (edit **only** `src/lib/auth/email-password.ts`): `references/sign-in-methods.md`.
+**Exception — connector / app-data apps sign in ONLY via "Continue with Grok"
+gate sign-in, no Google/X buttons**: `references/grok-identity.md`.
 
 **Sign-in is OFF by default** — the template ships `.grok/app-env.json` with
 `{"VITE_AUTH_ENABLED": "false"}`, so only add accounts when the ask calls for
@@ -33,27 +35,26 @@ preview client; deployed: per-app client + `DATABASE_URL` + zero-click gate
 sign-in (`references/prewired-and-env.md`, `references/grok-identity.md`).
 
 **While OFF** (`VITE_AUTH_ENABLED=false`) a **dev user** is returned so a
-non-auth app renders without a signed-in visitor — in dev and preview only. The
-deployed flag is the deployer's (today it always sets `"true"`), so deployed,
-`requireUserId` rejects every visitor. An app without sign-in therefore uses
-neither `authMiddleware` nor `requireUserId`.
+non-auth app renders without a signed-in visitor — dev and preview only. The
+deployed flag is the deployer's (always `"true"` today), so deployed,
+`requireUserId` rejects every visitor; an app without sign-in uses neither
+`authMiddleware` nor `requireUserId`.
 
 Everything is **preinstalled and pre-wired in `src/lib/auth/`** — do not
-`npm install` anything or reach for another auth library. `better-auth` is the
-only auth package; do NOT use `@neondatabase/*`, `@stackframe/*`, or `@clerk/*`.
-**Do not edit or rewrite any file under `src/lib/auth/`** — `server.ts` least of
-all — except `email-password.ts` for its one flag. The per-file map is in
+`npm install` anything; `better-auth` is the only auth package (never
+`@neondatabase/*`, `@stackframe/*`, or `@clerk/*`). **Do not edit or rewrite any
+file under `src/lib/auth/`** — `server.ts` least of all — except
+`email-password.ts` for its one flag. Per-file map:
 `references/prewired-and-env.md`.
 
 **`/auth/popup` is already handled by the template Vite plugin**
-(`vite.config.ts` → `popup.server.ts`): it never paints the React app.
-**Do NOT create `src/routes/auth/popup.tsx`** (or any React page / client OAuth
-at that path) — that shows the full app inside the popup, the common failure
-mode.
+(`vite.config.ts` → `popup.server.ts`): it never paints the React app. **Do NOT
+create `src/routes/auth/popup.tsx`** (or any React page / client OAuth at that
+path) — that shows the full app inside the popup, the common failure mode.
 
-**Never write a `.env` / `.env.local` / `.env.example`** for auth (or anything
-else) in this sandbox: live preview needs **zero** env configuration and a
-deployed app gets its vars injected by the platform. The knobs that exist are in
+**Never write a `.env` / `.env.local` / `.env.example`** in this sandbox: live
+preview needs **zero** env configuration and a deployed app gets its vars
+injected by the platform. The knobs that exist are in
 `references/prewired-and-env.md` — never expose a non-`VITE_` var to the client.
 
 `migrations/auth/0001_auth.sql` is the Better Auth schema — **do not edit**. It
@@ -78,10 +79,9 @@ Do all of this — the routes alone render the disabled branch:
 4. **Sign out:** a login with no way out is not done — render `<UserButton />`
    from `@/lib/auth/gates` (it wires `signOut()`); see `references/session-ui.md`.
 5. **Existing data:** wrap the app's server functions in `authMiddleware` (an
-   auth-off app must not have been using it — see the `neon` skill). Rows
-   written before sign-in existed are **development data**: drop and recreate
-   them unless the user says otherwise, rather than handing them to whoever
-   signs in first.
+   auth-off app must not have been using it — see the `neon` skill). Rows from
+   before sign-in existed are **development data**: drop and recreate them
+   unless the user says otherwise — don't hand them to whoever signs in first.
 
 ## Building on it once it's on
 

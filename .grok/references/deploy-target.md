@@ -17,9 +17,8 @@ requests JS assets that 404 in prod, so the server returns the HTML fallback
 requests — then re-verify the served build renders.
 
 If you edited source after kicking off the build, re-run `npm run build` first,
-then **stop and restart** `npm run preview`: a running preview keeps serving the
-previous build's output, and `:8081` is strictPort, so a second preview fails
-instead of replacing it.
+then `npm run preview:restart` — it frees `:8081` before serving, so you never
+smoke the previous build's output.
 
 ## What `vite.config.ts` already does
 

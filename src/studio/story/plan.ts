@@ -73,6 +73,7 @@ function pickCastNames(text: string) {
   const known = ["李火旺", "林晚", "铜铃"];
   const hits = known.filter((name) => text.includes(name));
   if (hits.length) return hits.slice(0, 3);
+  if (/写真|NWSF|nwsf|泳装|清凉/i.test(text)) return ["成年模特"];
   return ["主角"];
 }
 
@@ -94,8 +95,10 @@ export function draftPlan(idea: string, style = "电影感写实", shotCount = 5
   const count = Math.max(1, Math.min(9, shotCount));
   const hero = castNames[0];
   const cast: StoryCast[] = castNames.map((name, index) => {
-    const look =
-      name === "林晚"
+    const photoshoot = /写真|NWSF|nwsf|泳装|清凉/i.test(text);
+    const look = photoshoot
+      ? "24岁成年东亚女性时尚模特，明确成年，不是未成年人，锁骨清晰，高颧骨，锁骨到锁骨，黑色长直发，自信表情，时尚写真妆容"
+      : name === "林晚"
         ? "短发，湿风衣，冷白皮，三十岁上下，锐利下颌"
         : name === "李火旺"
           ? "灰袍，瘦削，黑发，风尘"
@@ -118,7 +121,16 @@ export function draftPlan(idea: string, style = "电影感写实", shotCount = 5
     const title = index === 0 ? `${scene.name}的${hero}` : `镜头 ${index + 1}`;
     const appearing = [cast[0].id];
     const excluded = cast.slice(1).map((person) => person.id);
-    const visual = `${hero} 在${scene.name}，${camera}，${style}，电影静帧，服装锁定`;
+    const photoshoot = /写真|NWSF|nwsf|泳装|清凉/i.test(text);
+    const visual = photoshoot
+      ? [
+          `${hero} 泳池边时尚泳装写真，成年24+，阳光，水波，电影感时尚静帧`,
+          `${hero} 海边礁石上的清凉写真，成年24+，侧光，风吹发丝，锁定同一模特`,
+          `${hero} 城市天台黄昏写真，成年24+，金色小时，锁定同一服装系列`,
+          `${hero} 室内棚拍泳装特写，成年24+，柔光，锁骨与面容，同一模特`,
+          `${hero} 夜间霓虹泳池走位，成年24+，倒影，时尚大片，同一模特收束`,
+        ][index % 5]
+      : `${hero} 在${scene.name}，${camera}，${style}，电影静帧，服装锁定`;
     return {
       id: `shot_${String(index + 1).padStart(3, "0")}`,
       index: index + 1,

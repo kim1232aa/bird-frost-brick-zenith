@@ -181,7 +181,7 @@ export const defaultConfig: AiConfig = {
     baseUrl: "https://superxihe.com/v1",
     apiKey: "",
     model: "grok-4.6",
-    imageModel: "doubao-seedream-5.0-lite",
+    imageModel: "grok-imagine-image",
     videoModel: "grok-imagine-video",
     textModel: "grok-4.6",
     audioModel: "",

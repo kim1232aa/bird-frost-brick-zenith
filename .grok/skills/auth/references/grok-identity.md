@@ -12,6 +12,16 @@ viewer automatically — no sign-in button, no redirect, no broker round-trip.
 The broker OAuth flow is the **fallback** for anonymous/public viewers and for
 contexts without the gate; the live preview keeps its existing popup mechanism.
 
+## Connector / app-data apps: gate sign-in only
+
+When the app calls connector tools (the `app-data` skill applies), the login
+page offers ONLY "Continue with Grok": the zero-click `x-grok-identity` session
+above, or the gate-built `loginUrl` returned by a connector call. Do not wire
+Google/X buttons for these apps — a broker login can mint an identity that is
+not the gate viewer the connector data belongs to. The three-method rule
+applies to apps without connector data. Still no new `GROK_PROVIDERS` entries,
+still never edit `src/lib/auth/`.
+
 ## Files (pre-wired — do not edit)
 
 | File | Role |
@@ -29,3 +39,13 @@ contexts without the gate; the live preview keeps its existing popup mechanism.
 Deployed behavior: gate-authenticated viewers are signed in automatically from
 `x-grok-identity`; the deployer also injects a per-app broker client +
 `DATABASE_URL`, so the fallback sign-in persists identities in Postgres.
+
+## Connector / app-data apps: gate sign-in only
+
+When the `app-data` skill applies, the login page offers ONLY "Continue with
+Grok" via the gate sign-in — the zero-click `x-grok-identity` session above, or
+the gate-built `loginUrl` returned by a connector call. Do not wire Google/X
+buttons for these apps: a broker login can mint an identity that is not the
+gate viewer the connector data belongs to. The three-method rule applies to
+apps without connector data. Still no new `GROK_PROVIDERS` entries, still never
+edit `src/lib/auth/`.

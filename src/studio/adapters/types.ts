@@ -24,7 +24,7 @@ export type ImageGenInput = {
   height?: number;
   seed?: number;
   imageUrl?: string;
-  /** Up to 3 reference images. Adapters must submit the whole list, not only the first. */
+  /** Up to 5 reference images. Adapters must submit the whole list, not only the first. */
   imageUrls?: string[];
   negativePrompt?: string;
   n?: number;
@@ -46,6 +46,8 @@ export type VideoCreateInput = {
   resolution?: string;
   imageUrl?: string;
   lastFrameUrl?: string;
+  /** Extra stills beyond first/last. Submit up to the model's reference capacity (Grok Imagine: 5). */
+  imageUrls?: string[];
   generateAudio?: boolean;
   negativePrompt?: string;
 };

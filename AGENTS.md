@@ -17,13 +17,16 @@ its `references/`) **before** you build or polish. Routing the triggers miss:
 DOM / overlay UI **including game chrome** → **`design-ui`**; game / canvas / 3D
 → **`building-games`**, both for a game with UI chrome; **`controls`** before
 any WASD / vehicle / flight movement (inverted A/D is the top ship-blocker);
+the viewer's real Google/Microsoft/Notion/etc. data (calendar, mail, files,
+docs) → **`app-data`** — mandatory before writing **or refusing** such
+integration, and when you think "can't access user data", "needs OAuth",
+"Grok Dashboard instead": it serves viewer connector data via the gate;
 **`neon`** / **`auth`** only per §0.5.
 
 **Only call `imagine_*` tools when they appear in your available tools list** —
-on free-tier Build they are **not** provided, so never invent tool calls.
-Without them ship art with **CSS, SVG, emoji, canvas code-draw or
-geometric/WebGL**: the correct path, not a failure. Gen-assuming skills still
-apply as design guidance.
+never invent tool calls. Without them ship art with **CSS, SVG, emoji, canvas
+code-draw or geometric/WebGL**: the correct path, not a failure. Gen-assuming
+skills still apply as design guidance.
 
 Gen-tool art: **`generate2dsprite`** (sprites), **`generate2dmap`** (maps),
 **`game-asset-core`** + specialists (doctrine/QC) — but **abstract / geometric
@@ -226,8 +229,8 @@ changes. Revive, reboot-wipe and the `startup.sh` worked example:
    tokens / layout shell, deps) **before** any parallel writes; if it isn't
    ready, stay sequential.
 2. Assign **non-overlapping surfaces**, so no agent invents a competing schema,
-   API shape, folder layout or visual system. The brand-asset pass of loop
-   step 6 is the canonical split.
+   API shape, folder layout or visual system — loop step 6's brand pass is the
+   canonical split.
 3. Afterwards: integrate, fix conflicts, verify one coherent app.
 
 ### Execution loop (default)
@@ -244,7 +247,8 @@ changes. Revive, reboot-wipe and the `startup.sh` worked example:
    art — do not invent missing `imagine_*` calls. For **any** WASD / vehicle /
    flight: open **`.grok/skills/controls/SKILL.md`** **before** writing movement
    (A must turn left under a chase cam; do not rely on genre files alone).
-   Custom-card app? Kick off the brand-asset task now (step 6).
+   Custom-card app? Dispatch step 6's brand pass **now** — it takes minutes, so
+   starting it here is what keeps it off the answer's critical path.
 3. Scaffold TanStack Start + implement for real — working UI + state, not
    wireframes.
 4. Ensure **`/workspace/startup.sh`** starts the app via `npm run dev` (edit if
@@ -256,20 +260,20 @@ changes. Revive, reboot-wipe and the `startup.sh` worked example:
    terminals**, and do step 7 against the dev server while they run — the
    critical path is max(build, browser QA), not the sum. Both must pass before
    you finish.
-6. **Brand-asset pass — always a subagent.** Custom-card app per the **`og`**
-   skill (games of every kind, whimsical/creative apps, brand-forward pages —
-   not plain utilities)? Then, in order — unless your own task prompt says you
-   *are* the brand pass, in which case generate the assets per that skill:
-   1. Launch it as a `task` subagent. **Never generate card art in the agent
-      building the app** — inline it is minutes of pure waiting on the critical
-      path.
-   2. Dispatch **early** — right after scaffolding, as soon as name and palette
-      are settled — not at QA time.
-   3. Give it the `og` skill, a prompt naming it the brand pass, and sole
-      ownership of `public/` brand assets plus `src/lib/og/site.json` (see
-      § Parallel work).
-   4. Keep building immediately after dispatch.
-   5. `wait_tasks` and integrate its edits before the final verify.
+6. **Brand-asset pass — a subagent, never waited for.** Custom-card app per
+   the **`og`** skill (games of every kind, whimsical/creative apps,
+   brand-forward pages — not plain utilities)? Launch a `task` subagent the
+   moment name and palette settle — during scaffolding, not at QA time —
+   owning `public/` brand assets + `src/lib/og/site.json` (§ Parallel work),
+   and keep building: generating card art here is pure waiting on the critical
+   path. **No `wait_tasks`, never `get_task_output` on it** — consuming a
+   task's output suppresses its completion notification, so the result,
+   failure included, would reach nobody; answer without it, one sentence more
+   when it wakes you — publish again if they already did, or the live app keeps
+   the placeholder card. Meanwhile it keeps `/workspace/.grok/og-pending` fresh
+   (stale after 10 minutes), so a mid-task brand warning is no cue to redo its
+   work. Unless your own prompt says you *are* the pass — then make the
+   assets.
 7. **Verify it actually RENDERS — mandatory, before you say it's done.** A 200
    from curl is NOT enough; blank/white pages are the #1 failure. Run
    `node scripts/browser-smoke.mjs` — ONE run audits **desktop and mobile** and
@@ -286,13 +290,13 @@ changes. Revive, reboot-wipe and the `startup.sh` worked example:
    steer/roll sign if inverted; retest.
 8. **Verify the PRODUCTION build, not just dev.** Dev (Vite) can render while
    the deployed Vercel build is blank. Once `npm run build` (step 5) succeeds,
-   serve the built output with `npm run preview` (loopback `127.0.0.1:8081`)
-   and re-run the smoke script with the dev verdict as `--baseline`. Watch
-   specifically for `Failed to load module script … MIME type "text/html"`.
+   serve the built output with `npm run preview:restart` (loopback
+   `127.0.0.1:8081`) and re-run the smoke script with the dev verdict as
+   `--baseline`. Watch specifically for
+   `Failed to load module script … MIME type "text/html"`.
    **If you edited source after kicking off the build, re-run `npm run build`
-   first, then stop and restart `npm run preview` — a running preview keeps
-   serving the previous build's output (and `:8081` is strictPort, so a second
-   preview fails instead of replacing it).** A clean, non-diverging JSON is
+   first, then `npm run preview:restart`** — it frees `:8081` before serving, so
+   you never smoke the previous build's output. A clean, non-diverging JSON is
    enough — re-read the built screenshots only if it flags a failure or
    divergence. Mobile (~390×844) is already covered by the combined smoke pass.
 9. Give a brief, **user-facing** summary — what you built and what to try in the
@@ -327,7 +331,8 @@ in-browser say so and ship the best web-only build.
 - Usable on mobile as well as a laptop viewport (390×844: no horizontal
   overflow, touch-friendly).
 - A `BRAND WARNING` from `browser-smoke.mjs` (missing share card) is **not
-  done**, like a failing build or typecheck.
+  done**, like a failing build or typecheck — but silent while the brand pass
+  runs.
 - **Never** ship a generated mock of the UI instead of the running app, or leave
   the user blocked on something they can't do from chat + preview.
 

@@ -1,5 +1,6 @@
+import { nanoid } from "nanoid";
 import { useCanvasStore } from "@/app/canvas/stores/use-canvas-store";
-import { getNodeSpec } from "@/app/canvas/constants";
+import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/app/canvas/constants";
 import { CanvasNodeType, type CanvasNodeData, type StoryCharacter, type StoryShot } from "@/app/canvas/types";
 import type { StoryCast, StoryShot as DirectorShot } from "@/studio/story/plan";
 
@@ -22,7 +23,7 @@ function mapCast(cast: StoryCast[]): StoryCharacter[] {
   }));
 }
 
-function mapShots(shots: DirectorShot[]): StoryShot[] {
+function mapShots(shots: DirectorShot[], resultNodeIdsByShot: string[][]): StoryShot[] {
   return shots.map((shot, index) => ({
     id: shot.id || `shot-${index}`,
     index: shot.index || index + 1,
@@ -37,21 +38,61 @@ function mapShots(shots: DirectorShot[]): StoryShot[] {
     visualContent: shot.visualContent,
     voiceover: shot.dialogue,
     imagePrompt: shot.imagePrompt || shot.prompt,
-    resultNodeIds: [],
-    status: shot.url ? "done" : "pending",
+    resultNodeIds: resultNodeIdsByShot[index] || [],
+    status: shot.videoUrl ? "done" : shot.url ? "done" : "pending",
   }));
 }
 
-function makeNode(type: CanvasNodeType, title: string, metadata: CanvasNodeData["metadata"], position = { x: 80, y: 40 }): CanvasNodeData {
-  const spec = getNodeSpec(type);
+function imageNode(input: {
+  title: string;
+  url: string;
+  prompt?: string;
+  x: number;
+  y: number;
+  storyLabel?: string;
+}): CanvasNodeData {
+  const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
   return {
-    id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    type,
-    title: title || spec.title,
-    position,
+    id: nanoid(),
+    type: CanvasNodeType.Image,
+    title: input.title,
+    position: { x: input.x, y: input.y },
     width: spec.width,
     height: spec.height,
-    metadata: { ...spec.metadata, ...metadata },
+    metadata: {
+      content: input.url,
+      backendUrl: input.url,
+      prompt: input.prompt,
+      status: "success",
+      storyLabel: input.storyLabel,
+    },
+  };
+}
+
+function videoNode(input: {
+  title: string;
+  url: string;
+  prompt?: string;
+  firstFrameUrl?: string;
+  lastFrameUrl?: string;
+  x: number;
+  y: number;
+}): CanvasNodeData {
+  const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Video];
+  return {
+    id: nanoid(),
+    type: CanvasNodeType.Video,
+    title: input.title,
+    position: { x: input.x, y: input.y },
+    width: spec.width,
+    height: spec.height,
+    metadata: {
+      content: input.url,
+      backendUrl: input.url,
+      prompt: input.prompt,
+      status: "success",
+      references: [input.firstFrameUrl, input.lastFrameUrl].filter(Boolean) as string[],
+    },
   };
 }
 
@@ -66,9 +107,58 @@ export function pushStoryToCanvasWorkspace(payload: {
   shots?: DirectorShot[];
 }) {
   const spec = getNodeSpec(CanvasNodeType.StoryDirector);
+  const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+  const extraNodes: CanvasNodeData[] = [];
+  const resultNodeIdsByShot: string[][] = (payload.shots || []).map(() => []);
+
+  (payload.cast || []).forEach((person, index) => {
+    if (!person.url) return;
+    extraNodes.push(
+      imageNode({
+        title: `角色 ${person.name}`,
+        url: person.url,
+        prompt: person.look,
+        x: 80 + spec.width + 80 + (index % 3) * (imageSpec.width + 48),
+        y: 40 + Math.floor(index / 3) * (imageSpec.height + 48),
+        storyLabel: person.name,
+      }),
+    );
+  });
+
+  const portraitCount = extraNodes.length;
+  (payload.shots || []).forEach((shot, index) => {
+    if (!shot.url) return;
+    const node = imageNode({
+      title: shot.title || `第${index + 1}镜`,
+      url: shot.url,
+      prompt: shot.prompt,
+      x: 80 + spec.width + 80 + (index % 5) * (imageSpec.width + 36),
+      y: 40 + 280 + Math.floor(portraitCount / 3) * (imageSpec.height + 48) + Math.floor(index / 5) * (imageSpec.height + 36),
+      storyLabel: `第${index + 1}镜`,
+    });
+    extraNodes.push(node);
+    resultNodeIdsByShot[index] = [node.id];
+  });
+
+  (payload.shots || []).forEach((shot, index) => {
+    if (!shot.videoUrl) return;
+    extraNodes.push(
+      videoNode({
+        title: `${shot.title || `第${index + 1}镜`} 视频`,
+        url: shot.videoUrl,
+        prompt: shot.prompt,
+        firstFrameUrl: shot.url,
+        lastFrameUrl: payload.shots?.[payload.shots.length - 1]?.url,
+        x: 80 + spec.width + 80 + (index % 3) * 460,
+        y: 720,
+      }),
+    );
+  });
+
   const characters = mapCast(payload.cast || []);
-  const shots = mapShots(payload.shots || []);
+  const shots = mapShots(payload.shots || [], resultNodeIdsByShot);
   const analyzed = characters.length > 0 || shots.length > 0;
+  const hasMedia = extraNodes.length > 0;
   const node: CanvasNodeData = {
     id: `${CanvasNodeType.StoryDirector}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     type: CanvasNodeType.StoryDirector,
@@ -80,13 +170,13 @@ export function pushStoryToCanvasWorkspace(payload: {
       ...spec.metadata,
       storyText: payload.text,
       content: payload.text,
-      storyStyle: payload.style || "电影感写实",
+      storyStyle: payload.style || "清凉写真",
       storyShotCount: payload.shotCount || shots.length || 5,
       storyAspectRatio: payload.aspectRatio || "16:9",
       storyWorkflow: analyzed ? "analysis" : "idle",
       status: "success",
       storyAnalysisStatus: analyzed ? "success" : "idle",
-      storyGenerationStatus: "idle",
+      storyGenerationStatus: hasMedia ? "success" : "idle",
       storyCharacters: characters,
       storyScenes: (payload.scenes || []).map((name, index) => ({
         id: `scene-${index}`,
@@ -99,56 +189,7 @@ export function pushStoryToCanvasWorkspace(payload: {
   };
   return useCanvasStore.getState().importProject({
     title: `故事 ${payload.text.slice(0, 12) || "导演"}`,
-    nodes: [node],
-    viewport: { x: 0, y: 0, k: 1 },
-  });
-}
-
-export function pushMediaToCanvasWorkspace(payload: {
-  kind: "image" | "video" | "text" | "prompt";
-  url?: string;
-  prompt?: string;
-  model?: string;
-  title?: string;
-}) {
-  const prompt = payload.prompt || payload.title || "";
-  const nodes: CanvasNodeData[] = [];
-  if (payload.kind === "video" && payload.url) {
-    nodes.push(
-      makeNode(CanvasNodeType.Video, payload.title || "视频", {
-        content: payload.url,
-        backendUrl: payload.url,
-        prompt,
-        model: payload.model,
-        status: "success",
-        source: "studio-push",
-      }),
-    );
-  } else if (payload.url) {
-    nodes.push(
-      makeNode(CanvasNodeType.Image, payload.title || "图片", {
-        content: payload.url,
-        backendUrl: payload.url,
-        prompt,
-        model: payload.model,
-        status: "success",
-        source: "studio-push",
-      }),
-    );
-  } else {
-    nodes.push(
-      makeNode(CanvasNodeType.Text, payload.title || "文本", {
-        content: prompt,
-        prompt,
-        model: payload.model,
-        status: "idle",
-        source: "studio-push",
-      }),
-    );
-  }
-  return useCanvasStore.getState().importProject({
-    title: payload.title || prompt.slice(0, 12) || "画布素材",
-    nodes,
-    viewport: { x: 0, y: 0, k: 1 },
+    nodes: [node, ...extraNodes],
+    viewport: { x: 0, y: 0, k: 0.85 },
   });
 }

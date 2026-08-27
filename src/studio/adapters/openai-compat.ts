@@ -36,7 +36,8 @@ export const openaiCompatAdapter: StudioAdapter = {
         ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
         ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
         ...(input.imageUrl ? { image: { url: input.imageUrl } } : {}),
-        ...(input.lastFrameUrl ? { last_frame: { url: input.lastFrameUrl } } : {}),
+        ...(input.lastFrameUrl ? { last_frame_image: { url: input.lastFrameUrl } } : {}),
+        ...(input.imageUrls?.length ? { image_urls: input.imageUrls.filter(Boolean).slice(0, 5) } : {}),
       },
       timeoutMs: 90_000,
     });

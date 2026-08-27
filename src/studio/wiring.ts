@@ -43,12 +43,94 @@ const MODELSCOPE_TOKEN =
 const HUGGINGFACE_TOKEN =
   readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN") ||
   "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";
+const GROK_RELAY_KEY =
+  readEnvKey("VITE_GROK_RELAY_KEY", "STUDIO_GROK_RELAY_KEY") ||
+  "sk-d5f2c7a5b3e9f61f59a5516d44d8228b2dbce9950dbaceb3f0fae8169e4bf07a";
+const HANSYAI_KEY =
+  readEnvKey("VITE_HANSYAI_KEY", "STUDIO_HANSYAI_KEY") ||
+  "sk-632b811b117b855ba47ce379e7c82ac3c114ec02b234d9b4816b047978b8ddc9";
+
+const GROK_VIDEO_PROFILES = {
+  "grok-imagine-video": "xai-imagine-video" as const,
+  "grok-imagine-video-1.5": "xai-imagine-video" as const,
+  "grok-imagine-video-1.5-preview": "xai-imagine-video" as const,
+};
 
 /**
  * Single wiring table. Add a provider here and it appears in 接线 / catalog / generation.
  * Keys come from env or the settings page. Templates stay so nothing was deleted.
  */
 export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
+  {
+    id: "preset-grok-relay",
+    name: "Grok 中转",
+    adapter: "xai-imagine",
+    baseUrl: "https://sub2.alibb123.ccwu.cc/v1",
+    apiKey: GROK_RELAY_KEY,
+    enabled: Boolean(GROK_RELAY_KEY),
+    capabilities: ["text", "image", "video"],
+    remark: "Grok Imagine 图 / 视频 / 文本。参考图最多 5 张，视频走首帧+尾帧+分镜静帧。",
+    models: [
+      "grok-4.6",
+      "grok-4.5",
+      "grok-4.3",
+      "grok-imagine-image-quality",
+      "grok-imagine-image",
+      "grok-imagine-image-2.0",
+      "grok-imagine-video",
+      "grok-imagine-video-1.5",
+      "grok-imagine-video-1.5-preview",
+    ],
+    textModels: ["grok-4.6", "grok-4.5", "grok-4.3"],
+    imageModels: ["grok-imagine-image-quality", "grok-imagine-image", "grok-imagine-image-2.0"],
+    videoModels: ["grok-imagine-video", "grok-imagine-video-1.5", "grok-imagine-video-1.5-preview"],
+    audioModels: [],
+    nsfw: true,
+    videoCapabilityProfiles: GROK_VIDEO_PROFILES,
+    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
+  },
+  {
+    id: "preset-xai-official",
+    name: "xAI 官方",
+    adapter: "xai-imagine",
+    baseUrl: "https://api.x.ai/v1",
+    apiKey: "",
+    enabled: true,
+    capabilities: ["text", "image", "video"],
+    remark: "官方 api.x.ai。Key 由服务端注入，不进浏览器。",
+    models: [
+      "grok-4.6",
+      "grok-4.5",
+      "grok-imagine-image-quality",
+      "grok-imagine-image",
+      "grok-imagine-image-2.0",
+      "grok-imagine-video",
+      "grok-imagine-video-1.5",
+    ],
+    textModels: ["grok-4.6", "grok-4.5"],
+    imageModels: ["grok-imagine-image-quality", "grok-imagine-image", "grok-imagine-image-2.0"],
+    videoModels: ["grok-imagine-video", "grok-imagine-video-1.5"],
+    audioModels: [],
+    nsfw: true,
+    videoCapabilityProfiles: GROK_VIDEO_PROFILES,
+    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
+  },
+  {
+    id: "preset-hansyai",
+    name: "Hansyai",
+    adapter: "openai-compat",
+    baseUrl: "https://hansyai.cn/v1",
+    apiKey: HANSYAI_KEY,
+    enabled: Boolean(HANSYAI_KEY),
+    capabilities: ["text"],
+    remark: "Hansyai GPT-5 文本。故事导演分析备用。",
+    models: ["gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.2"],
+    textModels: ["gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.2"],
+    imageModels: [],
+    videoModels: [],
+    audioModels: [],
+    endpoints: { chat: "/chat/completions" },
+  },
   {
     id: "preset-modelscope",
     name: "ModelScope 魔搭",
@@ -120,6 +202,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     videoModels: ["grok-imagine-video", "grok-imagine-video-1.5-preview"],
     audioModels: [],
     nsfw: true,
+    videoCapabilityProfiles: GROK_VIDEO_PROFILES,
     endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
   },
   {
@@ -286,9 +369,9 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
 ];
 
 export const STUDIO_ROUTES: StudioRouteMap = {
-  text: { providerId: "preset-superxihe-grok", model: "grok-4.6" },
-  image: { providerId: "preset-modelscope", model: "Qwen/Qwen-Image" },
-  video: { providerId: "preset-superxihe-grok", model: "grok-imagine-video" },
+  text: { providerId: "preset-grok-relay", model: "grok-4.6" },
+  image: { providerId: "preset-grok-relay", model: "grok-imagine-image" },
+  video: { providerId: "preset-grok-relay", model: "grok-imagine-video" },
   audio: { providerId: "preset-aliyun-tokenplan", model: "qwen-audio-3.0-tts-plus" },
 };
 
@@ -311,6 +394,7 @@ export function studioRelays(): ApiRelayProvider[] {
       videoModels: item.videoModels,
       audioModels: item.audioModels,
       endpoints: item.endpoints,
+      videoCapabilityProfiles: item.videoCapabilityProfiles,
     }),
   );
 }
