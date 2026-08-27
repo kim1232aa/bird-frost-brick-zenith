@@ -64,7 +64,7 @@ export const sensenovaAdapter: StudioAdapter = {
         timeoutMs: 20_000,
       });
       const models = (data.data || []).map((item) => String(item.id || "")).filter(Boolean);
-      return { ok: true, message: `日日新已连通（${models.length} 模型）`, models: models.slice(0, 40) };
+      return { ok: true, message: `日日新已连通（${models.length} 模型）`, models };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : "连接失败" };
     }

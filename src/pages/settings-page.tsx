@@ -6,7 +6,7 @@ import { adapterForProvider, listStudioAdapters } from "@/studio/adapters";
 import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/protocols";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { useStudioSession } from "@/studio/session";
-import { RelayModelBoard, guessCapabilities } from "@/studio/relay-models";
+import { RelayModelBoard, guessCapabilities, mergeDiscoveredModels } from "@/studio/relay-models";
 import { RequireAdmin } from "@/studio/auth-gate";
 
 type WireFilter = "all" | "ready" | "template" | "paused" | "custom";
@@ -127,6 +127,9 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
       const result = adapter.testConnection
         ? await adapter.testConnection({ provider: relay })
         : { ok: Boolean(relay.apiKey), message: relay.apiKey ? "密钥已保存，该协议未实现独立探测" : "缺少密钥" };
+      if (result.ok && result.models?.length) {
+        setRelayFields(id, mergeDiscoveredModels(relay, result.models));
+      }
       setTests((now) => ({
         ...now,
         [id]: `${result.ok ? "通过" : "失败"} · ${Date.now() - start}ms · ${result.message}${result.models?.length ? ` · 模型 ${result.models.slice(0, 6).join(", ")}` : ""}`,
@@ -275,7 +278,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
         <button type="button" className="studio-ghost" onClick={resetRelays}>
           恢复内置模板并全部启用
         </button>
-        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥只存在本机。</p>
+        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥只存在本机；预置模板不再内置测试密钥，请在右侧粘贴。</p>
       </aside>
       <section className="wire-editor">
         {mode === "create" ? (

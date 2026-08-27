@@ -20,13 +20,15 @@ function agnesVideoBody(input: {
   prompt: string;
   duration?: number;
   aspectRatio?: string;
+  resolution?: string;
   imageUrl?: string;
   lastFrameUrl?: string;
   imageUrls?: string[];
 }) {
-  const flash = /agnes-video-2\.5/i.test(input.model);
+  const flash = /agnes-video-2\.5-flash/i.test(input.model);
   const seconds = String(Math.max(4, Math.min(12, Math.round(input.duration || 5))));
-  const size = flash ? "720P" : input.aspectRatio ? "720P" : "720P";
+  const rawSize = String(input.resolution || "720P").trim().toUpperCase().replace(/P$/, "P");
+  const size = flash ? "720P" : /^(720P|960P|2K)$/.test(rawSize) ? rawSize : "720P";
   const aspect_ratio = input.aspectRatio || "16:9";
   const first = String(input.imageUrl || "").trim();
   const last = String(input.lastFrameUrl || "").trim();
@@ -83,6 +85,7 @@ export const agnesAdapter: StudioAdapter = {
         prompt: input.prompt,
         duration: input.duration,
         aspectRatio: input.aspectRatio,
+        resolution: input.resolution,
         imageUrl: input.imageUrl,
         lastFrameUrl: input.lastFrameUrl,
         imageUrls: input.imageUrls,
@@ -152,7 +155,7 @@ export const agnesAdapter: StudioAdapter = {
         timeoutMs: 20_000,
       });
       const models = (data.data || []).map((item) => String(item.id || "")).filter(Boolean);
-      return { ok: true, message: `Agnes 已连通（${models.length} 模型）`, models: models.slice(0, 40) };
+      return { ok: true, message: `Agnes 已连通（${models.length} 模型）`, models };
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : "连接失败" };
     }

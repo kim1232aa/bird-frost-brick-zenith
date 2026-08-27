@@ -15,12 +15,44 @@ import { useStudioSession } from "@/studio/session";
 export function guessCapabilities(model: string): ApiCapability[] {
   const value = model.toLowerCase();
   const caps: ApiCapability[] = [];
-  if (/(seedance|t2v|i2v|kling|sora|ltx|runway|hailuo|wan2\.|video)/.test(value) || /imagine-video/.test(value)) caps.push("video");
-  if (/(seedream|gpt-image|dall-e|dalle|flux|sdxl|t2i|i2i|imagen|qwen-image|z-image|krea)/.test(value) || /imagine-image/.test(value)) caps.push("image");
+  if (/(seedance|t2v|i2v|kling|sora|ltx|runway|hailuo|wan2\.|agnes-video|veo|video)/.test(value) || /imagine-video/.test(value)) caps.push("video");
+  if (
+    /(seedream|gpt-image|dall-e|dalle|flux|sdxl|t2i|i2i|imagen|qwen-image|z-image|krea|agnes-image|sensenova-u1|nano-banana)/.test(value) ||
+    /imagine-image/.test(value)
+  ) {
+    caps.push("image");
+  }
   if (/(tts|audio|speech|voice)/.test(value)) caps.push("audio");
-  if (!caps.length && /(gpt-|claude|qwen-plus|qwen-max|grok-4|llama|deepseek|chat|instruct)/.test(value)) caps.push("text");
+  if (!caps.length && /(gpt-|claude|qwen-plus|qwen-max|grok-4|llama|deepseek|glm-|agnes-2|sensenova-6|chat|instruct)/.test(value)) caps.push("text");
   if (!caps.length) caps.push("text");
   return caps;
+}
+
+export function mergeDiscoveredModels(relay: ApiRelayProvider, discovered: string[]): Partial<ApiRelayProvider> {
+  const names = normalizeModelList(discovered);
+  if (!names.length) return {};
+  let next: ApiRelayProvider = {
+    ...relay,
+    models: normalizeModelList([...(relay.models || []), ...names]),
+  };
+  for (const model of names) {
+    const guessed = guessCapabilities(model);
+    for (const cap of guessed) {
+      const list =
+        cap === "text" ? next.textModels : cap === "image" ? next.imageModels : cap === "video" ? next.videoModels : next.audioModels;
+      next = { ...next, ...classifyProviderModels(next, cap, [...list, model]) };
+    }
+  }
+  return {
+    models: next.models,
+    textModels: next.textModels,
+    imageModels: next.imageModels,
+    videoModels: next.videoModels,
+    audioModels: next.audioModels,
+    capabilities: API_CAPABILITIES.filter(
+      (cap) => (next[`${cap}Models`] || []).length > 0,
+    ) as ApiRelayProvider["capabilities"],
+  };
 }
 
 function modelPool(relay: ApiRelayProvider) {
