@@ -7,15 +7,19 @@ import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/proto
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { useStudioSession } from "@/studio/session";
 import { RelayModelBoard, guessCapabilities, mergeDiscoveredModels } from "@/studio/relay-models";
+import { isServerInjectedRelay } from "@/studio/relay-merge";
 import { RequireAdmin } from "@/studio/auth-gate";
 
 type WireFilter = "all" | "ready" | "template" | "paused" | "custom";
 type DeskMode = "edit" | "create";
 
-function relayState(item: { enabled?: boolean; apiKey?: string }) {
-  if (item.enabled && item.apiKey) return { label: "启用 · 已填密钥", className: "wire-state-on", filter: "ready" as const };
+function relayState(item: { enabled?: boolean; apiKey?: string; apiKeys?: string[]; baseUrl?: string; id?: string }) {
+  if (isServerInjectedRelay({ baseUrl: item.baseUrl || "", id: item.id || "" })) {
+    return { label: "服务端已接线", className: "wire-state-on", filter: "ready" as const };
+  }
+  if (item.enabled && (item.apiKey || item.apiKeys?.length)) return { label: "启用 · 已填密钥", className: "wire-state-on", filter: "ready" as const };
   if (item.enabled) return { label: "启用 · 待填密钥", className: "wire-state-on", filter: "template" as const };
-  if (item.apiKey) return { label: "已填密钥 · 未启用", className: "wire-state-paused", filter: "paused" as const };
+  if (item.apiKey || item.apiKeys?.length) return { label: "已填密钥 · 未启用", className: "wire-state-paused", filter: "paused" as const };
   return { label: "关闭 · 模板", className: "wire-state-off", filter: "template" as const };
 }
 

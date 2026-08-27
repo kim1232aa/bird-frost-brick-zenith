@@ -32,7 +32,7 @@ import {
     type ProviderModelSelection,
 } from "@/stores/api-relay-config";
 import { hasProviderCredential, normalizeProviderCredentials } from "@/stores/provider-credentials";
-import { mergePersistedRelays } from "@/studio/relay-merge";
+import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
 import { shouldReplaceManagedRelays, studioRelays, studioRouting } from "@/studio/wiring";
 import { useStudioSession } from "@/studio/session";
 import {
@@ -553,12 +553,24 @@ export function useEffectiveConfig() {
     const studioRelaysState = useStudioSession((state) => state.relays);
     return useMemo(() => {
         const resolved = resolveEffectiveConfig(config, modelChannel);
-        const studioIds = new Set((studioRelaysState || []).map((item) => item.id));
-        const extras = (resolved.apiRelays || []).filter((item) => !studioIds.has(item.id));
-        return {
-            ...resolved,
-            apiRelays: mergePersistedRelays([...(studioRelaysState || []), ...extras]),
-        };
+        const apiRelays = mergeRelaySources(resolved.apiRelays, studioRelaysState);
+        const grokRelay = apiRelays.find((item) => item.id === "preset-grok-relay");
+        const grokReady = Boolean(grokRelay?.apiKey || grokRelay?.apiKeys?.length);
+        const apiRouting = grokReady
+            ? resolved.apiRouting
+            : {
+                ...resolved.apiRouting,
+                text: resolved.apiRouting.text.providerId === "preset-grok-relay"
+                    ? { ...resolved.apiRouting.text, providerId: "preset-xai-official" }
+                    : resolved.apiRouting.text,
+                image: resolved.apiRouting.image.providerId === "preset-grok-relay"
+                    ? { ...resolved.apiRouting.image, providerId: "preset-xai-official" }
+                    : resolved.apiRouting.image,
+                video: resolved.apiRouting.video.providerId === "preset-grok-relay"
+                    ? { ...resolved.apiRouting.video, providerId: "preset-xai-official" }
+                    : resolved.apiRouting.video,
+            };
+        return { ...resolved, apiRelays, apiRouting };
     }, [config, modelChannel, studioRelaysState]);
 }
 let configRehydrateTimer: number | null = null;

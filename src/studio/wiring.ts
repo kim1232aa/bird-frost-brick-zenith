@@ -480,9 +480,9 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
 ];
 
 export const STUDIO_ROUTES: StudioRouteMap = {
-  text: { providerId: "preset-grok-relay", model: "grok-4.6" },
-  image: { providerId: "preset-grok-relay", model: "grok-imagine-image" },
-  video: { providerId: "preset-grok-relay", model: "grok-imagine-video" },
+  text: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-4.6" },
+  image: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-imagine-image" },
+  video: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-imagine-video" },
   audio: { providerId: "preset-aliyun-tokenplan", model: "qwen-audio-3.0-tts-plus" },
 };
 

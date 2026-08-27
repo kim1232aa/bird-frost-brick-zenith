@@ -696,11 +696,24 @@ function shannonEntropy(value: string) {
     return entropy;
 }
 
+function isServerInjectedRelay(provider: Pick<ApiRelayProvider, "baseUrl">) {
+    try {
+        return new URL(provider.baseUrl).hostname.toLowerCase() === "api.x.ai";
+    } catch {
+        return false;
+    }
+}
+
+function providerHasUsableCredential(provider: Pick<ApiRelayProvider, "apiKey" | "apiKeys" | "baseUrl">) {
+    return hasProviderCredential(normalizeProviderCredentials(provider.apiKey, provider.apiKeys))
+        || isServerInjectedRelay(provider);
+}
+
 function providerCanRunCapability(provider: ApiRelayProvider, capability: ApiCapability) {
     return provider.enabled
         && provider.capabilities.includes(capability)
         && Boolean(provider.baseUrl.trim())
-        && hasProviderCredential(normalizeProviderCredentials(provider.apiKey, provider.apiKeys));
+        && providerHasUsableCredential(provider);
 }
 
 function canonicalProviderModel(provider: ApiRelayProvider, capability: ApiCapability, model: string) {
@@ -808,7 +821,7 @@ function providerModelResolutionError(
             if (!provider.enabled) return new Error(`当前选择的${label}中转已停用`);
             if (!provider.capabilities.includes(capability)) return new Error(`当前中转不支持${label}生成`);
             if (!provider.baseUrl.trim()) return new Error(`请为${label}中转填写 Base URL`);
-            if (!hasProviderCredential(normalizeProviderCredentials(provider.apiKey, provider.apiKeys))) return new Error(`请为${label}中转填写 API Key`);
+            if (!providerHasUsableCredential(provider)) return new Error(`请为${label}中转填写 API Key`);
             return new Error(`${label}模型“${resolution.model}”不在所选中转模型列表中，已阻止请求`);
         }
         return new Error(`${explicit ? `显式${label}` : label}模型“${resolution.model}”没有可用中转，已阻止请求`);
@@ -947,7 +960,7 @@ export function resolveCapabilityRoute(
     if (!provider.enabled) throw new Error(`当前选择的${label}中转已停用`);
     if (!provider.capabilities.includes(capability)) throw new Error(`当前中转不支持${label}生成`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${label}中转填写 Base URL`);
-    if (!hasProviderCredential(provider)) throw new Error(`请为${label}中转填写 API Key`);
+    if (!providerHasUsableCredential(provider)) throw new Error(`请为${label}中转填写 API Key`);
 
     const models = providerModelsForCapability(provider, capability);
     const model = explicitRoute?.model || route.model.trim();
@@ -994,7 +1007,7 @@ export function resolveBoardCapabilityRoute(
     if (!provider.enabled) throw new Error(`当前选择的${boardLabel}板块中转已停用`);
     if (!provider.capabilities.includes(definition.capability)) throw new Error(`当前中转不支持${boardLabel}所需的${capabilityLabel}能力`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${boardLabel}板块中转填写 Base URL`);
-    if (!hasProviderCredential(provider)) throw new Error(`请为${boardLabel}板块中转填写 API Key`);
+    if (!providerHasUsableCredential(provider)) throw new Error(`请为${boardLabel}板块中转填写 API Key`);
 
     const models = providerModelsForCapability(provider, definition.capability);
     const model = explicitRoute?.model || route.model.trim();
