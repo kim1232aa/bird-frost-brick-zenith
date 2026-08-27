@@ -188,7 +188,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 <DirectorAction
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
-                    description="分析、角色图、分镜图"
+                    description="分析、角色图、分镜图、视频"
                     disabled={!canRun || isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
@@ -465,18 +465,15 @@ function StoryDirectorTextModelSelect({
             styles={{ popup: { root: { minWidth: 280 } } }}
             optionRender={(ori) => {
                 const data = ori.data as unknown as StoryDirectorTextModelOption | undefined;
-                if (!data?.model || !data.value) return ori.label;
-                const providerName = String(data.providerName || "").trim();
-                const inherit = isStoryDirectorInheritValue(data.value);
-                if (providerName && !inherit) {
-                    return (
-                        <span className="flex min-w-0 items-center gap-2">
-                            <ModelIcon model={data.model} />
-                            <span className="min-w-0 break-all">{data.model}</span>
-                        </span>
-                    );
-                }
-                return ori.label;
+                if (!data?.value) return ori.label;
+                return (
+                    <StoryDirectorModelOptionLabel
+                        model={data.model}
+                        providerName={data.providerName}
+                        label={data.label || data.model || String(ori.label ?? "")}
+                        inherit={isStoryDirectorInheritValue(data.value)}
+                    />
+                );
             }}
             {...selectProps}
             onChange={onChange}
