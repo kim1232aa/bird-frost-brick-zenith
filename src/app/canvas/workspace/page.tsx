@@ -1,12 +1,5 @@
-import { lazy, Suspense } from "react";
-import { CanvasWorkspaceFallback } from "@/pages/canvas-workspace-fallback";
-
-const CanvasClientPage = lazy(() => import("./canvas-client-page"));
+import { CanvasWorkspaceBoard } from "@/pages/canvas-workspace-board";
 
 export default function CanvasPage() {
-    return (
-        <Suspense fallback={<CanvasWorkspaceFallback />}>
-            <CanvasClientPage />
-        </Suspense>
-    );
+    return <CanvasWorkspaceBoard />;
 }
