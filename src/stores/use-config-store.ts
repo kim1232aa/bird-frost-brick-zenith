@@ -173,8 +173,12 @@ export type WebdavSyncConfig = {
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = ApiCapability;
 
-const SEEDED_RELAYS = studioRelays();
-const SEEDED_ROUTING = studioRouting();
+function seededRelays() {
+    return studioRelays();
+}
+function seededRouting() {
+    return studioRouting();
+}
 
 export const defaultConfig: AiConfig = {
     channelMode: "local",
@@ -209,8 +213,8 @@ export const defaultConfig: AiConfig = {
     imageGenerationLegacyMigration: { version: 1, state: "migrated" },
     videoGenerationSettingsByScope: {},
     videoGenerationLegacyMigration: { version: 1, state: "migrated" },
-    apiRelays: SEEDED_RELAYS,
-    apiRouting: SEEDED_ROUTING,
+    apiRelays: seededRelays(),
+    apiRouting: seededRouting(),
     apiBoardRouting: defaultApiBoardModelRouting,
     apiPlatformBoardRouting: defaultApiPlatformBoardModelRouting,
     apiRelayAdvanced: defaultApiRelayAdvanced,

@@ -44,8 +44,8 @@ type StudioSession = {
   resetRelays: () => void;
 };
 
-function withAllEnabled(relays: ApiRelayProvider[]) {
-  return relays.map((item) => ({ ...item, enabled: true }));
+function withAllEnabled(relays: ApiRelayProvider[] | undefined) {
+  return (relays || []).map((item) => ({ ...item, enabled: true }));
 }
 
 function readPersisted(value: unknown): PersistedSession {

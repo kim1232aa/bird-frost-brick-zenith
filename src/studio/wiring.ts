@@ -1,9 +1,22 @@
 import { createApiRelayProvider, type ApiRelayProvider, type ApiRelayRouting } from "@/stores/api-relay-config";
-import { CIVITAI_ENGINES } from "./adapters/civitai";
 import type { StudioProviderBlueprint, StudioRouteMap } from "./types";
 
-const CIVITAI_IMAGE = CIVITAI_ENGINES.filter((item) => item.kind === "image").map((item) => item.id);
-const CIVITAI_VIDEO = CIVITAI_ENGINES.filter((item) => item.kind === "video").map((item) => item.id);
+const CIVITAI_IMAGE = [
+  "krea2-turbo",
+  "krea2-raw",
+  "flux1",
+  "flux2-klein",
+  "flux2-pro",
+  "z-image-turbo",
+  "civitai-grok",
+  "flux2-dev",
+  "sdxl",
+  "anima",
+  "qwen-3.0-pro",
+  "seedream-4.5",
+  "seedream-5.0-pro",
+];
+const CIVITAI_VIDEO = ["ltx2.3", "hunyuan"];
 
 /**
  * Read a provider key from Vite env or process.env.
@@ -69,7 +82,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: GROK_RELAY_KEY,
     enabled: Boolean(GROK_RELAY_KEY),
     capabilities: ["text", "image", "video"],
-    remark: "Grok Imagine 图 / 视频 / 文本。参考图最多 5 张，视频走首帧+尾帧+分镜静帧。",
+    remark: "Grok Imagine 图 / 视频 / 文本。图生图走 /images/edits，最多 3 张参考；视频走首帧+尾帧+分镜静帧。",
     models: [
       "grok-4.6",
       "grok-4.5",
@@ -376,7 +389,8 @@ export const STUDIO_ROUTES: StudioRouteMap = {
 };
 
 export function studioRelays(): ApiRelayProvider[] {
-  return STUDIO_PROVIDERS.map((item) =>
+  const providers = Array.isArray(STUDIO_PROVIDERS) ? STUDIO_PROVIDERS : [];
+  return providers.map((item) =>
     createApiRelayProvider({
       id: item.id,
       name: item.name,
