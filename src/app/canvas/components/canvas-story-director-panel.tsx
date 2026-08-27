@@ -542,8 +542,8 @@ function groupStoryDirectorModelOptions(options: StoryDirectorTextModelOption[])
                 label: (
                     <StoryDirectorModelOptionLabel
                         model={option.model}
-                        providerName={option.providerName}
-                        label={option.label}
+                        providerName=""
+                        label={option.model || option.label}
                     />
                 ),
             })),

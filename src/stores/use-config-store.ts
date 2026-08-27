@@ -21,7 +21,6 @@ import {
     modelMatchesCapability,
     normalizeModelList,
     resolveCapabilityRoute,
-    enabledRelayModelOptionsForCapability,
     listedRelayModelOptionsForCapability,
     type ApiBoardModelRouting,
     type ApiPlatformBoardModelRouting,
@@ -405,8 +404,6 @@ export function selectableModelsByCapability(config: AiConfig, capability?: Mode
 export function selectableProviderModelsByCapability(config: AiConfig, capability: ModelCapability): ProviderModelOption[] {
     const normalized = ensureApiRelaySettings({ ...config, channelMode: "local" });
     const relays = normalized.apiRelays?.length ? normalized.apiRelays : studioRelays();
-    const runnable = enabledRelayModelOptionsForCapability(relays, capability);
-    if (runnable.length) return runnable;
     return listedRelayModelOptionsForCapability(relays, capability);
 }
 
