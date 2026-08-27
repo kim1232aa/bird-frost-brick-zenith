@@ -7,6 +7,7 @@ import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { getCachedAuthStorageScope, normalizeStorageScope, scopedStorageKey } from "@/lib/user-storage-scope";
 import { collectImageStorageKeys, setStoredImagesRetained } from "@/services/image-storage";
 import { mergeSyncTombstones, type SyncTombstone } from "@/services/sync-record-merge";
+import { hydrateGalleryMedia } from "@/studio/canvas/hydrate-gallery-media";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "../types";
 import { getCanvasMergeScopes, mergeCanvasProjectsByScope, type CanvasMergeProject } from "./canvas-project-merge";
 
@@ -107,7 +108,6 @@ const canvasStorage: PersistStorage<CanvasStore> = {
             projects: merged.projects as CanvasProject[],
             syncDeleted: mergeSyncTombstones(...parsedScopes.map((entry) => getPersistedSyncDeleted(entry.parsed))),
         };
-        const mergedValue = JSON.stringify(parsed);
         const primaryValue = JSON.stringify({
             ...primary.parsed,
             state: {
@@ -122,9 +122,6 @@ const canvasStorage: PersistStorage<CanvasStore> = {
             });
         }
         const referencedImageKeys = collectImageStorageKeys(parsed.state.projects);
-        // Older project records can predate the retained flag. Mark their
-        // images before hydration completes; the providers run the single
-        // age-based cleanup only after both canvas and asset stores are ready.
         await setStoredImagesRetained(referencedImageKeys, true).catch(() => undefined);
         if (readScope !== canvasStorageScope) return null;
         queuedPersistState = parsed.state as PersistedCanvasState;
@@ -163,7 +160,6 @@ function enqueueCanvasPersistenceWrite(write: () => Promise<void>) {
     return queued;
 }
 
-/** Force the latest already-enqueued canvas state to durable storage. */
 export async function flushCanvasPersistence() {
     if (!canvasPersistenceUnlocked) throw new Error("画布尚未完成读取，不能覆盖持久化数据");
     const value = queuedPersistValue;
@@ -224,9 +220,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 if (!canvasPersistenceUnlocked) pendingUnlockedProjects = [project, ...pendingUnlockedProjects];
                 return project.id;
             },
-            openProject: (id) => {
-                return get().projects.find((item) => item.id === id) || null;
-            },
+            openProject: (id) => get().projects.find((item) => item.id === id) || null,
             renameProject: (id, title) =>
                 set((state) => ({
                     projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
@@ -340,6 +334,15 @@ if (typeof window !== "undefined") {
 
 const LATEST_STORY_SEED_URL = "/recovery/latest-story-canvas.json";
 
+function nodeHasMedia(node: CanvasNodeData) {
+    return Boolean(node.metadata?.content || node.metadata?.backendUrl);
+}
+
+function isLiveFrontendMedia(node: CanvasNodeData) {
+    const url = String(node.metadata?.content || node.metadata?.backendUrl || "");
+    return url.includes("imgen.x.ai") || url.startsWith("blob:") || url.startsWith("data:");
+}
+
 export async function importLatestStorySeed() {
     if (typeof window === "undefined" || !canvasPersistenceUnlocked) return;
     try {
@@ -352,19 +355,22 @@ export async function importLatestStorySeed() {
         const title = String(project.title || "").trim();
         const id = String(project.id || "").trim();
         const existing = current.projects.find((item) => (id && item.id === id) || (title && item.title === title));
+        const hydratedNodes = await hydrateGalleryMedia(project.nodes);
         if (existing) {
-            const seedHasMedia = project.nodes.some((node) => Boolean(node.metadata?.content || node.metadata?.backendUrl));
-            const existingHasMedia = (existing.nodes || []).some((node) => Boolean(node.metadata?.content || node.metadata?.backendUrl));
-            if ((existing.nodes || []).length >= project.nodes.length && existingHasMedia && !seedHasMedia) return;
+            const existingHasMedia = (existing.nodes || []).some(nodeHasMedia);
+            const existingLive = (existing.nodes || []).some(isLiveFrontendMedia);
+            if (existingLive && existingHasMedia) return;
+            const existingBroken = !existingHasMedia || (existing.nodes || []).length === 0;
+            if (!existingBroken && existingHasMedia && (existing.nodes || []).length >= hydratedNodes.length) return;
             current.updateProject(existing.id, {
-                nodes: project.nodes,
-                connections: project.connections || [],
+                nodes: hydratedNodes,
+                connections: project.connections || existing.connections || [],
                 viewport: project.viewport || existing.viewport,
             });
             if (title && existing.title !== title) current.renameProject(existing.id, title);
             return;
         }
-        current.importProject(project);
+        current.importProject({ ...project, nodes: hydratedNodes });
     } catch {
         /* seed is optional until a live run writes it */
     }
