@@ -284,12 +284,13 @@ export const useCanvasStore = create<CanvasStore>()(
                 );
                 pendingUnlockedProjects = [];
                 useCanvasStore.setState({
-                    hydrated: true,
                     hydrationStatus: "ready",
                     hydrationError: null,
                     projects: extras.length ? [...extras, ...state.projects] : [...state.projects],
                 });
-                void importLatestStorySeed();
+                void importLatestStorySeed().finally(() => {
+                    useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
+                });
             },
         },
     ),
@@ -344,14 +345,34 @@ if (typeof window !== "undefined") {
 }
 
 const LATEST_STORY_SEED_URL = "/recovery/latest-story-canvas.json";
+export const INFINITE_CANVAS_SEED_ID = "infinite-canvas-1";
+export const INFINITE_CANVAS_SEED_TITLE = "无限画布 1";
 
-function nodeHasMedia(node: CanvasNodeData) {
-    return Boolean(node.metadata?.content || node.metadata?.backendUrl);
+function mediaUrl(node: CanvasNodeData) {
+    return String(node.metadata?.content || node.metadata?.backendUrl || "").trim();
 }
 
-function isLiveFrontendMedia(node: CanvasNodeData) {
-    const url = String(node.metadata?.content || node.metadata?.backendUrl || "");
-    return url.includes("imgen.x.ai") || url.startsWith("blob:") || url.startsWith("data:");
+/** Survives reload. blob:/data: URLs die with the tab and must not block the seed. */
+function hasDurableFrontendMedia(node: CanvasNodeData) {
+    const url = mediaUrl(node);
+    if (!url) return false;
+    if (url.startsWith("/gallery/")) return true;
+    if (url.includes("imgen.x.ai")) return true;
+    return /^https?:\/\//i.test(url);
+}
+
+function isIncompleteSeedGraph(project: CanvasProject, seedNodeCount: number, seedConnectionCount: number) {
+    const nodes = project.nodes || [];
+    const connections = project.connections || [];
+    const hasDirector = nodes.some((node) => node.type === "story_director");
+    const imageCount = nodes.filter((node) => node.type === "image").length;
+    return (
+        !hasDirector ||
+        imageCount < 2 ||
+        nodes.length < Math.min(seedNodeCount, 8) ||
+        connections.length < Math.min(seedConnectionCount, 8) ||
+        !nodes.some(hasDurableFrontendMedia)
+    );
 }
 
 export async function importLatestStorySeed() {
@@ -363,25 +384,34 @@ export async function importLatestStorySeed() {
         const project = payload?.project;
         if (!project || !Array.isArray(project.nodes) || project.nodes.length === 0) return;
         const current = useCanvasStore.getState();
-        const title = String(project.title || "").trim();
-        const id = String(project.id || "").trim();
-        const existing = current.projects.find((item) => (id && item.id === id) || (title && item.title === title));
+        const title = String(project.title || INFINITE_CANVAS_SEED_TITLE).trim() || INFINITE_CANVAS_SEED_TITLE;
+        const id = String(project.id || INFINITE_CANVAS_SEED_ID).trim() || INFINITE_CANVAS_SEED_ID;
         const hydratedNodes = await hydrateGalleryMedia(project.nodes);
-        if (existing) {
-            const existingHasMedia = (existing.nodes || []).some(nodeHasMedia);
-            const existingLive = (existing.nodes || []).some(isLiveFrontendMedia);
-            if (existingLive && existingHasMedia) return;
-            const existingBroken = !existingHasMedia || (existing.nodes || []).length === 0;
-            if (!existingBroken && existingHasMedia && (existing.nodes || []).length >= hydratedNodes.length) return;
-            current.updateProject(existing.id, {
-                nodes: hydratedNodes,
-                connections: project.connections || existing.connections || [],
-                viewport: project.viewport || existing.viewport,
-            });
-            if (title && existing.title !== title) current.renameProject(existing.id, title);
+        const seedConnections = Array.isArray(project.connections) ? project.connections : [];
+        const existingById = current.projects.find((item) => item.id === id);
+        if (existingById && !isIncompleteSeedGraph(existingById, hydratedNodes.length, seedConnections.length)) {
+            if (title && existingById.title !== title) current.renameProject(existingById.id, title);
             return;
         }
-        current.importProject({ ...project, nodes: hydratedNodes });
+        const nextProject: CanvasProject = {
+            id,
+            title,
+            createdAt: existingById?.createdAt || project.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            nodes: hydratedNodes,
+            connections: seedConnections,
+            chatSessions: existingById?.chatSessions || project.chatSessions || [],
+            activeChatId: existingById?.activeChatId || project.activeChatId || null,
+            backgroundMode: project.backgroundMode || existingById?.backgroundMode || "lines",
+            showImageInfo: project.showImageInfo ?? existingById?.showImageInfo ?? false,
+            viewport: project.viewport || existingById?.viewport || { x: 0, y: 0, k: 1 },
+        };
+        const withoutCanonicalAndEmptyTwin = current.projects.filter((item) => {
+            if (item.id === id) return false;
+            const emptyTwin = item.title === title && (!item.nodes || item.nodes.length === 0);
+            return !emptyTwin;
+        });
+        current.replaceProjects([nextProject, ...withoutCanonicalAndEmptyTwin], current.syncDeleted);
     } catch {
         /* seed is optional until a live run writes it */
     }

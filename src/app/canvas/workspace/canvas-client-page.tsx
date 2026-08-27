@@ -332,6 +332,7 @@ import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import {
   flushCanvasPersistence,
   importLatestStorySeed,
+  INFINITE_CANVAS_SEED_ID,
   useCanvasStore,
   type CanvasProject,
 } from "../stores/use-canvas-store";
@@ -3228,7 +3229,11 @@ function InfiniteCanvasPage() {
     if (!project) {
       void importLatestStorySeed().then(() => {
         if (cancelled) return;
-        const recovered = useCanvasStore.getState().openProject(projectId);
+        const recovered =
+          useCanvasStore.getState().openProject(projectId) ||
+          (projectId === INFINITE_CANVAS_SEED_ID
+            ? useCanvasStore.getState().openProject(INFINITE_CANVAS_SEED_ID)
+            : null);
         if (recovered) {
           void restoreProjectState(recovered);
           return;
