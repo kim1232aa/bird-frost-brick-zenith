@@ -67,7 +67,7 @@ function resolveCredentials(template: ApiRelayProvider, override?: ApiRelayProvi
 }
 
 function resolveEnabled(template: ApiRelayProvider, override: ApiRelayProvider | undefined, apiKey: string) {
-  if (isServerInjectedRelay(template) || apiKey) return true;
+  if (apiKey) return true;
   if (override && typeof override.enabled === "boolean") return override.enabled;
   return template.enabled === true;
 }
@@ -129,7 +129,7 @@ export function mergePersistedRelays(
     .map((item) => mergeOne(item, saved.find((row) => row.id === item.id)))
     .concat(extras.map((row) => ({
       ...row,
-      enabled: row.enabled !== false || Boolean(providerCredentialPool(row).keys.length) || isServerInjectedRelay(row),
+      enabled: row.enabled !== false || Boolean(providerCredentialPool(row).keys.length),
     })));
 }
 
