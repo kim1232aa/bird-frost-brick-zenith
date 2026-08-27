@@ -13,6 +13,7 @@ import { planLabel, useMembershipStore } from "@/studio/membership";
 import { STUDIO_ROUTES } from "@/studio/wiring";
 import { setMediaBlob, deleteStoredMedia, getAllStoredMediaKeys } from "@/services/file-storage";
 import { setImageBlob, deleteStoredImages, getAllStoredImageKeys } from "@/services/image-storage";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 import { CanvasDeleteProjectsDialog } from "../components/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "../components/canvas-project-card";
 import type { CanvasExportFile } from "../export-types";
@@ -119,6 +120,27 @@ export default function CanvasPage() {
         });
         return () => { active = false; };
     }, []);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const raw = window.localStorage.getItem("boundless-studio:canvas-drop");
+        if (!raw) return;
+        window.localStorage.removeItem("boundless-studio:canvas-drop");
+        try {
+            const payload = JSON.parse(raw) as { kind?: string; url?: string; prompt?: string; model?: string; text?: string };
+            if (payload.kind === "story") return;
+            const id = pushMediaToCanvasWorkspace({
+                kind: payload.kind === "video" ? "video" : payload.url ? "image" : "text",
+                url: payload.url,
+                prompt: payload.prompt || payload.text,
+                model: payload.model,
+                title: (payload.prompt || payload.text || "画布素材").slice(0, 18),
+            });
+            void navigate({ to: "/canvas/workspace", search: { id } });
+        } catch {
+            /* keep the project library usable if the drop payload is stale */
+        }
+    }, [navigate]);
 
     const changeViewMode = (nextViewMode: CanvasHomeViewMode) => {
         setViewMode(nextViewMode);
