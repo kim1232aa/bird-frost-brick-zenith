@@ -1,5 +1,5 @@
-import { CanvasWorkspaceBoard } from "@/pages/canvas-workspace-board";
+import BoundlessCanvasWorkspace from "@/pages/boundless-canvas-workspace";
 
 export default function CanvasPage() {
-    return <CanvasWorkspaceBoard />;
+  return <BoundlessCanvasWorkspace />;
 }
