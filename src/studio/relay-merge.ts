@@ -85,6 +85,14 @@ export function mergePersistedRelays(
         videoModels: union(item.videoModels, override.videoModels),
         audioModels: union(item.audioModels, override.audioModels),
         capabilities: union(item.capabilities, override.capabilities) as ApiRelayProvider["capabilities"],
+        imageCapabilityProfiles: {
+          ...(item.imageCapabilityProfiles || {}),
+          ...(override.imageCapabilityProfiles || {}),
+        },
+        videoCapabilityProfiles: {
+          ...(item.videoCapabilityProfiles || {}),
+          ...(override.videoCapabilityProfiles || {}),
+        },
       });
     })
     .concat(extras.map((row) => ({ ...row, enabled: row.enabled !== false })));

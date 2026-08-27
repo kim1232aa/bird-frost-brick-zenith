@@ -9584,6 +9584,102 @@ function InfiniteCanvasPage() {
                 error,
                 "角色图生成失败",
               );
+              const canFallbackGenerate =
+                operation === "edit" && isTransientImageLimitError(errorDetails);
+              if (canFallbackGenerate) {
+                try {
+                  message.warning(
+                    `${character.name} 图生图受限，改用文生图补齐`,
+                  );
+                  const fallbackTaskId = `canvas-story-char-fallback-${nodeId}-${Date.now()}`;
+                  resumedImageTaskIdsRef.current.add(fallbackTaskId);
+                  const pollTaskId = await submitCanvasImageTask(
+                    fallbackTaskId,
+                    requestImageConfig,
+                    "generate",
+                    prompt,
+                    [],
+                    {
+                      useReferenceLabels: false,
+                      boardRouteKey: "imageGeneration",
+                    },
+                  );
+                  const generated = await pollCanvasImageTask(pollTaskId);
+                  const uploaded = await uploadImage(
+                    generated.dataUrl,
+                    CANVAS_RETAINED_IMAGE_UPLOAD_OPTIONS,
+                  );
+                  const size = imageNodeSize(
+                    uploaded.width,
+                    uploaded.height,
+                    imageSpec.width,
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            width: size.width,
+                            height: size.height,
+                            metadata: {
+                              ...item.metadata,
+                              ...imageMetadata(uploaded, generated),
+                              prompt,
+                              ...buildImageGenerationMetadata(
+                                "generate",
+                                requestImageConfig,
+                                1,
+                                [],
+                              ),
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryCharacterStatus(item, character.id, {
+                              status: "ready",
+                              referenceNodeId: nodeId,
+                              referenceImageUrl: uploaded.url,
+                              assetSource: "generated",
+                              assetLocked: true,
+                            })
+                          : item,
+                    ),
+                  );
+                  resumedImageTaskIdsRef.current.delete(fallbackTaskId);
+                  const uploadedCharacterNode = nodesRef.current.find(
+                    (item) => item.id === nodeId,
+                  );
+                  if (uploadedCharacterNode)
+                    void deriveCharacterTurnaroundViews(uploadedCharacterNode);
+                  return;
+                } catch (fallbackError) {
+                  const fallbackDetails = formatCanvasGenerationError(
+                    fallbackError,
+                    "角色图生成失败",
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            metadata: {
+                              ...item.metadata,
+                              status: NODE_STATUS_ERROR,
+                              errorDetails: fallbackDetails,
+                              sourceImageTaskId: undefined,
+                              imageGenerationAttemptId: undefined,
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryCharacterStatus(item, character.id, {
+                              status: "error",
+                              errorDetails: fallbackDetails,
+                            })
+                          : item,
+                    ),
+                  );
+                  throw new Error(fallbackDetails);
+                }
+              }
               applyPersistedNodes((prev) =>
                 prev.map((item) =>
                   item.id === nodeId
@@ -10384,9 +10480,7 @@ function InfiniteCanvasPage() {
               );
               const canFallbackGenerate =
                 operation === "edit" &&
-                /Concurrency|429|Too Many Requests|OAuth|503|Service Unavailable/i.test(
-                  errorDetails,
-                );
+                isTransientImageLimitError(errorDetails);
               if (canFallbackGenerate) {
                 try {
                   message.warning(
@@ -17518,6 +17612,12 @@ function referencesImageLabel(prompt: string) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientImageLimitError(message: string) {
+  return /Concurrency|429|Too Many Requests|OAuth|503|Service Unavailable/i.test(
+    message,
+  );
 }
 
 async function runWithConcurrency<T>(

@@ -293,6 +293,29 @@ function hasOwn(value: object, key: string) {
     return Object.prototype.hasOwnProperty.call(value, key);
 }
 
+function mergeTemplateCapabilityProfiles(
+    persisted: ApiRelayProvider[] | undefined,
+    templates: ApiRelayProvider[],
+): ApiRelayProvider[] {
+    if (!Array.isArray(persisted) || persisted.length === 0) return templates;
+    return persisted.map((provider) => {
+        const template = templates.find((item) => item.id === provider.id);
+        if (!template) return provider;
+        return {
+            ...provider,
+            adapterType: provider.adapterType || template.adapterType,
+            imageCapabilityProfiles: {
+                ...(template.imageCapabilityProfiles || {}),
+                ...(provider.imageCapabilityProfiles || {}),
+            },
+            videoCapabilityProfiles: {
+                ...(template.videoCapabilityProfiles || {}),
+                ...(provider.videoCapabilityProfiles || {}),
+            },
+        };
+    });
+}
+
 type ConfigStore = {
     config: AiConfig;
     webdav: WebdavSyncConfig;
@@ -487,7 +510,12 @@ export const useConfigStore = create<ConfigStore>()(
                 const config = { ...defaultConfig, ...persistedConfig };
                 const persistedRelays = hasOwn(persistedConfig, "apiRelays") ? persistedConfig.apiRelays : undefined;
                 const replaceManaged = shouldReplaceManagedRelays(persistedRelays as ApiRelayProvider[] | undefined);
-                const apiRelays = replaceManaged ? defaultConfig.apiRelays : persistedRelays;
+                const apiRelays = replaceManaged
+                    ? defaultConfig.apiRelays
+                    : mergeTemplateCapabilityProfiles(
+                        persistedRelays as ApiRelayProvider[] | undefined,
+                        defaultConfig.apiRelays,
+                    );
                 const { apiRelays: _defaultApiRelays, ...configWithoutRelays } = config;
                 const normalizedConfig = ensureApiRelaySettings({
                     ...configWithoutRelays,

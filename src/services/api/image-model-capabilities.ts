@@ -1169,21 +1169,28 @@ export function resolveImageModelCapability(options: {
 }): ResolvedImageModelCapability {
     const model = String(options.model || "").trim();
     const provider = options.provider;
+    const passthroughKey = normalizeModelKey(model);
+    const knownXaiImage = isXaiImageModelKey(passthroughKey);
     const configured = configuredImageProfile(provider?.imageCapabilityProfiles, model, options.operation);
     if (configured.kind === "resolved") {
         const compatibility = imageCapabilityProfileCompatibility(provider, configured.id);
-        if (!compatibility.compatible) {
-            return resolvedDynamic(
-                unavailableProfile(options.operation, "profile-adapter-mismatch", compatibility.reason),
-                model,
-                provider,
-                true,
-                "configured profile adapter mismatch",
-            );
+        if (compatibility.compatible) {
+            return resolvedProfile(configured.id, model, provider, true, "explicit imageCapabilityProfiles mapping");
         }
-        return resolvedProfile(configured.id, model, provider, true, "explicit imageCapabilityProfiles mapping");
+        // Grok Imagine on a custom/mislabelled adapter must still use the
+        // verified xAI Images contract. Do not surface "自定义 Endpoint 没有
+        // 已验证的图片 capability profile" for grok-imagine-image*.
+        if (knownXaiImage) return resolveOpenAI(model, options.operation, provider);
+        return resolvedDynamic(
+            unavailableProfile(options.operation, "profile-adapter-mismatch", compatibility.reason),
+            model,
+            provider,
+            true,
+            "configured profile adapter mismatch",
+        );
     }
     if (configured.kind === "mismatch") {
+        if (knownXaiImage) return resolveOpenAI(model, options.operation, provider);
         return resolvedDynamic(
             unavailableProfile(options.operation, "profile-operation-mismatch", "配置的图片 capability profile 与请求 operation 不一致"),
             model,
@@ -1192,6 +1199,10 @@ export function resolveImageModelCapability(options: {
             "configured profile operation mismatch",
         );
     }
+
+    // Model ID is authoritative for Grok Imagine, even when the relay was
+    // saved as a custom endpoint / unknown adapter (Grok 中转, SuperXihe Grok).
+    if (knownXaiImage) return resolveOpenAI(model, options.operation, provider);
 
     const adapter = nativeImageAdapterType(provider);
     if (adapter === "openai") return resolveOpenAI(model, options.operation, provider);
@@ -1204,11 +1215,16 @@ export function resolveImageModelCapability(options: {
 
     // An empty adapterType is the application's established OpenAI-compatible
     // passthrough mode. Preserve known Images API model contracts (OpenAI plus
-    // the verified xAI/Gemini relay-translated cases) while keeping opaque
+    // the verified Gemini relay-translated cases) while keeping opaque
     // model IDs conservative. A non-empty, unrecognized adapter is not
     // assumed to be OpenAI-compatible.
-    const passthroughKey = normalizeModelKey(model);
-    if (!String(provider?.adapterType || "").trim() && (isKnownOpenAIImageModel(model) || isXaiImageModelKey(passthroughKey) || isGeminiImageModelKey(passthroughKey))) {
+    // Known OpenAI / Gemini image models keep their verified
+    // contracts on any OpenAI-compatible relay.
+    // Opaque custom model IDs still require explicit imageCapabilityProfiles.
+    if (
+        isKnownOpenAIImageModel(model) ||
+        isGeminiImageModelKey(passthroughKey)
+    ) {
         return resolveOpenAI(model, options.operation, provider);
     }
 
