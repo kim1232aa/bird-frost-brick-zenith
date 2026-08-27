@@ -2,6 +2,7 @@ import { resolveImageSettingsContext } from "@/components/provider-settings-cont
 import { readCivitaiCatalogServiceSnapshot } from "@/services/api/civitai-client";
 import { CIVITAI_FALLBACK_SERVICES, resolveCivitaiService } from "@/services/api/civitai-services";
 import {
+  nativeImageAdapterType,
   validateImageModelRequest,
   type ResolvedImageModelCapability,
 } from "@/services/api/image-model-capabilities";
@@ -17,33 +18,41 @@ export const CANVAS_IMAGE_OPERATION_OPTIONS: Array<{ label: string; value: Canva
 
 export const CANVAS_IMAGE_OPERATION_EMPTY_HINT = "当前模型不支持此参考图组合，请改选编辑服务";
 
+function providerFamilyOps(config: AiConfig): CanvasImageOperation[] {
+  try {
+    const context = resolveImageSettingsContext(config, "generate");
+    const adapter = nativeImageAdapterType(context.provider);
+    const model = String(context.capability?.model || "").toLowerCase();
+    if (adapter === "civitai") return ["generate", "edit", "variation"];
+    if (adapter === "agnes" || adapter === "dashscope" || adapter === "ark" || adapter === "sensenova-miaohua") {
+      return ["generate", "edit"];
+    }
+    if (adapter === "sensenova") return ["generate"];
+    if (model.includes("dall-e-2") || model.includes("dalle-2")) return ["generate", "edit", "variation"];
+    if (model.includes("gpt-image") || model.includes("grok-imagine-image") || (model.includes("gemini") && model.includes("image")) || model.includes("agnes-image") || model.includes("seedream") || model.includes("qwen-image") || model.includes("wan2")) {
+      return ["generate", "edit"];
+    }
+    if (adapter === "openai") return ["generate", "edit"];
+  } catch {
+    /* keep generate visible */
+  }
+  return ["generate", "edit"];
+}
+
 export function resolveCanvasImageOperationOptions(
   config: AiConfig,
   referenceCount?: number,
   options?: { readonly compatibleOnly?: boolean },
 ) {
-  const compatibleOnly = options?.compatibleOnly === true;
+  const family = new Set(providerFamilyOps(config));
   const filtered = CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => {
-    if (compatibleOnly) {
+    if (!family.has(option.value)) return false;
+    if (options?.compatibleOnly === true) {
       return !canvasImageOperationCapabilityError(config, option.value, referenceCount);
     }
-    if (option.value === "generate") {
-      // Keep generate visible even when connected references are incompatible;
-      // the selected-state warning still explains that this service will not send them.
-      return !canvasImageOperationCapabilityError(config, "generate");
-    }
-    if (option.value === "edit" || option.value === "variation") {
-      if (!canvasImageOperationCapabilityError(config, option.value, referenceCount)) return true;
-      return Boolean(resolveCivitaiCanvasOperationSibling(config, option.value));
-    }
-    return !canvasImageOperationCapabilityError(config, option.value, referenceCount);
+    return true;
   });
-  if (compatibleOnly || filtered.length) return filtered;
-  // Antd Select renders its default "暂无数据" when options is empty. A
-  // route error or missing catalog sibling must not blank the control.
-  if (!canvasImageOperationCapabilityError(config, "edit")) {
-    return CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => option.value === "edit");
-  }
+  if (filtered.length) return filtered;
   return CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => option.value === "generate");
 }
 
