@@ -7,6 +7,7 @@ import { Button, Input, Select } from "antd";
 
 import { ModelIcon } from "@/components/model-icon";
 import { resolveImageSettingsContext } from "@/components/image-settings-panel";
+import { resolveImageModelCapability } from "@/services/api/image-model-capabilities";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -24,7 +25,7 @@ import {
     type StoryDirectorTextModelSourceOption,
     type StoryDirectorTextModelOption,
 } from "../utils/story-director-text-model";
-import { normalizeStoryImageQuality, storyImageQualityPatch } from "../utils/story-image-quality";
+import { normalizeStoryImageQuality, storyDirectorQualityOptions, storyImageQualityPatch } from "../utils/story-image-quality";
 import { resolveStoryWorkflowImageOperation } from "../utils/canvas-image-operation";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 
@@ -53,11 +54,6 @@ const styleOptions = [...stylePresetValues.map((value) => ({ value, label: value
 const storyboardModeOptions = [
     { value: "single", label: "逐镜生成" },
     { value: "grid9", label: "9宫格分镜" },
-];
-const qualityOptions = [
-    { value: "low", label: "1K" },
-    { value: "medium", label: "2K" },
-    { value: "high", label: "4K" },
 ];
 
 type StorySelectKey = "textModel" | "headerImageModel" | "imageModel" | "style" | "mode" | "aspect" | "quality";
@@ -103,6 +99,19 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         storyDirectorInheritedImageModel,
         storyDirectorImageModels,
     );
+    const selectedImageOption = storyDirectorImageModelPresentation.options.find(
+        (option) => option.value === storyDirectorImageModelPresentation.selectedValue,
+    );
+    const selectedImageModel = selectedImageOption?.model || storyDirectorInheritedImageModel?.model || "";
+    const selectedImageProviderId = selectedImageOption?.providerId || storyDirectorInheritedImageModel?.providerId || "";
+    const selectedImageCapability = config
+        ? resolveImageModelCapability({
+            model: selectedImageModel,
+            operation: "generate",
+            provider: config.apiRelays.find((relay) => relay.id === selectedImageProviderId),
+        })
+        : null;
+    const qualityOptions = storyDirectorQualityOptions(selectedImageCapability);
     const getPopupContainer = useCallback(() => document.body, []);
     const closeSelect = useCallback(() => {
         setOpenSelect(null);
@@ -294,13 +303,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
-                    {/grok-imagine-image/i.test(
-                      storyDirectorImageModelPresentation.options.find((option) => option.value === storyDirectorImageModelPresentation.selectedValue)?.model
-                        || storyDirectorInheritedImageModel?.model
-                        || "",
-                    ) ? (
-                        <p className="col-span-2 text-[11px] leading-4 opacity-55 sm:col-span-1">Grok 自己决定清晰度，这儿不用选。</p>
-                    ) : (
+                    {qualityOptions.length ? (
                     <LabeledControl label="清晰度">
                         <Select
                             className="!w-full"
@@ -316,7 +319,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
-                    )}
+                    ) : null}
                 </div>
                 {isCustomStyle ? (
                     <div className="mt-2" data-canvas-no-drag>

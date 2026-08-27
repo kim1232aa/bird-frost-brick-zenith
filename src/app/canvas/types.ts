@@ -523,7 +523,7 @@ export type CanvasNodeMetadata = {
     storyReferenceSnapshotId?: string;
     storyVersionCreatedAt?: string;
     storyCommittedDraftId?: string;
-    storyImageQuality?: "low" | "medium" | "high" | "1k" | "2k" | "4k";
+    storyImageQuality?: string;
     /** Distinguishes a user choice from the legacy provider-agnostic `low` default. */
     storyImageQualityExplicit?: boolean;
     storyWorkflow?: "idle" | "analysis" | "character" | "shot";
