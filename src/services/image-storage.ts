@@ -283,29 +283,44 @@ function blobToDataUrl(blob: Blob) {
     });
 }
 
-async function fetchImageBlob(url: string, signal?: AbortSignal) {
+function shouldProxyRemoteImage(url: string) {
     try {
-        const response = await fetch(normalizeFetchUrl(url), { signal });
-        if (!response.ok) {
-            const message = await response.text().catch(() => "");
-            throw new Error(readFetchError(message, response.status));
-        }
-        const blob = await response.blob();
-        assertNonEmptyImageBlob(blob);
-        return blob;
-    } catch (error) {
-        if (signal?.aborted || !/^https?:\/\//i.test(url)) throw error;
-        // WebView 直连失败（DNS/代理/证书）时，改由 Go 后端代取——后端带有可用的代理环境。
-        // 若某个 relay 配了专属代理且域名匹配（含父域），把代理头带给后端，否则后端只能直连。
-        const fallback = await desktopFetch(`${desktopApiUrl("/client-api/fetch-url")}?url=${encodeURIComponent(url)}`, { signal, headers: await relayProxyHeadersForUrl(url) });
-        if (!fallback.ok) {
-            const message = await fallback.text().catch(() => "");
-            throw new Error(readFetchError(message, fallback.status));
-        }
-        const blob = await fallback.blob();
-        assertNonEmptyImageBlob(blob);
-        return blob;
+        const host = new URL(url).hostname.toLowerCase();
+        return host === "imgen.x.ai" || host.endsWith(".imgen.x.ai") || host.endsWith(".x.ai");
+    } catch {
+        return false;
     }
+}
+
+async function fetchImageBlob(url: string, signal?: AbortSignal) {
+    const remote = /^https?:\/\//i.test(url);
+    const skipDirect = remote && shouldProxyRemoteImage(url);
+    if (!skipDirect) {
+        try {
+            const response = await fetch(normalizeFetchUrl(url), { signal });
+            if (!response.ok) {
+                const message = await response.text().catch(() => "");
+                throw new Error(readFetchError(message, response.status));
+            }
+            const blob = await response.blob();
+            assertNonEmptyImageBlob(blob);
+            return blob;
+        } catch (error) {
+            if (signal?.aborted || !remote) throw error;
+        }
+    }
+    if (signal?.aborted) {
+        throw new DOMException("The image upload was aborted", "AbortError");
+    }
+    if (!remote) throw new Error("读取图片失败");
+    const fallback = await desktopFetch(`${desktopApiUrl("/client-api/fetch-url")}?url=${encodeURIComponent(url)}`, { signal, headers: await relayProxyHeadersForUrl(url) });
+    if (!fallback.ok) {
+        const message = await fallback.text().catch(() => "");
+        throw new Error(readFetchError(message, fallback.status));
+    }
+    const blob = await fallback.blob();
+    assertNonEmptyImageBlob(blob);
+    return blob;
 }
 
 function throwIfUploadAborted(signal?: AbortSignal, fallback?: unknown): void {

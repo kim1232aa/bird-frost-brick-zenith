@@ -275,7 +275,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
         <button type="button" className="studio-ghost" onClick={resetRelays}>
           恢复内置模板并全部启用
         </button>
-        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥只存在本机。</p>
+        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥只存在本机；预置模板不再内置测试密钥，请在右侧粘贴。</p>
       </aside>
       <section className="wire-editor">
         {mode === "create" ? (

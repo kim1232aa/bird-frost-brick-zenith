@@ -14,7 +14,7 @@ function galleryStorageKey(url: string, kind: "image" | "video") {
   return `${GALLERY_KEY_PREFIX[kind]}-${name}`;
 }
 
-function isGalleryPath(value?: string) {
+function isGalleryPath(value?: string): value is string {
   return Boolean(value && value.startsWith("/gallery/"));
 }
 
@@ -46,7 +46,7 @@ export async function hydrateGalleryMedia(nodes: CanvasNodeData[]): Promise<Canv
               backendRel: url.slice(1),
               content: url,
               retained: true,
-              status: "success",
+              status: "success" as const,
             },
           };
         }
@@ -63,7 +63,7 @@ export async function hydrateGalleryMedia(nodes: CanvasNodeData[]): Promise<Canv
               backendRel: url.slice(1),
               content: url,
               retained: true,
-              status: "success",
+              status: "success" as const,
             },
           };
         }

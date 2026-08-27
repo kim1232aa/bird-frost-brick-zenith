@@ -133,8 +133,10 @@ export const AnimatedThemeToggler = ({ children, className, duration = 400, vari
             const nextTheme = targetTheme ?? (isDark ? "light" : "dark");
             if (nextTheme === (isDark ? "dark" : "light")) return;
             setIsDark(nextTheme === "dark");
-            document.documentElement.classList.toggle("dark", nextTheme === "dark");
-            document.documentElement.style.colorScheme = nextTheme;
+            // Studio chrome stays light. Canvas board color comes from zustand,
+            // not html.dark — otherwise the top bar and project library go black.
+            document.documentElement.classList.remove("dark");
+            document.documentElement.style.colorScheme = "light";
             onThemeChange?.(nextTheme);
         };
 

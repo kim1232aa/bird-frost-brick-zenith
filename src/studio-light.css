@@ -165,6 +165,40 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   background: #fff !important;
 }
 
+/* Workspace chrome stays paper even if html.dark leaked in from the canvas toggle. */
+.studio-root.is-canvas,
+html.dark .studio-root.is-canvas,
+html.dark .studio-root.is-canvas .studio-page,
+html.dark .studio-root.is-canvas .studio-flush {
+  background: #f7f5f1 !important;
+  color: #1c1917 !important;
+}
+
+html.dark .studio-root.is-canvas .studio-topbar {
+  border-bottom-color: #e7e5df;
+  background: rgba(247, 245, 241, 0.92);
+  color: #1c1917;
+}
+
+html.dark .studio-root.is-canvas .studio-nav a {
+  color: #78716c;
+}
+
+html.dark .studio-root.is-canvas .studio-nav a.is-active {
+  background: #1c1917;
+  color: #fafaf9;
+}
+
+html.dark .studio-root.is-canvas .studio-brand,
+html.dark .studio-root.is-canvas .studio-credits,
+html.dark .studio-root.is-canvas .studio-userchip {
+  color: #1c1917;
+}
+
+html.dark .studio-root.is-canvas .studio-mark {
+  background: #00c758;
+}
+
 .studio-root {
   min-height: 100vh;
   height: 100vh;
@@ -189,6 +223,8 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  width: 100%;
+  background: #f4f2ed;
 }
 
 .bp-work {

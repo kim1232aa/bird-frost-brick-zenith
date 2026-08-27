@@ -106,7 +106,7 @@ export const useStudioSession = create<StudioSession>()(
     }),
     {
       name: "boundless-studio:session",
-      version: 11,
+      version: 12,
       migrate: (persisted) => {
         const saved = readPersisted(persisted);
         return {
