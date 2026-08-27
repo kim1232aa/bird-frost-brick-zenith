@@ -43,8 +43,8 @@ export function ModelRail({
                 >
                   <b>{card.model}</b>
                   <span className="model-card-tags">
-                    {card.nsfw ? <i className="tag tag-nsfw">NSFW</i> : <i className="tag">安全</i>}
-                    <i className="tag">{card.wired ? "已接线" : "待接线"}</i>
+                    {card.nsfw ? <i className="tag tag-nsfw">成人向</i> : <i className="tag">安全</i>}
+                    <i className="tag">{card.wired ? "能用" : "还没填密钥"}</i>
                     {card.tags.slice(0, 2).map((tag) => (
                       <i key={tag} className="tag">
                         {tag}

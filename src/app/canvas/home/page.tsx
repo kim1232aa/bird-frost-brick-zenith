@@ -243,7 +243,7 @@ export default function CanvasPage() {
 
                 <section className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
                     <div className="mb-3 flex items-baseline justify-between gap-3">
-                        <p className="text-xs tracking-wider text-stone-400">当前接线 · 只读</p>
+                        <p className="text-xs tracking-wider text-stone-400">现在用的模型</p>
                         {admin ? (
                             <Link to="/settings" className="text-xs text-emerald-700 hover:text-emerald-900">
                                 去设置改模型
@@ -254,8 +254,8 @@ export default function CanvasPage() {
                     </div>
                     <div className="grid gap-3 sm:grid-cols-3">
                         <WiringChip label="文本" value={STUDIO_ROUTES.text.model} hint="Grok 4.6" />
-                        <WiringChip label="生图" value={STUDIO_ROUTES.image.model} hint="Grok Imagine 生图 · 最多 5 张参考" />
-                        <WiringChip label="生视频" value={STUDIO_ROUTES.video.model} hint="Grok Imagine 视频 · 首尾帧 + 分镜静帧" />
+                        <WiringChip label="生图" value={STUDIO_ROUTES.image.model} hint="Grok 生图 · 参考图最多 3 张" />
+                        <WiringChip label="生视频" value={STUDIO_ROUTES.video.model} hint="Grok 生视频 · 可带开头图和结尾图" />
                     </div>
                 </section>
 

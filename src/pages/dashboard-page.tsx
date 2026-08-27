@@ -4,22 +4,22 @@ import { Link } from "@tanstack/react-router";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
 
 const TOOLS = [
-  { href: "/image", title: "生图", copy: "选模型、写提示、一次可出 1 / 2 / 4 张。" },
-  { href: "/edit", title: "编辑", copy: "Qwen-Image-Edit / FLUX.2-dev，1–3 张参考图全部提交。" },
-  { href: "/video", title: "生视频", copy: "文生视频。首尾帧走独立入口。" },
-  { href: "/i2v", title: "图生视频", copy: "必填首帧，尾帧可选，火山 last_frame 已接通。" },
-  { href: "/frames", title: "抽帧", copy: "本地视频抽当前帧或均匀取样，不耗额度。" },
-  { href: "/ecommerce", title: "电商套图", copy: "上传商品图，按平台一次出 4–9 张。" },
-  { href: "/story", title: "故事导演", copy: "分析故事、定妆、分镜，再推进画布。" },
-  { href: "/canvas", title: "无限画布", copy: "节点工作流：文本、角色、生图、Seedance。" },
-  { href: "/library", title: "作品", copy: "回看、ZIP 导入导出，再送进画布。" },
+  { href: "/image", title: "生图", copy: "写一句话出图。想按某张图来，再丢参考。" },
+  { href: "/edit", title: "改图", copy: "上传要改的图，写下改哪里。" },
+  { href: "/video", title: "生视频", copy: "写镜头出视频。没有图也能先出一段。" },
+  { href: "/i2v", title: "图生视频", copy: "先放一张开头的图，视频从这张演下去。" },
+  { href: "/frames", title: "抽帧", copy: "从视频里切出几张静帧，不花生成额度。" },
+  { href: "/ecommerce", title: "电商套图", copy: "一张商品图，按平台一次出一套主图。" },
+  { href: "/story", title: "故事导演", copy: "把故事拆成角色和分镜，再推进画布。" },
+  { href: "/canvas", title: "无限画布", copy: "在一张大画布上摆文字、图、视频和故事。" },
+  { href: "/library", title: "作品", copy: "回看成片，打包带走，或送进画布。" },
 ] as const;
 
 const FEATURES = [
-  { n: "01", title: "多模型接线", copy: "Seedream、GPT Image、Grok Imagine、Civitai 等，在设置里填自己的中转。" },
-  { n: "02", title: "无限画布", copy: "完整节点工作流：文本、角色、生图、视频、故事导演和 Seedance 参考槽。" },
-  { n: "03", title: "电商套图", copy: "一张商品图按平台方案连出主图、细节和场景，再打包 ZIP。" },
-  { n: "04", title: "故事导演", copy: "拆角色、定妆、分镜，再把镜头送进画布继续改。" },
+  { n: "01", title: "自己的模型", copy: "Grok、通义、Civitai 等，密钥只写在设置里。" },
+  { n: "02", title: "无限画布", copy: "故事、角色、分镜、视频都在一张画布上连着改。" },
+  { n: "03", title: "电商套图", copy: "一张商品图按平台方案连出主图、细节和场景。" },
+  { n: "04", title: "故事导演", copy: "拆角色、出定妆图、出分镜，再送进画布。" },
 ] as const;
 
 const STEPS = [

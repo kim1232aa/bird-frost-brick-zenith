@@ -221,12 +221,12 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
 
   const hero =
     mode === "extract"
-      ? { kicker: "FRAMES", title: "视频抽帧", copy: "上传本地视频，抽当前帧、首尾帧或均匀取样。不消耗生成额度。" }
+      ? { kicker: "抽帧", title: "从视频里切图", copy: "上传一段视频，切当前画面或均匀切几张。不花生成额度。" }
       : mode === "flf"
-        ? { kicker: "VIDEO", title: "首尾帧驱动", copy: "首帧和尾帧都会提交。火山 Seedance 走 last_frame。" }
+        ? { kicker: "生视频", title: "开头图 + 结尾图", copy: "第一张是开头，第二张是结尾，视频从这头演到那头。" }
         : mode === "i2v"
-          ? { kicker: "VIDEO", title: "图生视频", copy: "必须上传首帧。尾帧可选，火山适配器已接通 lastFrameUrl。" }
-          : { kicker: "VIDEO", title: "文生视频", copy: "写镜头、选时长和画幅。积分只是本地演示。" };
+          ? { kicker: "生视频", title: "按图出视频", copy: "必须先放一张开头的图。想收在某张画面，再加一张结尾图。" }
+          : { kicker: "生视频", title: "文生视频", copy: "写镜头、选时长和画幅。积分只是本机演示，不真扣钱。" };
 
   if (mode === "extract") {
     return (
@@ -238,8 +238,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         </header>
         <div className="studio-seg" style={{ maxWidth: 520, marginBottom: 20 }}>
           <button type="button" onClick={() => goMode("t2v")}>文生视频</button>
-          <button type="button" onClick={() => goMode("i2v")}>图生视频</button>
-          <button type="button" onClick={() => goMode("flf")}>首尾帧</button>
+          <button type="button" onClick={() => goMode("i2v")}>按图出视频</button>
+          <button type="button" onClick={() => goMode("flf")}>开头+结尾</button>
           <button type="button" className="is-active">抽帧</button>
         </div>
         <div className="bp-work">
@@ -258,7 +258,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                   event.target.value = "";
                 }}
               />
-              <small>抽帧在浏览器完成，不打上游。</small>
+              <small>切帧就在你电脑上完成，不用模型。</small>
             </label>
             <div className="studio-seg">
               {[4, 6, 8, 12].map((item) => (
@@ -358,10 +358,10 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             文生视频
           </button>
           <button type="button" className={mode === "i2v" ? "is-active" : undefined} onClick={() => goMode("i2v")}>
-            图生视频
+            按图出视频
           </button>
           <button type="button" className={mode === "flf" ? "is-active" : undefined} onClick={() => goMode("flf")}>
-            首尾帧
+            开头+结尾
           </button>
           <button type="button" onClick={() => goMode("extract")}>
             抽帧
@@ -369,7 +369,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         </div>
         <div className="bp-model-fields">
           <StudioModelField kind="video" value={selection} onChange={setSelection} label="视频模型" />
-          <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="润色文本模型" />
+          <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="把句子写顺的模型" />
         </div>
         <label>
           描述你的想法

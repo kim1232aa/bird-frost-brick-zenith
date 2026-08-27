@@ -123,8 +123,8 @@ export function ModelMenu({
                       >
                         <span className="model-menu-row-name">{card.model}</span>
                         <span className="model-menu-row-meta">
-                          {card.wired ? "已接线" : "待接线"}
-                          {card.nsfw ? " · NSFW" : ""}
+                          {card.wired ? "能用" : "还没填密钥"}
+                          {card.nsfw ? " · 可出成人向" : ""}
                           {card.verified ? " · 已实测" : " · 未实测"}
                         </span>
                       </button>

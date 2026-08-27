@@ -27,7 +27,6 @@ export function EcommerceSuitePage() {
   const [shots, setShots] = useState<Record<string, ShotState>>({});
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
-  const [batch, setBatch] = useState(true);
 
   const doneCount = pack.shots.filter((shot) => shots[shot.id]?.url).length;
   const history = items.filter((item) => item.kind === "ecommerce").slice(0, 8);
@@ -99,14 +98,14 @@ export function EcommerceSuitePage() {
       <header className="bp-hero">
         <p className="studio-kicker">ECOMMERCE</p>
         <h1>电商套图</h1>
-        <p>上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
+        <p>上传一张商品图，选场景和平台，一次出一套主图，再打包带走。</p>
       </header>
       <p className="alert-banner">商品参考图越清楚，套图越稳。没有图也可以先用文字描述试布局。</p>
       <div className="bench">
       <aside className="bench-side">
         <p className="studio-kicker">ECOMMERCE</p>
         <h1>电商套图</h1>
-        <p className="studio-hint">上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
+        <p className="studio-hint">上传一张商品图，选场景和平台，一次出一套主图。</p>
         <label className="dropzone">
           <span>① 商品参考图（必填更稳）</span>
           <input
@@ -134,18 +133,15 @@ export function EcommerceSuitePage() {
             </button>
           ))}
         </div>
-        <p className="studio-kicker">② 出片方式</p>
+        <p className="studio-kicker">③ 出图方式</p>
         <div className="chip-row">
-          <button type="button" className={batch ? "is-active" : undefined} onClick={() => setBatch(true)}>
-            连续套图 · {pack.shots.length} 张
-          </button>
-          <button type="button" className={!batch ? "is-active" : undefined} onClick={() => setBatch(false)}>
-            独立高清
+          <button type="button" className="is-active">
+            一套出完 · {pack.shots.length} 张
           </button>
         </div>
         <StudioModelField kind="image" value={selection} onChange={setSelection} label="生图模型" />
         <label>
-          ③ 平台方案
+          ④ 卖到哪个平台
           <select value={packId} onChange={(event) => setPackId(event.target.value)}>
             {ECOMMERCE_PACKS.map((item) => (
               <option key={item.id} value={item.id}>

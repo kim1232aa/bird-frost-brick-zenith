@@ -1973,34 +1973,34 @@ function ConnectionCreateMenu({
         <ConnectionCreateOption
           theme={theme}
           icon={<List className="size-5" />}
-          title="文本生成"
-          description="脚本、广告词、品牌文案"
+          title="加一段文字"
+          description="剧本、旁白、广告词"
           onClick={() => onCreate(CanvasNodeType.Text)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<ImageIcon className="size-5" />}
-          title="图片生成"
-          description="引用该节点生成图片"
+          title="按这个出图"
+          description="用当前这块去生成图片"
           onClick={() => onCreate(CanvasNodeType.Image)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Settings2 className="size-5" />}
-          title="生成配置"
-          description="连接素材后直接配置生图参数"
+          title="加一块设置"
+          description="单独改生图用哪个模型和参数"
           onClick={() => onCreate(CanvasNodeType.Config)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Video className="size-5" />}
-          title="视频生成"
+          title="按这个出视频"
           onClick={() => onCreate(CanvasNodeType.Video)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Music2 className="size-5" />}
-          title="音频参考"
+          title="加一段音频"
           onClick={() => onCreate(CanvasNodeType.Audio)}
         />
       </div>
@@ -2117,7 +2117,7 @@ function CanvasEmptyStarter({
           <CanvasStarterAction
             theme={theme}
             icon={<Film className="size-4" />}
-            label="Seedance2"
+            label="分镜视频"
             onClick={onSeedance2Workflow}
           />
           <CanvasStarterAction
@@ -2728,8 +2728,8 @@ function Seedance2WorkflowPanel({
           onCreatePlaceholders(node);
         }}>
           {isCreatingPlaceholders
-            ? `正在整批改写（${rewriteCompletedCount}/${rewriteTotalCount || storyShotCount}）...`
-            : "创建 / 刷新视频占位框"}
+            ? `正在按分镜摆格子（${rewriteCompletedCount}/${rewriteTotalCount || storyShotCount}）...`
+            : "按分镜摆出空视频格"}
         </button>
         <button
           type="button"
@@ -2751,8 +2751,8 @@ function Seedance2WorkflowPanel({
           {videoBatch
             ? `正在生成视频（${videoBatch.done}/${videoBatch.total}）...`
             : pendingPlaceholderCount > 0
-              ? `生成全部分镜视频（${pendingPlaceholderCount}）`
-              : "生成全部分镜视频"}
+              ? `把空格子都生成视频（${pendingPlaceholderCount}）`
+              : "把空格子都生成视频"}
         </button>
       </div>
     </div>

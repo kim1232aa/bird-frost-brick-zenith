@@ -24,8 +24,8 @@ export function ModelSwitcher({
           <p className="studio-hint">{card?.blurb}</p>
           {card ? (
             <span className="model-card-tags">
-              {card.nsfw ? <i className="tag tag-nsfw">NSFW</i> : <i className="tag">安全</i>}
-              {card.wired ? <i className="tag">已接线</i> : <i className="tag">待接线</i>}
+              {card.nsfw ? <i className="tag tag-nsfw">成人向</i> : <i className="tag">安全</i>}
+              {card.wired ? <i className="tag">能用</i> : <i className="tag">还没填密钥</i>}
               {card.tags.slice(0, 3).map((tag) => (
                 <i key={tag} className="tag">
                   {tag}

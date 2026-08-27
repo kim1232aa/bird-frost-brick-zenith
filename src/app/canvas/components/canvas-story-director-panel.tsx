@@ -225,10 +225,10 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
-                    单独调角色图参数
+                    旁边加一块角色图设置
                 </Button>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
-                    单独调分镜图参数
+                    旁边加一块分镜图设置
                 </Button>
             </div>
 
@@ -294,7 +294,14 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
-                    <LabeledControl label="质量">
+                    {/grok-imagine-image/i.test(
+                      storyDirectorImageModelPresentation.options.find((option) => option.value === storyDirectorImageModelPresentation.selectedValue)?.model
+                        || storyDirectorInheritedImageModel?.model
+                        || "",
+                    ) ? (
+                        <p className="col-span-2 text-[11px] leading-4 opacity-55 sm:col-span-1">Grok 自己决定清晰度，这儿不用选。</p>
+                    ) : (
+                    <LabeledControl label="清晰度">
                         <Select
                             className="!w-full"
                             value={imageQuality || undefined}
@@ -309,6 +316,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
+                    )}
                 </div>
                 {isCustomStyle ? (
                     <div className="mt-2" data-canvas-no-drag>
@@ -385,7 +393,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     className="mt-2 text-[10px] leading-4 opacity-70"
                     data-canvas-no-drag
                 >
-                    图片模型在本面板选择。角色图/分镜图优先用这里选的 provider/model；连了 Config 节点时仍用 Config。生成还是编辑由模型能力决定，不用先选手动 operation。
+                    图片模型就在这页选。角色图和分镜图都用它。如果你在旁边另挂了一块设置，以那块为准。有参考图就按图改，没有就按文字出。
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
@@ -557,7 +565,7 @@ function StoryDirectorModelOptionLabel({
             <span className="flex min-w-0 items-center gap-1.5">
                 {model ? <ModelIcon model={model} className="size-3.5" /> : null}
                 <span className="min-w-0 break-all text-[12px] font-medium">
-                    {inherit ? `继承：${name}` : name}
+                    {inherit ? `跟设置走：${name}` : name}
                 </span>
             </span>
             {vendor ? <span className="w-full break-words text-[11px] opacity-70">{vendor}</span> : null}
