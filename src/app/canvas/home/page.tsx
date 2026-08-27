@@ -7,14 +7,16 @@ import { Download, FileUp, LayoutGrid, List, Plus } from "lucide-react";
 
 import { readZip } from "@/lib/zip";
 import { getDesktopSetting, setDesktopSetting } from "@/services/desktop-storage";
-import { canEnterOps, useAccountStore } from "@/studio/account";
-import { STUDIO_ROUTES } from "@/studio/wiring";
+import { findCatalog } from "@/studio/catalog";
+import { preferredImageKey, preferredTextKey, preferredVideoKey } from "@/studio/model-select";
+import { useCurrentModels } from "@/studio/current-models-store";
+import { useStudioSession } from "@/studio/session";
 import { setMediaBlob, deleteStoredMedia, getAllStoredMediaKeys } from "@/services/file-storage";
 import { setImageBlob, deleteStoredImages, getAllStoredImageKeys } from "@/services/image-storage";
 import { CanvasDeleteProjectsDialog } from "../components/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "../components/canvas-project-card";
 import type { CanvasExportFile } from "../export-types";
-import { useCanvasStore } from "../stores/use-canvas-store";
+import { INFINITE_CANVAS_SEED_ID, useCanvasStore } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { exportCanvasProjects } from "../utils/canvas-export";
 import { importCanvasArchive, type CanvasArchive, type CanvasArchiveImportHandlers } from "../utils/canvas-import";
@@ -102,18 +104,21 @@ export default function CanvasPage() {
     const { message } = App.useApp();
     const navigate = useNavigate();
     const inputRef = useRef<HTMLInputElement>(null);
-    const [viewMode, setViewMode] = useState<CanvasHomeViewMode>("list");
+    const [viewMode, setViewMode] = useState<CanvasHomeViewMode>("grid");
     const hydrated = useCanvasStore((state) => state.hydrated);
     const hydrationStatus = useCanvasStore((state) => state.hydrationStatus);
     const hydrationError = useCanvasStore((state) => state.hydrationError);
     const retryHydration = useCanvasStore((state) => state.retryHydration);
     const projects = useCanvasStore((state) => state.projects);
+    const visibleProjects = [...projects].sort((left, right) => {
+        if (left.id === INFINITE_CANVAS_SEED_ID) return -1;
+        if (right.id === INFINITE_CANVAS_SEED_ID) return 1;
+        return 0;
+    });
     const createProject = useCanvasStore((state) => state.createProject);
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
     const setDeleteIds = useCanvasUiStore((state) => state.setDeleteProjectIds);
-    const session = useAccountStore((state) => state.session);
-    const admin = canEnterOps({ session });
 
     useEffect(() => {
         let active = true;
@@ -179,7 +184,7 @@ export default function CanvasPage() {
                     <div>
                         <p className="text-xs tracking-[0.2em] text-emerald-600">BOUNDLESS STUDIO</p>
                         <h1 className="mt-2 text-3xl font-semibold tracking-tight">无限画布</h1>
-                        <p className="mt-2 max-w-xl text-sm text-stone-500">在一张浅色无限画布上组织文本、图片、视频和故事导演。项目保存在这台浏览器；改模型去顶栏设置，这里只管理画布。</p>
+                        <p className="mt-2 max-w-xl text-sm text-stone-500">点开「无限画布 1」就能看到故事导演、角色和五张分镜。新建是空白画布；改模型去顶栏设置。</p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                         <div className="flex items-center rounded-md border border-stone-200 bg-white p-0.5" role="group" aria-label="画布显示方式">
@@ -238,20 +243,12 @@ export default function CanvasPage() {
 
                 <section className="rounded-2xl border border-stone-200 bg-white px-4 py-3">
                     <div className="mb-3 flex items-baseline justify-between gap-3">
-                        <p className="text-xs tracking-wider text-stone-400">当前接线 · 只读</p>
-                        {admin ? (
-                            <Link to="/settings" className="text-xs text-emerald-700 hover:text-emerald-900">
-                                去设置改模型
-                            </Link>
-                        ) : (
-                            <span className="text-xs text-stone-400">模型由管理员在设置里配置</span>
-                        )}
+                        <p className="text-xs tracking-wider text-stone-400">现在用的模型</p>
+                        <Link to="/" className="text-xs text-emerald-700 hover:text-emerald-900">
+                            去首页改模型
+                        </Link>
                     </div>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                        <WiringChip label="文本" value={STUDIO_ROUTES.text.model} hint="Grok 4.6" />
-                        <WiringChip label="生图" value={STUDIO_ROUTES.image.model} hint="Grok Imagine 生图 · 最多 5 张参考" />
-                        <WiringChip label="生视频" value={STUDIO_ROUTES.video.model} hint="Grok Imagine 视频 · 首尾帧 + 分镜静帧" />
-                    </div>
+                    <CanvasCurrentModels />
                 </section>
 
                 {hydrationStatus === "error" ? (
@@ -269,7 +266,7 @@ export default function CanvasPage() {
                     <section className="flex min-h-[360px] items-center justify-center rounded-2xl border border-stone-200 bg-white text-sm text-stone-500">正在加载画布...</section>
                 ) : projects.length ? (
                     <div className={viewMode === "list" ? "flex flex-col gap-2" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"} data-view-mode={viewMode}>
-                        {projects.map((project) => (
+                        {visibleProjects.map((project) => (
                             <CanvasProjectCard key={project.id} project={project} viewMode={viewMode} />
                         ))}
                     </div>
@@ -287,6 +284,33 @@ export default function CanvasPage() {
             <input ref={inputRef} type="file" accept="application/zip,.zip" className="hidden" onChange={(event) => void importCanvas(event.target.files?.[0])} />
             <CanvasDeleteProjectsDialog />
         </section>
+    );
+}
+
+function CanvasCurrentModels() {
+    useStudioSession((state) => state.relays);
+    useCurrentModels((state) => state.text);
+    useCurrentModels((state) => state.image);
+    useCurrentModels((state) => state.video);
+    const slots = [
+        { label: "文本", value: preferredTextKey(), kind: "text" as const },
+        { label: "生图", value: preferredImageKey(), kind: "image" as const },
+        { label: "生视频", value: preferredVideoKey(), kind: "video" as const },
+    ];
+    return (
+        <div className="grid gap-3 sm:grid-cols-3">
+            {slots.map((slot) => {
+                const card = findCatalog(slot.value, slot.kind);
+                return (
+                    <WiringChip
+                        key={slot.label}
+                        label={slot.label}
+                        value={card?.model || slot.value.split("::")[1] || "未选"}
+                        hint={card ? `${card.provider}${card.wired ? " · 已接线" : " · 待接线"}` : "去首页选择"}
+                    />
+                );
+            })}
+        </div>
     );
 }
 
