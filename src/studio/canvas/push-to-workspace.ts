@@ -42,6 +42,19 @@ function mapShots(shots: DirectorShot[]): StoryShot[] {
   }));
 }
 
+function makeNode(type: CanvasNodeType, title: string, metadata: CanvasNodeData["metadata"], position = { x: 80, y: 40 }): CanvasNodeData {
+  const spec = getNodeSpec(type);
+  return {
+    id: `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    title: title || spec.title,
+    position,
+    width: spec.width,
+    height: spec.height,
+    metadata: { ...spec.metadata, ...metadata },
+  };
+}
+
 export function pushStoryToCanvasWorkspace(payload: {
   text: string;
   style?: string;
@@ -87,6 +100,55 @@ export function pushStoryToCanvasWorkspace(payload: {
   return useCanvasStore.getState().importProject({
     title: `故事 ${payload.text.slice(0, 12) || "导演"}`,
     nodes: [node],
+    viewport: { x: 0, y: 0, k: 1 },
+  });
+}
+
+export function pushMediaToCanvasWorkspace(payload: {
+  kind: "image" | "video" | "text" | "prompt";
+  url?: string;
+  prompt?: string;
+  model?: string;
+  title?: string;
+}) {
+  const prompt = payload.prompt || payload.title || "";
+  const nodes: CanvasNodeData[] = [];
+  if (payload.kind === "video" && payload.url) {
+    nodes.push(
+      makeNode(CanvasNodeType.Video, payload.title || "视频", {
+        content: payload.url,
+        backendUrl: payload.url,
+        prompt,
+        model: payload.model,
+        status: "success",
+        source: "studio-push",
+      }),
+    );
+  } else if (payload.url) {
+    nodes.push(
+      makeNode(CanvasNodeType.Image, payload.title || "图片", {
+        content: payload.url,
+        backendUrl: payload.url,
+        prompt,
+        model: payload.model,
+        status: "success",
+        source: "studio-push",
+      }),
+    );
+  } else {
+    nodes.push(
+      makeNode(CanvasNodeType.Text, payload.title || "文本", {
+        content: prompt,
+        prompt,
+        model: payload.model,
+        status: "idle",
+        source: "studio-push",
+      }),
+    );
+  }
+  return useCanvasStore.getState().importProject({
+    title: payload.title || prompt.slice(0, 12) || "画布素材",
+    nodes,
     viewport: { x: 0, y: 0, k: 1 },
   });
 }

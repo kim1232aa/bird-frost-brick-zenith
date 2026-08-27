@@ -7,6 +7,7 @@ import { useStudioHistory } from "@/studio/history";
 import { downloadBlob, exportStudioLibrary, importStudioLibrary } from "@/studio/library-zip";
 import { useMediaDraft } from "@/studio/media-draft";
 import { dropToCanvas } from "@/studio/split";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
 export function LibraryPage() {
   const navigate = useNavigate();
@@ -96,7 +97,14 @@ export function LibraryPage() {
                         url: item.urls[0],
                         prompt: item.prompt,
                       });
-                      void navigate({ to: "/canvas" });
+                      const id = pushMediaToCanvasWorkspace({
+                        kind: item.kind === "video" ? "video" : "image",
+                        url: item.urls[0],
+                        prompt: item.prompt,
+                        model: item.model,
+                        title: item.title,
+                      });
+                      void navigate({ to: "/canvas/workspace", search: { id } });
                     }}
                   >
                     送入画布
