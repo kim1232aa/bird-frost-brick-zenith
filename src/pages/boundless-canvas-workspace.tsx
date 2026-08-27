@@ -37,7 +37,6 @@ export function BoundlessCanvasWorkspace() {
       const fallback =
         store.projects.find((item) => item.title === "无限画布 1") ||
         store.projects.find((item) => item.title.includes("无限画布")) ||
-        store.projects.find((item) => item.title.includes("清凉写真")) ||
         store.projects[0];
       if (fallback) {
         if (!id || id !== fallback.id) {
