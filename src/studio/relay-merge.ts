@@ -11,12 +11,9 @@ function normalizeUrl(value: string) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
-export function isServerInjectedRelay(provider: Pick<ApiRelayProvider, "baseUrl" | "id">) {
-  try {
-    return new URL(String(provider.baseUrl || "")).hostname.toLowerCase() === "api.x.ai";
-  } catch {
-    return false;
-  }
+/** Kept for old callers. Official xAI is not auto-wired. */
+export function isServerInjectedRelay(_provider: Pick<ApiRelayProvider, "baseUrl" | "id">) {
+  return false;
 }
 
 function isStalePresetUrl(id: string, url: string) {
@@ -109,10 +106,6 @@ function mergeOne(template: ApiRelayProvider, override?: ApiRelayProvider): ApiR
   };
 }
 
-/**
- * Re-seed managed templates while keeping user-added extras and filled keys.
- * Empty env templates must never wipe a key the user already saved in settings.
- */
 export function mergePersistedRelays(
   saved: ApiRelayProvider[] | undefined,
   hiddenPresetIds: string[] = [],
@@ -133,7 +126,6 @@ export function mergePersistedRelays(
     })));
 }
 
-/** Combine canvas config + settings page without dropping either side's keys. */
 export function mergeRelaySources(...lists: Array<ApiRelayProvider[] | undefined>): ApiRelayProvider[] {
   const byId = new Map<string, ApiRelayProvider>();
   for (const list of lists) {
