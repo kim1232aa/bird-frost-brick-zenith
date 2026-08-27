@@ -2,6 +2,7 @@
 
 import { Link } from "@tanstack/react-router";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
+import { CurrentModelsCard } from "@/studio/current-models";
 
 const TOOLS = [
   { href: "/image", title: "生图", copy: "选模型、写提示、一次可出 1 / 2 / 4 张。" },
@@ -31,12 +32,12 @@ const STEPS = [
 
 const FAQS = [
   {
-    q: "积分会不会真扣费？",
-    a: "不会。当前 Web 预览的会员积分是浏览器本地演示账本，不向服务器扣费。真实出图走你在设置里填写的中转 Key。",
+    q: "积分会不会真扣？",
+    a: "会。生成成功后从本账号额度账本扣点，失败不扣。模型调用走你在设置里选的供应商 Key，不是代扣别家平台。",
   },
   {
     q: "API Key 写在哪里？",
-    a: "打开顶栏的设置页填写中转 Key。不要把密钥提交进仓库。也可以用环境变量注入内置模板。",
+    a: "打开顶栏的设置页，点哪个供应商就编辑哪个。不要把密钥提交进仓库。也可以用环境变量注入内置模板。",
   },
   {
     q: "画布刷新会丢吗？",
@@ -55,6 +56,7 @@ export function DashboardPage() {
         <p className="studio-kicker">无界创作台</p>
         <h1>把商品、故事和分镜一次做完</h1>
         <p className="studio-lead">生图、生视频、电商套图、故事导演、无限画布。选工具开始，密钥只写在设置里。</p>
+        <CurrentModelsCard />
         <section className="home-tools">
           {TOOLS.map((tool) => (
             <Link key={tool.href} to={tool.href} className="home-tool">
@@ -68,7 +70,7 @@ export function DashboardPage() {
       <section className="home-section">
         <p className="studio-kicker">案例</p>
         <h2>点一张就能带进生图页</h2>
-        <p>这些是本机样张，用来看布局和提示词，不是实时生成结果。</p>
+        <p>这些是标明模型来源的参考样张，用来看布局和提示词。点进去不会改你当前选的供应商。</p>
         <div className="case-masonry">
           {GALLERY_SEED.map((item) => (
             <Link key={item.id} to={item.kind === "video" ? "/video" : "/image"} className="case-card">
@@ -126,7 +128,7 @@ export function DashboardPage() {
 
       <footer className="site-footer">
         <p>
-          无界创作台 · 本地预览 · <Link to="/settings">设置接线</Link> · <Link to="/catalog">模型目录</Link> ·{" "}
+          无界创作台 · <Link to="/settings">设置接线</Link> · <Link to="/catalog">模型目录</Link> ·{" "}
           <Link to="/account">账户</Link>
         </p>
       </footer>
