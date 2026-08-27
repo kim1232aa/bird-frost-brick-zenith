@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog, catalogKey } from "@/studio/catalog";
+import { findCatalog, catalogKey, groupCatalogByRegion } from "@/studio/catalog";
 import { defaultEditKey, isEditModel, isEditOnlyModel } from "@/studio/edit-models";
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioJobs } from "@/studio/generate/jobs";
@@ -96,15 +96,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     return allModels.filter((card) => !isEditOnlyModel(card.model));
   }, [allModels, mode]);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, typeof models>();
-    for (const card of models) {
-      const list = map.get(card.provider) || [];
-      list.push(card);
-      map.set(card.provider, list);
-    }
-    return [...map.entries()];
-  }, [models]);
+  const groups = useMemo(() => groupCatalogByRegion(models), [models]);
 
   useEffect(() => {
     if (!models.length) return;

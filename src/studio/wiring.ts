@@ -38,35 +38,25 @@ function readEnvKey(...names: string[]): string {
   return "";
 }
 
-const SUPERXIHE_IMAGE_KEY =
-  readEnvKey("VITE_SUPERXIHE_IMAGE_KEY", "STUDIO_SUPERXIHE_IMAGE_KEY") ||
-  "sk-54340465b9c29c6810db2bf19740c3c39057c3db711b040cbd28d8a62c9ebb36";
-const SUPERXIHE_GROK_KEY =
-  readEnvKey("VITE_SUPERXIHE_GROK_KEY", "STUDIO_SUPERXIHE_GROK_KEY") ||
-  "sk-92f2462d95d3e1ae3336226b62af3d4f376aa9cb6c6279d52d1186092ecef4b9";
-const VOLCENGINE_ARK_KEY =
-  readEnvKey("VITE_VOLCENGINE_ARK_KEY", "STUDIO_VOLCENGINE_ARK_KEY") ||
-  "ark-8c2c51f6-b302-48fc-8f26-207f83bd8129-b50b0";
-const CIVITAI_TOKEN =
-  readEnvKey("VITE_CIVITAI_TOKEN", "STUDIO_CIVITAI_TOKEN") ||
-  "29d622653173c1960a0952118df72f49";
-const MODELSCOPE_TOKEN =
-  readEnvKey("VITE_MODELSCOPE_TOKEN", "STUDIO_MODELSCOPE_TOKEN") ||
-  "ms-b668608e-7597-4812-be00-7a822d17830d";
-const HUGGINGFACE_TOKEN =
-  readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN") ||
-  "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";
-const GROK_RELAY_KEY =
-  readEnvKey("VITE_GROK_RELAY_KEY", "STUDIO_GROK_RELAY_KEY") ||
-  "sk-d5f2c7a5b3e9f61f59a5516d44d8228b2dbce9950dbaceb3f0fae8169e4bf07a";
-const HANSYAI_KEY =
-  readEnvKey("VITE_HANSYAI_KEY", "STUDIO_HANSYAI_KEY") ||
-  "sk-632b811b117b855ba47ce379e7c82ac3c114ec02b234d9b4816b047978b8ddc9";
+const SUPERXIHE_IMAGE_KEY = readEnvKey("VITE_SUPERXIHE_IMAGE_KEY", "STUDIO_SUPERXIHE_IMAGE_KEY");
+const SUPERXIHE_GROK_KEY = readEnvKey("VITE_SUPERXIHE_GROK_KEY", "STUDIO_SUPERXIHE_GROK_KEY");
+const VOLCENGINE_ARK_KEY = readEnvKey("VITE_VOLCENGINE_ARK_KEY", "STUDIO_VOLCENGINE_ARK_KEY");
+const CIVITAI_TOKEN = readEnvKey("VITE_CIVITAI_TOKEN", "STUDIO_CIVITAI_TOKEN");
+const MODELSCOPE_TOKEN = readEnvKey("VITE_MODELSCOPE_TOKEN", "STUDIO_MODELSCOPE_TOKEN");
+const HUGGINGFACE_TOKEN = readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN");
+const GROK_RELAY_KEY = readEnvKey("VITE_GROK_RELAY_KEY", "STUDIO_GROK_RELAY_KEY");
+const HANSYAI_KEY = readEnvKey("VITE_HANSYAI_KEY", "STUDIO_HANSYAI_KEY");
 
 const GROK_VIDEO_PROFILES = {
   "grok-imagine-video": "xai-imagine-video" as const,
   "grok-imagine-video-1.5": "xai-imagine-video" as const,
   "grok-imagine-video-1.5-preview": "xai-imagine-video" as const,
+};
+
+const GROK_IMAGE_PROFILES = {
+  "grok-imagine-image": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
+  "grok-imagine-image-quality": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
+  "grok-imagine-image-2.0": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
 };
 
 /**
@@ -100,6 +90,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     audioModels: [],
     nsfw: true,
     videoCapabilityProfiles: GROK_VIDEO_PROFILES,
+    imageCapabilityProfiles: GROK_IMAGE_PROFILES,
     endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
   },
   {
@@ -126,7 +117,29 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     audioModels: [],
     nsfw: true,
     videoCapabilityProfiles: GROK_VIDEO_PROFILES,
+    imageCapabilityProfiles: GROK_IMAGE_PROFILES,
     endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
+  },
+  {
+    id: "preset-openai",
+    name: "OpenAI 官方",
+    adapter: "openai-compat",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "",
+    enabled: false,
+    capabilities: ["image", "video"],
+    remark: "官方 api.openai.com。生图 gpt-image-2，视频 sora-2。填平台 Key 后启用。",
+    models: ["gpt-image-2", "gpt-image-1.5", "sora-2", "sora-2-pro"],
+    textModels: [],
+    imageModels: ["gpt-image-2", "gpt-image-1.5"],
+    videoModels: ["sora-2", "sora-2-pro"],
+    audioModels: [],
+    imageCapabilityProfiles: {
+      "gpt-image-2": { generate: "openai-gpt-image-2-generate", edit: "openai-gpt-image-2-edit" },
+      "gpt-image-1.5": { generate: "openai-gpt-image-legacy-generate", edit: "openai-gpt-image-legacy-edit" },
+    },
+    videoCapabilityProfiles: { "sora-2": "openai-video", "sora-2-pro": "openai-video" },
+    endpoints: { images: "/images/generations", videosCreate: "/videos", videosPoll: "/videos/{id}" },
   },
   {
     id: "preset-hansyai",
@@ -216,6 +229,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     audioModels: [],
     nsfw: true,
     videoCapabilityProfiles: GROK_VIDEO_PROFILES,
+    imageCapabilityProfiles: GROK_IMAGE_PROFILES,
     endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
   },
   {
@@ -229,13 +243,14 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     remark: "官方 Agent Plan /api/plan/v3。生图 Seedream 5.0 Lite 已实测。视频需 Medium+。",
     models: [
       "doubao-seedream-5.0-lite",
+      "doubao-seedream-5.0",
       "doubao-seedance-1.5-pro",
       "doubao-seedance-2.0",
       "doubao-seedance-2.0-fast",
       "doubao-seedance-2.0-mini",
     ],
     textModels: [],
-    imageModels: ["doubao-seedream-5.0-lite"],
+    imageModels: ["doubao-seedream-5.0-lite", "doubao-seedream-5.0"],
     videoModels: ["doubao-seedance-1.5-pro", "doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-2.0-mini"],
     audioModels: [],
     endpoints: { images: "/images/generations", videosCreate: "/contents/generations/tasks", videosPoll: "/contents/generations/tasks/{id}" },
@@ -272,13 +287,16 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
       "qwen-image-2.0-pro",
       "qwen-image-plus",
       "wan2.6-t2i",
+      "wan2.7-image",
       "wan2.6-t2v",
       "wan2.6-i2v",
+      "wan2.7-t2v",
+      "wan2.7-i2v",
       "happyhorse-1.1-t2v",
     ],
     textModels: ["qwen-plus", "qwen-max"],
-    imageModels: ["qwen-image-2.0-pro", "qwen-image-plus", "wan2.6-t2i"],
-    videoModels: ["wan2.6-t2v", "wan2.6-i2v", "happyhorse-1.1-t2v"],
+    imageModels: ["qwen-image-2.0-pro", "qwen-image-plus", "wan2.6-t2i", "wan2.7-image"],
+    videoModels: ["wan2.6-t2v", "wan2.6-i2v", "wan2.7-t2v", "wan2.7-i2v", "happyhorse-1.1-t2v"],
     audioModels: [],
     endpoints: { chat: "/chat/completions", images: "/images/generations" },
   },
@@ -353,15 +371,62 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     baseUrl: "https://fal.run",
     apiKey: "",
     enabled: false,
-    capabilities: ["image"],
+    capabilities: ["image", "video"],
     nsfw: true,
-    remark: "Flux 系列，Authorization: Key。成人向内容由模型自身策略决定，不含违法类别。",
-    models: ["flux-dev", "flux-schnell", "flux-pro"],
+    remark: "Flux 2、Nano Banana、可灵、海螺、Veo。Authorization: Key。填 Fal Key 后启用。",
+    models: [
+      "flux-2-pro",
+      "flux-2-flex",
+      "flux-2-flash",
+      "flux-dev",
+      "flux-schnell",
+      "nano-banana",
+      "nano-banana-pro",
+      "seedream-4.5",
+      "kling-3-pro",
+      "kling-3-turbo",
+      "hailuo-2.3",
+      "veo-3.1",
+      "wan-pro",
+      "minimax-h3",
+    ],
     textModels: [],
-    imageModels: ["flux-dev", "flux-schnell", "flux-pro"],
-    videoModels: [],
+    imageModels: ["flux-2-pro", "flux-2-flex", "flux-2-flash", "flux-dev", "flux-schnell", "nano-banana", "nano-banana-pro", "seedream-4.5"],
+    videoModels: ["kling-3-pro", "kling-3-turbo", "hailuo-2.3", "veo-3.1", "wan-pro", "minimax-h3"],
     audioModels: [],
-    endpoints: { images: "/fal-ai/flux/dev" },
+    endpoints: { images: "/fal-ai/flux-2-pro", videosCreate: "/fal-ai/kling-video/v3/pro/text-to-video" },
+  },
+  {
+    id: "preset-kling",
+    name: "可灵 Kling",
+    adapter: "openai-compat",
+    baseUrl: "https://api-singapore.klingai.com/v1",
+    apiKey: "",
+    enabled: false,
+    capabilities: ["video"],
+    remark: "快手可灵官方国际站。填开发者 Key。国内站需改域名。",
+    models: ["kling-v3", "kling-v3-omni"],
+    textModels: [],
+    imageModels: [],
+    videoModels: ["kling-v3", "kling-v3-omni"],
+    audioModels: [],
+    endpoints: { videosCreate: "/videos/generations", videosPoll: "/videos/{id}" },
+  },
+  {
+    id: "preset-minimax",
+    name: "MiniMax 海螺",
+    adapter: "openai-compat",
+    baseUrl: "https://api.minimax.io/v1",
+    apiKey: "",
+    enabled: false,
+    capabilities: ["video"],
+    remark: "海螺 Hailuo / H3。填 MiniMax Key。也可走上面的 Fal 聚合。",
+    models: ["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02"],
+    textModels: [],
+    imageModels: [],
+    videoModels: ["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02"],
+    audioModels: [],
+    endpoints: { videosCreate: "/video_generation", videosPoll: "/query/video_generation" },
   },
   {
     id: "preset-custom-compat",
@@ -409,6 +474,7 @@ export function studioRelays(): ApiRelayProvider[] {
       audioModels: item.audioModels,
       endpoints: item.endpoints,
       videoCapabilityProfiles: item.videoCapabilityProfiles,
+      imageCapabilityProfiles: item.imageCapabilityProfiles,
     }),
   );
 }

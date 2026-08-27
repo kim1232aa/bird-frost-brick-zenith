@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { catalogKey, type ModelCard } from "./catalog";
+import { catalogKey, groupCatalogByRegion, type ModelCard } from "./catalog";
 import { liveCatalog, useOpsStore } from "./ops";
 import { useStudioSession } from "./session";
 
@@ -22,15 +22,7 @@ export function ModelMenu({
   const cards = liveCatalog(kind, wiredOnly);
   useStudioSession((state) => state.relays);
   useOpsStore((state) => state.unlisted);
-  const groups = useMemo(() => {
-    const map = new Map<string, ModelCard[]>();
-    for (const card of cards) {
-      const list = map.get(card.provider) || [];
-      list.push(card);
-      map.set(card.provider, list);
-    }
-    return [...map.entries()];
-  }, [cards]);
+  const groups = useMemo(() => groupCatalogByRegion(cards), [cards]);
   const current = cards.find((card) => catalogKey(card) === value) || cards[0];
   const safeValue = current ? catalogKey(current) : "";
   const [open, setOpen] = useState(false);

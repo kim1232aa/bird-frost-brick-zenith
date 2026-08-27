@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog, catalogKey } from "@/studio/catalog";
+import { findCatalog, catalogKey, groupCatalogByRegion } from "@/studio/catalog";
 import { captureVideoFrame, evenFrameTimes, extractVideoFrames, videoFileUrl } from "@/studio/frame-extract";
 import { createStudioVideo, waitStudioVideo } from "@/studio/generate/video";
 import { useStudioJobs } from "@/studio/generate/jobs";
@@ -72,15 +72,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
 
   const models = liveCatalog("video", false);
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection);
-  const groups = useMemo(() => {
-    const map = new Map<string, typeof models>();
-    for (const item of models) {
-      const list = map.get(item.provider) || [];
-      list.push(item);
-      map.set(item.provider, list);
-    }
-    return [...map.entries()];
-  }, [models]);
+  const groups = useMemo(() => groupCatalogByRegion(models), [models]);
   const isArk = /volcengine|seedance/i.test(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;
   const recent = useMemo(

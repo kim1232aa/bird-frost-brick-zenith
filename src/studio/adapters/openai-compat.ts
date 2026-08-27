@@ -29,13 +29,13 @@ export const openaiCompatAdapter: StudioAdapter = {
   async createVideo(ctx, input) {
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
-      path: "/videos/generations",
+      path: ctx.provider.endpoints?.videosCreate || "/videos/generations",
       body: {
         model: input.model,
         prompt: input.prompt,
-        ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
-        ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
-        ...(input.imageUrl ? { image: { url: input.imageUrl } } : {}),
+        ...(typeof input.duration === "number" ? { duration: input.duration, seconds: String(input.duration) } : {}),
+        ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio, size: input.aspectRatio } : {}),
+        ...(input.imageUrl ? { image: { url: input.imageUrl }, input_reference: input.imageUrl } : {}),
         ...(input.lastFrameUrl ? { last_frame_image: { url: input.lastFrameUrl } } : {}),
         ...(input.imageUrls?.length ? { image_urls: input.imageUrls.filter(Boolean).slice(0, 5) } : {}),
       },
@@ -46,9 +46,10 @@ export const openaiCompatAdapter: StudioAdapter = {
     return { id };
   },
   async pollVideo(ctx, taskId) {
+    const pollPath = (ctx.provider.endpoints?.videosPoll || "/videos/{id}").replace("{id}", encodeURIComponent(taskId));
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
-      path: `/videos/${encodeURIComponent(taskId)}`,
+      path: pollPath,
       method: "GET",
       timeoutMs: 30_000,
     });
