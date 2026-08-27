@@ -34,11 +34,19 @@ export function preferredVideoKey() {
 }
 
 export function preferredImageKey() {
-  return prefer("image", (item) => item.model === "Qwen/Qwen-Image" || item.model === "doubao-seedream-5.0-lite");
+  return prefer(
+    "image",
+    (item) =>
+      item.model === "grok-imagine-image" ||
+      item.model === "grok-imagine-image-quality" ||
+      item.model === "gpt-image-2" ||
+      item.model === "Qwen/Qwen-Image" ||
+      item.model === "doubao-seedream-5.0-lite",
+  );
 }
 
 export function preferredTextKey() {
-  return prefer("text", (item) => item.model === "grok-4.6");
+  return prefer("text", (item) => item.model === "grok-4.6" || item.model === "gpt-5.6");
 }
 
 export function preferredAudioKey() {

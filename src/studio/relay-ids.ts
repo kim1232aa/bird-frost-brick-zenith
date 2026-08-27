@@ -1,5 +1,7 @@
 /** Built-in wiring slots. Keep in sync with STUDIO_PROVIDERS in wiring.ts. */
 const MANAGED_IDS = new Set([
+  "preset-grok-relay",
+  "preset-hansyai",
   "preset-modelscope",
   "preset-huggingface",
   "preset-superxihe-image",
