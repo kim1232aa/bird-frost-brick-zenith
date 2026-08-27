@@ -725,14 +725,15 @@ function canonicalProviderModel(provider: ApiRelayProvider, capability: ApiCapab
  * different providers. Provider-local selectors should continue using their
  * existing bare-string model lists instead of this function.
  */
-export function enabledRelayModelOptionsForCapability(
+export function listedRelayModelOptionsForCapability(
     providers: readonly ApiRelayProvider[],
     capability: ApiCapability,
 ): ProviderModelOption[] {
     const options: ProviderModelOption[] = [];
     for (const provider of providers || []) {
         if (!provider?.id) continue;
-        if (!providerCanRunCapability(provider, capability)) continue;
+        if (!provider.capabilities?.includes(capability)) continue;
+        if (!provider.baseUrl?.trim()) continue;
         const providerName = providerDisplayName(provider, providers);
         for (const model of providerModelsForCapability(provider, capability)) {
             const selection = { providerId: provider.id, model };
@@ -745,6 +746,16 @@ export function enabledRelayModelOptionsForCapability(
         }
     }
     return options;
+}
+
+export function enabledRelayModelOptionsForCapability(
+    providers: readonly ApiRelayProvider[],
+    capability: ApiCapability,
+): ProviderModelOption[] {
+    return listedRelayModelOptionsForCapability(providers, capability).filter((option) => {
+        const provider = (providers || []).find((item) => item.id === option.providerId);
+        return Boolean(provider && providerCanRunCapability(provider, capability));
+    });
 }
 
 function isProviderModelSelection(value: unknown): value is ProviderModelSelection {

@@ -548,7 +548,6 @@ export const CanvasNode = React.memo(function CanvasNode({
                     }
                     if (data.type === CanvasNodeType.Image && hasImageContent) {
                         event.stopPropagation();
-                        onViewImage?.(data);
                         return;
                     }
                     if (data.type !== CanvasNodeType.Text) return;

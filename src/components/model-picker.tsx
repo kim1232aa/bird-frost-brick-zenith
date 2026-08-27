@@ -370,30 +370,52 @@ export function ProviderModelPicker({
     );
 }
 
+function prettyRelayName(providerName: string, label?: string) {
+    const known: Record<string, string> = {
+        "preset-grok-relay": "Grok 中转",
+        "preset-xai-official": "xAI 官方",
+        "preset-agnes": "Agnes",
+        "preset-sensenova": "商汤日日新",
+        "preset-superxihe-grok": "SuperXihe Grok",
+        "preset-superxihe-image": "SuperXihe 生图",
+        "preset-openai": "OpenAI 官方",
+        "preset-volcengine-plan": "火山方舟",
+        "preset-aliyun-tokenplan": "阿里云百炼",
+        "preset-minimax": "MiniMax 海螺",
+        "preset-kling": "可灵 Kling",
+        "preset-fal": "Fal",
+    };
+    if (known[providerName]) return known[providerName];
+    if (/^preset-/.test(providerName)) {
+        const fromLabel = String(label || "").split("·")[0]?.trim();
+        if (fromLabel && !/^preset-/.test(fromLabel)) return fromLabel;
+    }
+    return providerName;
+}
+
 function ProviderModelTriggerLabel({
     option,
     placeholder,
 }: {
-    option?: { providerName?: string; model?: string; label?: string };
+    option?: { providerName?: string; model?: string; label?: string; providerId?: string };
     placeholder: string;
 }) {
     if (!option) {
         return <span className="canvas-model-picker-text min-w-0 flex-1 text-left">{placeholder}</span>;
     }
-    const providerName = String(option.providerName || "").trim();
+    const providerName = String(option.providerName || option.providerId || "").trim();
     const model = String(option.model || "").trim();
-    const prettyProvider = /^preset-/.test(providerName)
-      ? String(option.label || "").split("·")[0]?.trim() || providerName
-      : providerName;
+    const prettyProvider = prettyRelayName(providerName, option.label);
     if (prettyProvider && model) {
         return (
-            <span className="canvas-model-picker-text flex min-w-0 flex-1 flex-col items-start text-left leading-4">
-                <span className="w-full break-words text-[11px] opacity-70">{prettyProvider}</span>
-                <span className="w-full break-all text-[12px] font-medium">{model}</span>
+            <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">
+                <span className="opacity-70">{prettyProvider}</span>
+                <span className="px-1 opacity-40">·</span>
+                <span className="font-medium">{model}</span>
             </span>
         );
     }
-    return <span className="canvas-model-picker-text min-w-0 flex-1 break-all text-left">{option.label || placeholder}</span>;
+    return <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{option.label || placeholder}</span>;
 }
 
 function emptyModelLabel(capability?: ModelCapability) {

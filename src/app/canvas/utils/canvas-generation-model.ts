@@ -61,6 +61,17 @@ export function applyExplicitCanvasGenerationModel(
  * provider for legacy duplicate model IDs. An unavailable/ambiguous legacy
  * model remains visible through `legacyModel` until the user chooses a pair.
  */
+function remapDeadGrokSelection(
+  selection: ProviderModelSelection | null,
+  config: AiConfig,
+): ProviderModelSelection | null {
+  if (!selection || selection.providerId !== "preset-grok-relay") return selection;
+  const grok = (config.apiRelays || []).find((item) => item.id === "preset-grok-relay");
+  if (grok?.apiKey || grok?.apiKeys?.length) return selection;
+  if (!(config.apiRelays || []).some((item) => item.id === "preset-xai-official")) return selection;
+  return { ...selection, providerId: "preset-xai-official" };
+}
+
 export function resolveCanvasGenerationModelSelection(
   config: AiConfig,
   metadata: CanvasNodeMetadata | undefined,
@@ -75,7 +86,7 @@ export function resolveCanvasGenerationModelSelection(
         }
       : undefined;
   if (exactVideoScope) {
-    return { selection: exactVideoScope, legacyModel: "" };
+    return { selection: remapDeadGrokSelection(exactVideoScope, config), legacyModel: "" };
   }
   const model = firstNonEmptyModel(
     mode === "video" ? metadata?.seedanceModel : undefined,
@@ -88,19 +99,19 @@ export function resolveCanvasGenerationModelSelection(
   );
 
   if (model && providerId) {
-    return { selection: { providerId, model }, legacyModel: "" };
+    return { selection: remapDeadGrokSelection({ providerId, model }, config), legacyModel: "" };
   }
   if (model) {
     const resolution = resolveProviderModelSelection(config, mode, model);
     return resolution.status === "resolved"
-      ? { selection: resolution.selection, legacyModel: "" }
+      ? { selection: remapDeadGrokSelection(resolution.selection, config), legacyModel: "" }
       : { selection: null, legacyModel: model };
   }
 
   const route = config.apiRouting[mode];
   if (route?.providerId && route.model) {
     return {
-      selection: { providerId: route.providerId, model: route.model },
+      selection: remapDeadGrokSelection({ providerId: route.providerId, model: route.model }, config),
       legacyModel: "",
     };
   }

@@ -17147,10 +17147,11 @@ function InfiniteCanvasPage() {
             },
           }}
         >
-          {previewNode?.metadata?.content ? (
+          {previewNode?.metadata?.content && /^(data:image\/|blob:|https?:\/\/)/i.test(String(previewNode.metadata.content)) ? (
             <img
               src={previewNode.metadata.content}
               alt={previewNode.title || "图片"}
+              onError={() => setPreviewNodeId(null)}
               style={{
                 maxWidth: "100%",
                 maxHeight: "80vh",
