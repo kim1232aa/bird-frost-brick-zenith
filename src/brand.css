@@ -38,12 +38,16 @@ body,
 html:has(.studio-root.is-canvas),
 html:has(.studio-root.is-canvas) body,
 html:has(.studio-root.is-canvas) #app {
-  background: #0b0b0f !important;
-  color: #efe9dd !important;
+  background: #f7f5f1 !important;
+  color: #1c1917 !important;
 }
 
 .studio-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--bp-bg);
   color: var(--bp-text);
   font-family: var(--bp-font);
@@ -51,11 +55,12 @@ html:has(.studio-root.is-canvas) #app {
 }
 
 .studio-root.is-canvas {
-  background: #0b0b0f;
-  color: #efe9dd;
+  background: #f7f5f1;
+  color: #1c1917;
 }
 
 .studio-topbar {
+  flex-shrink: 0;
   gap: 16px;
   min-height: 64px;
   padding: 0 20px;
@@ -65,8 +70,8 @@ html:has(.studio-root.is-canvas) #app {
 }
 
 .studio-root.is-canvas .studio-topbar {
-  border-bottom-color: #2c2c34;
-  background: rgba(11, 11, 15, 0.92);
+  border-bottom-color: #e7e5df;
+  background: rgba(247, 245, 241, 0.94);
 }
 
 .studio-brand {
@@ -75,7 +80,7 @@ html:has(.studio-root.is-canvas) #app {
 }
 
 .studio-root.is-canvas .studio-brand {
-  color: #efe9dd;
+  color: #1c1917;
 }
 
 .studio-mark {
@@ -99,12 +104,12 @@ html:has(.studio-root.is-canvas) #app {
 }
 
 .studio-root.is-canvas .studio-nav a {
-  color: #9b968c;
+  color: #78716c;
 }
 
 .studio-root.is-canvas .studio-nav a.is-active {
-  background: #efe9dd;
-  color: #101014;
+  background: var(--bp-selected-bg);
+  color: var(--bp-green);
 }
 
 .studio-credits,
@@ -177,27 +182,32 @@ html:has(.studio-root.is-canvas) #app {
 }
 
 .studio-page {
+  flex: 1;
+  min-height: 0;
   max-width: 80rem;
   margin: 0 auto;
   padding: 28px 20px 80px;
+  overflow: auto;
+  width: 100%;
 }
 
 .studio-page.studio-flush {
   max-width: none;
   padding: 0;
-  overflow: auto;
-  background: #0b0b0f;
+  overflow: hidden;
+  background: #f7f5f1;
 }
 
 .studio-root.is-canvas .studio-page.studio-flush:not(.studio-flush-scroll) {
   overflow: hidden;
-  height: calc(100vh - 64px);
+  height: auto;
 }
 
 .studio-page.studio-flush-scroll {
   overflow: auto !important;
   height: auto !important;
-  min-height: calc(100vh - 64px);
+  min-height: 0;
+  background: #f7f5f1;
 }
 
 .studio-kicker {

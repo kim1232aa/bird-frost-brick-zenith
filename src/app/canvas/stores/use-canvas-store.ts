@@ -49,6 +49,7 @@ let queuedPersistValue: StorageValue<CanvasStore> | null = null;
 let canvasPersistenceWrite = Promise.resolve();
 let canvasStorageScope = getCachedAuthStorageScope();
 let canvasPersistenceUnlocked = false;
+let pendingUnlockedProjects: CanvasProject[] = [];
 
 function getCanvasStorageKeys(name: string, scope = canvasStorageScope) {
     return getCanvasMergeScopes(scope).map((scope) => ({
@@ -199,6 +200,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     viewport: initialViewport,
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
+                if (!canvasPersistenceUnlocked) pendingUnlockedProjects = [project, ...pendingUnlockedProjects];
                 return id;
             },
             importProject: (source) => {
@@ -217,6 +219,7 @@ export const useCanvasStore = create<CanvasStore>()(
                     viewport: source.viewport || initialViewport,
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
+                if (!canvasPersistenceUnlocked) pendingUnlockedProjects = [project, ...pendingUnlockedProjects];
                 return project.id;
             },
             openProject: (id) => {
@@ -269,11 +272,15 @@ export const useCanvasStore = create<CanvasStore>()(
                 canvasAutoRehydrateAttempts = 0;
                 canvasPersistenceUnlocked = true;
                 const state = useCanvasStore.getState();
+                const extras = pendingUnlockedProjects.filter(
+                    (project) => !state.projects.some((item) => item.id === project.id),
+                );
+                pendingUnlockedProjects = [];
                 useCanvasStore.setState({
                     hydrated: true,
                     hydrationStatus: "ready",
                     hydrationError: null,
-                    projects: [...state.projects],
+                    projects: extras.length ? [...extras, ...state.projects] : [...state.projects],
                 });
             },
         },
@@ -318,4 +325,12 @@ export function setCanvasStorageScope(scopeId?: string | null) {
     canvasPersistenceUnlocked = false;
     useCanvasStore.setState({ hydrated: false, hydrationStatus: "loading", hydrationError: null, projects: [], syncDeleted: [] });
     void useCanvasStore.persist.rehydrate();
+}
+
+if (typeof window !== "undefined") {
+    window.setTimeout(() => {
+        const current = useCanvasStore.getState();
+        if (current.hydrated || current.hydrationStatus === "error") return;
+        useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
+    }, 700);
 }

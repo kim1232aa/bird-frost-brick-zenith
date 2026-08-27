@@ -26,6 +26,11 @@ export function StudioShell({ children }: { children: ReactNode }) {
   const nav = STUDIO_NAV.filter((item) => (item.href === "/settings" ? admin : true));
 
   useEffect(() => {
+    document.documentElement.classList.remove("dark");
+    document.documentElement.style.colorScheme = "light";
+  }, []);
+
+  useEffect(() => {
     setMenuOpen(false);
   }, [path]);
 
@@ -40,7 +45,11 @@ export function StudioShell({ children }: { children: ReactNode }) {
           {nav.map((item) => {
             const active = path === item.href || path.startsWith(`${item.href}/`);
             return (
-              <Link key={item.href} to={item.href} className={active ? "is-active" : undefined}>
+              <Link
+                key={item.href}
+                to={item.href}
+                className={active ? "is-active" : undefined}
+              >
                 {item.label}
               </Link>
             );
@@ -86,7 +95,11 @@ export function StudioShell({ children }: { children: ReactNode }) {
           {nav.map((item) => {
             const active = path === item.href || path.startsWith(`${item.href}/`);
             return (
-              <Link key={item.href} to={item.href} className={active ? "is-active" : undefined}>
+              <Link
+                key={item.href}
+                to={item.href}
+                className={active ? "is-active" : undefined}
+              >
                 {item.label}
               </Link>
             );

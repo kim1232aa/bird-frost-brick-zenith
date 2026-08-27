@@ -84,15 +84,15 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
         return (
             <article
                 data-project-view="list"
-                className={"group flex min-h-20 cursor-pointer items-center gap-3 rounded-lg border bg-stone-900/70 px-3 py-2.5 shadow-sm transition hover:border-stone-600 hover:bg-stone-900 " + (selected ? "border-stone-100 ring-2 ring-stone-100/10" : "border-stone-800")}
+                className={"group flex min-h-20 cursor-pointer items-center gap-3 rounded-lg border bg-white px-3 py-2.5 shadow-sm transition hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
                 onClick={() => !editing && open()}
             >
                 {selectionCheckbox("size-4 shrink-0 accent-stone-950 dark:accent-stone-100")}
-                <div className="relative hidden h-16 w-24 shrink-0 overflow-hidden rounded-md bg-stone-950 sm:block">
+                <div className="relative hidden h-16 w-24 shrink-0 overflow-hidden rounded-md bg-stone-100 sm:block">
                     {coverUrl ? (
                         <Image src={coverUrl} alt={project.title} fill sizes="96px" unoptimized className="object-cover transition duration-300 group-hover:scale-[1.03]" />
                     ) : (
-                        <div className="flex h-full w-full items-center justify-center text-stone-600">
+                        <div className="flex h-full w-full items-center justify-center text-stone-400">
                             <ImageIcon className="size-5" />
                         </div>
                     )}
@@ -109,8 +109,8 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
                                 open();
                             }}
                         >
-                            <h2 className="truncate text-base font-semibold text-stone-100">{project.title}</h2>
-                            <p className="mt-1 text-sm text-stone-400">
+                            <h2 className="truncate text-base font-semibold text-stone-900">{project.title}</h2>
+                            <p className="mt-1 text-sm text-stone-500">
                                 {project.nodes.length} 个节点 · {project.connections.length} 条连线
                             </p>
                         </button>
@@ -127,15 +127,15 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
     return (
         <article
             data-project-view="grid"
-            className={"group cursor-pointer overflow-hidden rounded-lg border bg-stone-900/70 shadow-sm transition hover:-translate-y-0.5 hover:border-stone-600 hover:bg-stone-900 hover:shadow-md " + (selected ? "border-stone-100 ring-2 ring-stone-100/10" : "border-stone-800")}
+            className={"group cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
             onClick={() => !editing && open()}
         >
-            <div className="relative aspect-video overflow-hidden bg-stone-950">
+            <div className="relative aspect-video overflow-hidden bg-stone-100">
                 {coverUrl ? (
                     <Image src={coverUrl} alt={project.title} fill sizes="(min-width: 1536px) 20vw, (min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw" unoptimized className="object-cover transition duration-300 group-hover:scale-[1.03]" />
                 ) : (
                     <div className="flex h-full w-full items-center justify-center">
-                        <div className="grid size-10 place-items-center rounded-md bg-stone-800 text-stone-500 shadow-sm">
+                        <div className="grid size-10 place-items-center rounded-md bg-stone-200 text-stone-500 shadow-sm">
                             <ImageIcon className="size-5" />
                         </div>
                     </div>
@@ -159,8 +159,8 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
                                 open();
                             }}
                         >
-                            <h2 className="truncate text-base font-semibold text-stone-100">{project.title}</h2>
-                            <p className="mt-1 text-xs text-stone-400">
+                            <h2 className="truncate text-base font-semibold text-stone-900">{project.title}</h2>
+                            <p className="mt-1 text-xs text-stone-500">
                                 {project.nodes.length} 个节点 · {project.connections.length} 条连线
                             </p>
                         </button>

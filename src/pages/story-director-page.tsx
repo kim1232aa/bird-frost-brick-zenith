@@ -2,16 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { generateStudioImage } from "@/studio/generate/image";
-import { createStudioVideo, waitStudioVideo } from "@/studio/generate/video";
 import { useStudioHistory } from "@/studio/history";
-import { preferredImageKey, preferredTextKey, preferredVideoKey, StudioModelField } from "@/studio/model-select";
+import { preferredImageKey, preferredTextKey, preferredVideoKey, CompactModelSelect } from "@/studio/model-select";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
-import { characterLock, draftPlan, planStory, type StoryCast, type StoryShot } from "@/studio/story/plan";
-import { GRAPH_KEY } from "@/studio/canvas/types";
+import { characterLock, draftPlan, type StoryCast, type StoryShot } from "@/studio/story/plan";
 import { WorkbenchStatus } from "@/studio/workbench-status";
+import { pushStoryToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
 export function StoryDirectorPage() {
   const navigate = useNavigate();
@@ -42,6 +40,16 @@ export function StoryDirectorPage() {
     else if (next && next.includes("::")) setImageModel(next);
   }, []);
 
+  useEffect(() => {
+    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
+    setLogline(local.logline);
+    setScenes(local.scenes);
+    setCast(local.cast);
+    setShots(local.shots);
+    // Seed the board so the right pane is never a blank void.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const imageSel = splitModel(imageModel);
   const videoSel = splitModel(videoModel);
 
@@ -55,6 +63,7 @@ export function StoryDirectorPage() {
     setCast(local.cast);
     setShots(local.shots);
     try {
+      const { planStory } = await import("@/studio/story/plan");
       const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
       setLogline(plan.logline);
       setScenes(plan.scenes);
@@ -76,12 +85,13 @@ export function StoryDirectorPage() {
     setBusy(`正在出 ${person.name} 的角色图…`);
     setError("");
     try {
+      const { generateStudioImage } = await import("@/studio/generate/image");
       const result = await generateStudioImage({
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
         prompt: `character bible portrait, locked identity, studio, ${person.look}, name ${person.name}, ${style}`,
-        size: quality === "3K" ? "3K" : "2K",
+        size: "1024x1024",
       });
       setCast((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "ready" } : item)));
       addHistory({ kind: "image", title: `角色 ${person.name}`, prompt: person.look, model: result.model, urls: [result.url] });
@@ -102,13 +112,14 @@ export function StoryDirectorPage() {
     setBusy(`正在生成第 ${index + 1} 镜…`);
     setError("");
     try {
+      const { generateStudioImage } = await import("@/studio/generate/image");
       const result = await generateStudioImage({
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
         prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast.length ? cast : [])}`,
         imageUrl: cast.find((item) => item.url)?.url,
-        size: quality === "3K" ? "3K" : "2K",
+        size: ratio === "9:16" ? "720x1280" : ratio === "1:1" ? "1024x1024" : "1280x720",
       });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done", error: "" } : item)));
       addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, urls: [result.url] });
@@ -129,6 +140,7 @@ export function StoryDirectorPage() {
     setBusy(`正在生成第 ${index + 1} 镜视频…`);
     setError("");
     try {
+      const { createStudioVideo, waitStudioVideo } = await import("@/studio/generate/video");
       const created = await createStudioVideo({
         relays,
         prompt: `${shot.prompt}. Camera: ${shot.camera || "slow push in"}`,
@@ -193,6 +205,7 @@ export function StoryDirectorPage() {
     setCast(local.cast);
     setShots(local.shots);
     try {
+      const { planStory } = await import("@/studio/story/plan");
       const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
       setLogline(plan.logline);
       setScenes(plan.scenes);
@@ -209,37 +222,17 @@ export function StoryDirectorPage() {
 
   const pushCanvas = () => {
     dropToCanvas({ kind: "story", text: idea, prompt: idea, model: textModel });
-    try {
-      const raw = localStorage.getItem(GRAPH_KEY);
-      const graph = raw ? (JSON.parse(raw) as { nodes: unknown[]; edges: unknown[] }) : { nodes: [], edges: [] };
-      const id = `story-${Date.now()}`;
-      const node = {
-        id,
-        type: "story",
-        position: { x: 80, y: 80 },
-        data: {
-          kind: "story",
-          text: idea,
-          textModel,
-          imageModel,
-          videoModel,
-          style,
-          mode,
-          shotCount,
-          ratio,
-          quality,
-          logline,
-          scenes,
-          cast,
-          shots,
-          status: logline || "待分析",
-        },
-      };
-      localStorage.setItem(GRAPH_KEY, JSON.stringify({ nodes: [node, ...(graph.nodes || [])], edges: graph.edges || [] }));
-    } catch {
-      /* ignore */
-    }
-    void navigate({ to: "/canvas" });
+    const id = pushStoryToCanvasWorkspace({
+      text: idea,
+      style,
+      shotCount: mode === "grid9" ? 9 : shotCount,
+      aspectRatio: ratio,
+      logline,
+      scenes,
+      cast,
+      shots,
+    });
+    void navigate({ to: "/canvas/workspace", search: { id } });
   };
 
   return (
@@ -249,11 +242,13 @@ export function StoryDirectorPage() {
         <h1>把故事拆成分镜</h1>
         <label>
           故事
-          <textarea rows={9} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风。" />
+          <textarea rows={8} value={idea} onChange={(event) => setIdea(event.target.value)} placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风。" />
         </label>
-        <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="文本模型" />
-        <StudioModelField kind="image" value={imageModel} onChange={setImageModel} label="生图模型" />
-        <StudioModelField kind="video" value={videoModel} onChange={setVideoModel} label="视频模型" />
+        <div className="bp-model-fields">
+          <CompactModelSelect kind="text" value={textModel} onChange={setTextModel} label="文本模型" />
+          <CompactModelSelect kind="image" value={imageModel} onChange={setImageModel} label="生图模型" />
+          <CompactModelSelect kind="video" value={videoModel} onChange={setVideoModel} label="视频模型" />
+        </div>
         <div className="chip-row">
           {STYLE_PRESETS.slice(0, 6).map((item) => (
             <button key={item} type="button" className={style === item ? "is-active" : undefined} onClick={() => setStyle(item)}>
@@ -291,7 +286,7 @@ export function StoryDirectorPage() {
             {job?.type === "all" ? busy : "一键全流程"}
           </button>
           <button type="button" className="studio-ghost" disabled={Boolean(job)} onClick={() => void analyze()}>
-            只拆分镜
+            拆分镜
           </button>
           <button type="button" className="studio-ghost" disabled={Boolean(job) || !cast.length} onClick={() => void fillCast()}>
             给所有角色出图
@@ -318,8 +313,16 @@ export function StoryDirectorPage() {
           idle="拆完分镜后，点角色卡「生成角色图」，或镜头卡「生成这一镜」"
         />
         {!cast.length && !shots.length ? (
-          <div className="bp-stage">
-            <p className="studio-hint">右边会出角色资产和分镜。左边贴故事，点「分析故事」或「一键全流程」。</p>
+          <div className="story-empty-wrap">
+            <p className="studio-hint">左边贴故事，点「拆分镜」或「一键全流程」。分镜台会排出角色卡和镜头卡。</p>
+            <div className="story-empty" aria-hidden>
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="story-empty-card">
+                  <b>{index + 1} 镜</b>
+                  <span>待拆分</span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="story-result">
@@ -415,3 +418,5 @@ export function StoryDirectorPage() {
     </div>
   );
 }
+
+export default StoryDirectorPage;

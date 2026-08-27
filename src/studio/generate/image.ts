@@ -45,24 +45,29 @@ export async function generateStudioImage(input: {
     );
     if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
     const refs = imageRefs(input);
-    const result = await adapter.generateImage(
-      { provider },
-      {
-        model,
-        prompt,
-        size: input.size,
-        imageUrl: refs[0],
-        imageUrls: refs,
-        width: input.width,
-        height: input.height,
-        seed: input.seed,
-        negativePrompt: input.negativePrompt,
-        n: count,
-        operation: input.operation,
-        loras: input.loras,
-        strength: input.strength,
-      },
-    );
+    const result = await Promise.race([
+      adapter.generateImage(
+        { provider },
+        {
+          model,
+          prompt,
+          size: input.size,
+          imageUrl: refs[0],
+          imageUrls: refs,
+          width: input.width,
+          height: input.height,
+          seed: input.seed,
+          negativePrompt: input.negativePrompt,
+          n: count,
+          operation: input.operation,
+          loras: input.loras,
+          strength: input.strength,
+        },
+      ),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("生图超时，请换模型或稍后重试")), 90_000);
+      }),
+    ]);
     const urls = (result.urls && result.urls.length ? result.urls : [result.url]).filter(Boolean);
     if (!urls[0]) throw new Error("没有返回图片");
     return { url: urls[0], urls, model, providerId };

@@ -2056,15 +2056,19 @@ function CanvasEmptyStarter({
   onTextToImage,
   onOpenAssets,
   onSeedance2Workflow,
+  onStoryDirector,
+  onAddText,
 }: {
   theme: (typeof canvasThemes)[keyof typeof canvasThemes];
   onUpload: () => void;
   onTextToImage: () => void;
   onOpenAssets: () => void;
   onSeedance2Workflow: () => void;
+  onStoryDirector: () => void;
+  onAddText: () => void;
 }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center px-4 sm:pl-[300px]" data-canvas-no-zoom>
+    <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center px-4 pb-24" data-canvas-no-zoom>
       <div
         className="pointer-events-auto w-[min(520px,calc(100vw-32px))] rounded-lg border p-4 shadow-xl backdrop-blur"
         style={{
@@ -2086,17 +2090,11 @@ function CanvasEmptyStarter({
               className="mt-0.5 text-xs leading-5"
               style={{ color: theme.node.muted }}
             >
-              拖入图片、视频或音频，或从下面开始。
+              画布是空的。先放一个节点，或从底栏继续加。
             </div>
           </div>
         </div>
-        <div className="grid gap-2 sm:grid-cols-4">
-          <CanvasStarterAction
-            theme={theme}
-            icon={<Upload className="size-4" />}
-            label="上传素材"
-            onClick={onUpload}
-          />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <CanvasStarterAction
             theme={theme}
             icon={<ImageIcon className="size-4" />}
@@ -2105,9 +2103,27 @@ function CanvasEmptyStarter({
           />
           <CanvasStarterAction
             theme={theme}
+            icon={<Clapperboard className="size-4" />}
+            label="故事导演"
+            onClick={onStoryDirector}
+          />
+          <CanvasStarterAction
+            theme={theme}
             icon={<Film className="size-4" />}
-            label="Seedance2 工作流"
+            label="Seedance2"
             onClick={onSeedance2Workflow}
+          />
+          <CanvasStarterAction
+            theme={theme}
+            icon={<Upload className="size-4" />}
+            label="上传素材"
+            onClick={onUpload}
+          />
+          <CanvasStarterAction
+            theme={theme}
+            icon={<FileText className="size-4" />}
+            label="文本"
+            onClick={onAddText}
           />
           <CanvasStarterAction
             theme={theme}
@@ -2866,6 +2882,7 @@ function InfiniteCanvasPage() {
     null,
   );
   const [loadedProjectId, setLoadedProjectId] = useState<string | null>(null);
+  const [readingBanner, setReadingBanner] = useState(true);
   const projectLoaded = shouldPersistCanvasProject({
     projectLoaded: loadedProjectId !== null,
     currentProjectId: projectId,
@@ -2973,6 +2990,16 @@ function InfiniteCanvasPage() {
     },
     [cleanupAssetImages],
   );
+
+  useEffect(() => {
+    if (projectLoaded) {
+      setReadingBanner(false);
+      return;
+    }
+    setReadingBanner(true);
+    const timer = window.setTimeout(() => setReadingBanner(false), 500);
+    return () => window.clearTimeout(timer);
+  }, [projectLoaded]);
 
   useEffect(() => {
     setLoadedProjectId(null);
@@ -4843,11 +4870,26 @@ function InfiniteCanvasPage() {
 
   const getCanvasCenter = useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect();
-    return screenToCanvas(
-      (rect?.left || 0) + (rect?.width || size.width) / 2,
-      (rect?.top || 0) + (rect?.height || size.height) / 2,
-    );
-  }, [screenToCanvas, size.height, size.width]);
+    const current = canvasViewportRuntime.current;
+    const width = rect?.width || size.width || 1200;
+    const height = rect?.height || size.height || 720;
+    const k = Math.max(current.k, 0.05);
+    return {
+      x: (width / 2 - current.x) / k,
+      y: (height / 2 - current.y) / k,
+    };
+  }, [size.height, size.width]);
+
+  const focusNodeInView = useCallback((node: CanvasNodeData) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const width = rect?.width || size.width || 1200;
+    const k = Math.max(canvasViewportRuntime.current.k, 0.05);
+    setViewport({
+      x: width / 2 - (node.position.x + node.width / 2) * k,
+      y: 32 - node.position.y * k,
+      k,
+    });
+  }, [size.width]);
 
   const setConnecting = useCallback((next: ConnectionHandle | null) => {
     connectingParamsRef.current = next;
@@ -5225,18 +5267,22 @@ function InfiniteCanvasPage() {
 
     return nodes.filter(
       (node) =>
-        (node.metadata?.seedanceWorkflowRole !== "result" ||
+        selectedNodeIds.has(node.id) ||
+        dialogNodeId === node.id ||
+        ((node.metadata?.seedanceWorkflowRole !== "result" ||
           displayedSeedance2ResultNodeIds.has(node.id)) &&
         !isHiddenBatchChild(node, nodes, collapsingBatchIds) &&
         node.position.x + node.width > viewLeft &&
         node.position.x < viewRight &&
         node.position.y + node.height > viewTop &&
-        node.position.y < viewBottom,
+        node.position.y < viewBottom),
     );
   }, [
     collapsingBatchIds,
+    dialogNodeId,
     displayedSeedance2ResultNodeIds,
     nodes,
+    selectedNodeIds,
     size.height,
     size.width,
     viewport.k,
@@ -5572,6 +5618,7 @@ function InfiniteCanvasPage() {
       setSelectedConnectionId(null);
       if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio)
         setDialogNodeId(newNode.id);
+      focusNodeInView(newNode);
     },
     [
       effectiveConfig.canvasImageCount,
@@ -5581,6 +5628,7 @@ function InfiniteCanvasPage() {
       effectiveConfig.quality,
       effectiveConfig.size,
       effectiveConfig.videoSeconds,
+      focusNodeInView,
       getCanvasCenter,
     ],
   );
@@ -5642,8 +5690,9 @@ function InfiniteCanvasPage() {
       setSelectedNodeIds(new Set([controller.id]));
       setSelectedConnectionId(null);
       setDialogNodeId(controller.id);
+      focusNodeInView(controller);
     },
-    [effectiveConfig, getCanvasCenter, persistCanvasSnapshot],
+    [effectiveConfig, focusNodeInView, getCanvasCenter, persistCanvasSnapshot],
   );
 
   const rebuildSeedance2Placeholders = useCallback(async (workflowNode: CanvasNodeData) => {
@@ -8606,6 +8655,7 @@ function InfiniteCanvasPage() {
       setSelectedConnectionId(null);
       setDialogNodeId(node.id);
       setContextMenu(null);
+      focusNodeInView(node);
       message.success(
         sourceText
           ? "已创建故事导演节点，并带入文本"
@@ -8614,7 +8664,7 @@ function InfiniteCanvasPage() {
             : "已创建空白故事导演节点",
       );
     },
-    [getCanvasCenter, message],
+    [focusNodeInView, getCanvasCenter, message],
   );
 
   const createStoryDirectorConfig = useCallback(
@@ -16073,7 +16123,7 @@ function InfiniteCanvasPage() {
         pointerEvents: "auto",
       }}
     >
-      {!projectLoaded ? (
+      {readingBanner ? (
         <div
           className="absolute left-4 top-4 z-[120] rounded-md border px-3 py-2 text-xs shadow-sm"
           style={{
@@ -16300,6 +16350,8 @@ function InfiniteCanvasPage() {
               setAssetPickerOpen(true);
             }}
             onSeedance2Workflow={() => createSeedance2Workflow()}
+            onStoryDirector={() => createStoryDirectorFromImages([])}
+            onAddText={() => createNode(CanvasNodeType.Text)}
           />
         ) : null}
 
@@ -16660,6 +16712,7 @@ function InfiniteCanvasPage() {
         />
       </section>
       {assistantMounted ? (
+        <div className="absolute inset-x-0 bottom-0 top-14 z-[85] flex justify-end">
         <CanvasAssistantPanel
           nodes={nodes}
           selectedNodeIds={selectedNodeIds}
@@ -16673,6 +16726,7 @@ function InfiniteCanvasPage() {
           onCollapseStart={() => setAssistantCollapsed(true)}
           onCollapse={() => setAssistantMounted(false)}
         />
+        </div>
       ) : null}
     </main>
   );

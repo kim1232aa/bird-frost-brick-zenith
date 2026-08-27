@@ -11,8 +11,8 @@ export default function CanvasPage() {
 
 function CanvasWorkspaceFallback() {
     return (
-        <main className="fixed inset-0 z-[999] grid place-items-center bg-[#0f0f0f] text-white">
-            <div className="text-sm text-white/60">正在打开画布...</div>
+        <main className="grid h-full min-h-[calc(100vh-64px)] place-items-center bg-[#f4f2ed] text-stone-700">
+            <div className="text-sm text-stone-500">正在打开画布...</div>
         </main>
     );
 }

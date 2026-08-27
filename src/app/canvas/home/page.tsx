@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "@tanstack/react-router";
 import { App, Button } from "antd";
 import { Download, FileUp, LayoutGrid, List, Plus, Settings2, Wrench } from "lucide-react";
 
@@ -102,7 +102,7 @@ export function getNextCanvasProjectTitle(projects: ReadonlyArray<{ title: strin
 
 export default function CanvasPage() {
     const { message } = App.useApp();
-    const router = useRouter();
+    const navigate = useNavigate();
     const inputRef = useRef<HTMLInputElement>(null);
     const [viewMode, setViewMode] = useState<CanvasHomeViewMode>("list");
     const hydrated = useCanvasStore((state) => state.hydrated);
@@ -126,11 +126,11 @@ export default function CanvasPage() {
     };
 
     const enterProject = (id: string) => {
-        router.replace(`/canvas/workspace?id=${encodeURIComponent(id)}`);
+        void navigate({ to: "/canvas/workspace", search: { id } });
     };
     const createAndEnter = () => {
         const id = createProject(getNextCanvasProjectTitle(projects));
-        window.requestAnimationFrame(() => enterProject(id));
+        void navigate({ to: "/canvas/workspace", search: { id } });
     };
     const plan = useMembershipStore((state) => state.plan);
     const remainingVideo = useMembershipStore((state) => state.remaining("video"));
@@ -176,19 +176,19 @@ export default function CanvasPage() {
     };
 
     return (
-        <section className="min-h-screen overflow-y-auto bg-[#0B0B0F] text-stone-100">
-            <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
-                <header className="flex flex-wrap items-end justify-between gap-4 border-b border-white/10 pb-6">
+        <section className="canvas-home-shell min-h-full overflow-y-auto bg-[#f7f5f1] text-stone-900">
+            <div className="mx-auto flex min-h-[calc(100vh-64px)] w-full max-w-6xl flex-col gap-8 px-5 py-8 sm:px-8 lg:px-10">
+                <header className="flex flex-wrap items-end justify-between gap-4 border-b border-stone-200 pb-6">
                     <div>
-                        <p className="text-xs tracking-[0.2em] text-cyan-300/80">BOUNDLESS STUDIO</p>
-                        <h1 className="mt-2 text-3xl font-semibold tracking-tight">无界创作台</h1>
-                        <p className="mt-2 max-w-xl text-sm text-stone-400">无限画布上组织文本、图片、视频与生成工作流。中转已按官方合同接线，可随时在设置里增删 API。</p>
+                        <p className="text-xs tracking-[0.2em] text-emerald-600">BOUNDLESS STUDIO</p>
+                        <h1 className="mt-2 text-3xl font-semibold tracking-tight">无限画布</h1>
+                        <p className="mt-2 max-w-xl text-sm text-stone-500">在一张浅色无限画布上组织文本、图片、视频和故事导演。节点、连线、Seedance 工作流都会保存在这台浏览器里。</p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                        <button type="button" onClick={() => openApiSettings("relay")} className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1.5 text-xs text-cyan-200">
+                        <button type="button" onClick={() => openApiSettings("relay")} className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
                             {planLabel(plan)} · 图 {remainingImage} · 视频 {remainingVideo}
                         </button>
-                        <div className="flex items-center rounded-md border border-stone-700 bg-stone-900 p-0.5" role="group" aria-label="画布显示方式">
+                        <div className="flex items-center rounded-md border border-stone-200 bg-white p-0.5" role="group" aria-label="画布显示方式">
                             <Button
                                 type={viewMode === "list" ? "primary" : "text"}
                                 size="small"
@@ -257,7 +257,7 @@ export default function CanvasPage() {
                 </div>
 
                 {!hydrated ? (
-                    <section className="flex min-h-[360px] items-center justify-center rounded-2xl border border-white/10 text-sm text-stone-500">正在加载画布...</section>
+                    <section className="flex min-h-[360px] items-center justify-center rounded-2xl border border-stone-200 bg-white text-sm text-stone-500">正在加载画布...</section>
                 ) : projects.length ? (
                     <div className={viewMode === "list" ? "flex flex-col gap-2" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"} data-view-mode={viewMode}>
                         {projects.map((project) => (
@@ -265,8 +265,8 @@ export default function CanvasPage() {
                         ))}
                     </div>
                 ) : (
-                    <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-cyan-400/20 bg-white/[0.02] text-center">
-                        <h2 className="text-xl font-medium">从一张空白画布开始</h2>
+                    <section className="flex min-h-[360px] flex-col items-center justify-center rounded-2xl border border-dashed border-emerald-200 bg-white text-center">
+                        <h2 className="text-xl font-medium text-stone-900">从一张空白画布开始</h2>
                         <p className="mt-3 max-w-md text-sm text-stone-500">节点、连线、故事导演、Seedance 工作流都会保存在这台浏览器里。随时可导入导出压缩包。</p>
                         <Button type="primary" className="mt-6" icon={<Plus className="size-4" />} onClick={createAndEnter}>
                             新建画布
@@ -283,9 +283,9 @@ export default function CanvasPage() {
 
 function WiringChip({ label, value, hint }: { label: string; value: string; hint: string }) {
     return (
-        <button type="button" onClick={() => openApiSettings("routing")} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left transition hover:border-cyan-400/30">
-            <div className="text-[11px] uppercase tracking-wider text-stone-500">{label}</div>
-            <div className="mt-1 truncate font-mono text-sm text-stone-100">{value || "未接线"}</div>
+        <button type="button" onClick={() => openApiSettings("routing")} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-left transition hover:border-emerald-300">
+            <div className="text-[11px] uppercase tracking-wider text-stone-400">{label}</div>
+            <div className="mt-1 truncate font-mono text-sm text-stone-900">{value || "未接线"}</div>
             <div className="mt-1 text-xs text-stone-500">{hint}</div>
         </button>
     );

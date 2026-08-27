@@ -17,9 +17,9 @@ body,
   color: #1c1917;
 }
 
-html.dark,
-html.dark body,
-html.dark #app {
+html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)),
+html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)) body,
+html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)) #app {
   background: #101014;
   color: #efe9dd;
 }

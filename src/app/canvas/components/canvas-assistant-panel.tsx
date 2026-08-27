@@ -284,18 +284,29 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, sessions, activeS
 
     return (
         <motion.div
-            className="fixed inset-0 z-[1000] flex shrink-0 sm:relative sm:inset-auto sm:z-auto"
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: closing ? 0 : isMobile ? "100vw" : width + 1, opacity: closing ? 0 : 1 }}
+            className="relative flex h-full w-full justify-end"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: closing ? 0 : 1 }}
             transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
-            style={{ overflow: "clip", pointerEvents: closing ? "none" : undefined }}
         >
+            <button
+                type="button"
+                className="absolute inset-0 bg-stone-900/15 sm:bg-stone-900/5"
+                aria-label="关闭助手"
+                onClick={collapse}
+            />
             <motion.aside
-                className="relative flex shrink-0 flex-col border-l shadow-2xl sm:shadow-none"
-                initial={{ x: 48 }}
+                className="relative z-[1] flex h-full shrink-0 flex-col border-l shadow-2xl"
+                initial={{ x: 36 }}
                 animate={{ x: closing ? 28 : 0 }}
                 transition={{ duration: resizing ? 0 : PANEL_MOTION_SECONDS, ease: [0.22, 1, 0.36, 1] }}
-                style={{ width: isMobile ? "100vw" : width, background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
+                style={{
+                    width: isMobile ? "min(100vw, 420px)" : width,
+                    background: theme.node.panel,
+                    borderColor: theme.node.stroke,
+                    color: theme.node.text,
+                    pointerEvents: closing ? "none" : undefined,
+                }}
             >
                 <button type="button" className="absolute inset-y-0 left-0 z-40 hidden w-4 -translate-x-1/2 cursor-col-resize sm:block" onMouseDown={startResize} aria-label="调整右侧面板宽度" />
                 <div className="flex min-h-[calc(52px+env(safe-area-inset-top))] items-center justify-between border-b px-3 pb-3 pt-[calc(12px+env(safe-area-inset-top))] sm:min-h-0 sm:px-4 sm:py-3" style={{ borderColor: theme.node.stroke }}>
@@ -361,12 +372,11 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, sessions, activeS
                     ) : messages.length ? (
                         <AssistantMessages messages={messages} onRetry={retryMessage} onInsertImage={onInsertImage} onInsertText={onInsertText} />
                     ) : (
-                        <div className="flex h-full flex-col items-center justify-center px-1 text-center">
-                            <div className="relative font-serif text-4xl font-bold italic tracking-normal" style={{ color: theme.node.text }}>
-                                <span>Infinite Canvas</span>
-                                <DiaTextReveal className="absolute inset-0" colors={["#A97CF8", "#F38CB8", "#FDCC92"]} textColor="transparent" duration={1.8} startOnView={false} text="Infinite Canvas" />
+                        <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+                            <div className="text-lg font-semibold tracking-normal" style={{ color: theme.node.text }}>
+                                画布助手
                             </div>
-                            <div className="mt-3 font-serif text-base italic tracking-wide opacity-60">One canvas, infinite ideas</div>
+                            <div className="mt-2 max-w-[240px] text-sm leading-6 opacity-60">问节点、改提示词，或直接在这里出图，结果会落到画布上。</div>
                         </div>
                     )}
                 </div>

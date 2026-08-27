@@ -36,7 +36,7 @@ async function pollImageTask(
   taskId: string,
   baseUrl: string,
 ) {
-  for (let i = 0; i < 80; i += 1) {
+  for (let i = 0; i < 40; i += 1) {
     await new Promise((resolve) => window.setTimeout(resolve, i === 0 ? 2500 : 2000));
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,

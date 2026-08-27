@@ -13,7 +13,6 @@ import { syncAppDataToWebdav } from "@/services/app-sync";
 import { cleanupExpiredStoredImages, collectImageStorageKeys, setStoredImagesRetained } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { retryConfigHydration, useConfigHydrationRuntimeStore, useConfigStore } from "@/stores/use-config-store";
-import { useThemeStore } from "@/stores/use-theme-store";
 import { useCanvasStore } from "./stores/use-canvas-store";
 
 const queryClient = new QueryClient({
@@ -29,7 +28,6 @@ const queryClient = new QueryClient({
 const AUTO_WEBDAV_SYNC_DELAY_MS = 2_500;
 
 export function CanvasProviders({ children }: { children: ReactNode }) {
-  const theme = useThemeStore((state) => state.theme);
   const configHydrated = useConfigStore((state) => state.hydrated);
   const configHydrationError = useConfigHydrationRuntimeStore((state) => state.error);
   const isConfigHydrationRetrying = useConfigHydrationRuntimeStore((state) => state.isRetrying);
@@ -41,7 +39,6 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
   const projects = useCanvasStore((state) => state.projects);
   const assetHydrated = useAssetStore((state) => state.hydrated);
   const assets = useAssetStore((state) => state.assets);
-  const dark = theme === "dark";
   const syncTimerRef = useRef<number | null>(null);
   const syncInFlightRef = useRef(false);
   const lastSyncedFingerprintRef = useRef("");
@@ -101,17 +98,14 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    const previousDark = root.classList.contains("dark");
     const previousColorScheme = root.style.colorScheme;
-
-    root.classList.toggle("dark", dark);
-    root.style.colorScheme = theme;
-
+    // Keep studio chrome light. Canvas board theme is independent (canvasThemes).
+    root.classList.remove("dark");
+    root.style.colorScheme = "light";
     return () => {
-      root.classList.toggle("dark", previousDark);
       root.style.colorScheme = previousColorScheme;
     };
-  }, [dark, theme]);
+  }, []);
 
   useEffect(() => {
     if (configHydrated) return;
@@ -119,32 +113,34 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
       if (!useConfigStore.getState().hydrated) {
         useConfigStore.getState().setHydrated(true);
       }
-    }, 800);
+    }, 400);
     return () => window.clearTimeout(timer);
   }, [configHydrated]);
 
-  if (!configHydrated) {
-    if (configHydrationError) {
-      return <ConfigHydrationErrorShell isRetrying={isConfigHydrationRetrying} onRetry={retryConfigHydration} />;
-    }
-    return (
-      <div
-        className="flex min-h-[calc(100vh-64px)] items-center justify-center bg-[#0B0B0F] px-6 text-sm"
-        style={{ color: "#a8a29e" }}
-        aria-label="Loading local configuration"
-      >
-        正在读取本地配置…
-      </div>
-    );
+  useEffect(() => {
+    if (canvasHydrated) return;
+    const timer = window.setTimeout(() => {
+      const state = useCanvasStore.getState();
+      if (!state.hydrated && state.hydrationStatus === "loading") {
+        useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
+      }
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [canvasHydrated]);
+
+  if (configHydrationError && !configHydrated) {
+    return <ConfigHydrationErrorShell isRetrying={isConfigHydrationRetrying} onRetry={retryConfigHydration} />;
   }
 
   return (
-    <ConfigProvider locale={zhCN} theme={getAntThemeConfig(dark)}>
-      <App>
+    <ConfigProvider locale={zhCN} theme={getAntThemeConfig(false)}>
+      <App className="canvas-ant-app h-full min-h-full flex-1">
         <QueryClientProvider client={queryClient}>
-          {children}
-          <UpdateNotificationBridge />
-          <ApiAccessSettingsDialog />
+          <div className="flex h-full min-h-full flex-1 flex-col">
+            {children}
+            <UpdateNotificationBridge />
+            <ApiAccessSettingsDialog />
+          </div>
         </QueryClientProvider>
       </App>
     </ConfigProvider>
@@ -153,17 +149,17 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
 
 function ConfigHydrationErrorShell({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-stone-950 px-6 text-stone-100" aria-labelledby="config-hydration-error-title">
-      <section className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6 shadow-2xl" role="alert">
+    <main className="flex min-h-screen items-center justify-center bg-[#f4f2ed] px-6 text-stone-800" aria-labelledby="config-hydration-error-title">
+      <section className="w-full max-w-md rounded-xl border border-stone-200 bg-white p-6 shadow-sm" role="alert">
         <h1 id="config-hydration-error-title" className="text-lg font-semibold">
           无法读取本地配置
         </h1>
-        <p className="mt-2 text-sm leading-6 text-stone-300">
+        <p className="mt-2 text-sm leading-6 text-stone-500">
           已保留保存的设置，未写入默认配置。请检查本地应用数据访问权限后重试。
         </p>
         <button
           type="button"
-          className="mt-5 rounded-md bg-stone-100 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-white disabled:cursor-wait disabled:opacity-60"
+          className="mt-5 rounded-md bg-stone-900 px-4 py-2 text-sm font-medium text-white hover:bg-stone-800 disabled:cursor-wait disabled:opacity-60"
           onClick={onRetry}
           disabled={isRetrying}
           aria-label="Retry loading local configuration"

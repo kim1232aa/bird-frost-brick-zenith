@@ -1,5 +1,4 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
-import { generateStudioText } from "@/studio/generate/text";
 import { splitModel } from "@/studio/split";
 import { analysisPrompt, analysisRepairPrompt } from "./prompts";
 
@@ -248,6 +247,7 @@ export async function planStory(input: {
   const fallback = draftPlan(idea, style, count);
   const selection = splitModel(input.textModel || "");
   const ask = async (prompt: string) => {
+    const { generateStudioText } = await import("@/studio/generate/text");
     const result = await Promise.race([
       generateStudioText({
         relays: input.relays,
@@ -285,6 +285,7 @@ export async function enhancePrompt(input: {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("先写提示词");
   const selection = splitModel(input.textModel || "");
+  const { generateStudioText } = await import("@/studio/generate/text");
   const result = await generateStudioText({
     relays: input.relays,
     providerId: selection.providerId || undefined,
