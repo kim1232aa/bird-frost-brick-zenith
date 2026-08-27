@@ -115,9 +115,7 @@ export type AiConfig = {
     vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
-    /** 参考图公网化图床地址（POST multipart 上传，返回图片直链）。 */
     imageHostBaseUrl: string;
-    /** 图床 API Key；图床不需要鉴权时留空。 */
     imageHostApiKey: string;
     systemPrompt: string;
     models: string[];
@@ -129,37 +127,21 @@ export type AiConfig = {
     size: string;
     count: string;
     canvasImageCount: string;
-    /** Provider/model/operation-isolated image settings. Unsupported fields remain stored but are not sent. */
     imageAdvancedSettingsByScope: ImageAdvancedSettingsByScope;
-    /** One-time import marker for former global quality/size/count settings. */
     imageGenerationLegacyMigration?: ImageGenerationLegacyMigration;
-    /**
-     * Per-request Canvas basic overrides. Each present field overrides only
-     * the matching provider/model/operation-scoped value. `true` is retained
-     * solely for older direct callers that deliberately pass all three fields
-     * in the ephemeral config object; persisted Canvas paths use the object.
-     */
     imageRequestBasicSettings?: true | ImageRequestBasicSettingsOverride;
-    /** Provider/model/operation-isolated video settings. Unknown provider payload fields are never accepted. */
     videoGenerationSettingsByScope: VideoGenerationSettingsByScope;
-    /** One-time import marker for former global video settings. */
     videoGenerationLegacyMigration?: VideoGenerationLegacyMigration;
     apiRelays: ApiRelayProvider[];
     apiRouting: ApiRelayRouting;
     apiBoardRouting: ApiBoardModelRouting;
     apiPlatformBoardRouting: ApiPlatformBoardModelRouting;
     apiRelayAdvanced: ApiRelayAdvanced;
-    /** Request-scoped Canvas selections; never populated by persisted global settings. */
     requestModelSelections?: Partial<Record<ApiCapability, ProviderModelSelection | string>>;
 };
 
 export type ImageRequestBasicSettingKey = "quality" | "size" | "count";
 export type ImageRequestBasicSettingsOverride = Pick<Partial<ImageAdvancedSettings>, ImageRequestBasicSettingKey> & {
-    /**
-     * Explicit fields assigned after a builder returns (for example Story's
-     * fixed ratio/quality/count). This remains request-local and never reads a
-     * persisted global as a fallback.
-     */
     fromConfig?: readonly ImageRequestBasicSettingKey[];
 };
 
@@ -318,9 +300,6 @@ type ConfigHydrationRuntimeState = {
     isRetrying: boolean;
 };
 
-// This state deliberately lives outside the persisted config store. Recording a
-// hydration failure through the persisted store would write its in-memory
-// defaults before the saved configuration has been read.
 export const useConfigHydrationRuntimeStore = create<ConfigHydrationRuntimeState>()(() => ({
     error: null,
     isRetrying: false,
@@ -397,10 +376,6 @@ export function selectableModelsByCapability(config: AiConfig, capability?: Mode
     return config[modelListKey(capability)] || [];
 }
 
-/**
- * Global model choices retain provider identity. Keep the legacy string list
- * above for provider-local controls and old callers that have not migrated.
- */
 export function selectableProviderModelsByCapability(config: AiConfig, capability: ModelCapability): ProviderModelOption[] {
     const normalized = ensureApiRelaySettings({ ...config, channelMode: "local" });
     const relays = normalized.apiRelays?.length ? normalized.apiRelays : studioRelays();
@@ -462,9 +437,6 @@ export const useConfigStore = create<ConfigStore>()(
                     },
                 })),
             loadPublicSettings: async () => {
-                // Any Zustand set before asynchronous persistence hydration
-                // finishes would serialize the in-memory defaults and can
-                // overwrite the saved relay/model routing configuration.
                 if (!get().hydrated || get().isPublicSettingsLoading) return;
                 set({ isPublicSettingsLoading: true });
                 try {
@@ -530,10 +502,6 @@ export const useConfigStore = create<ConfigStore>()(
             },
             onRehydrateStorage: (initialState) => (state, error) => {
                 if (error) {
-                    // Never call a Zustand action here: every action is wrapped
-                    // by persist and would write the in-memory empty defaults
-                    // over the configuration that merely failed to load. Keep
-                    // the UI gated and retry the native store instead.
                     console.error("Failed to restore local configuration; retrying without overwriting it.", error);
                     useConfigHydrationRuntimeStore.setState({ error, isRetrying: false });
                     scheduleConfigRehydrate();
@@ -547,7 +515,6 @@ export const useConfigStore = create<ConfigStore>()(
     ),
 );
 
-
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
@@ -555,23 +522,7 @@ export function useEffectiveConfig() {
     return useMemo(() => {
         const resolved = resolveEffectiveConfig(config, modelChannel);
         const apiRelays = mergeRelaySources(resolved.apiRelays, studioRelaysState);
-        const grokRelay = apiRelays.find((item) => item.id === "preset-grok-relay");
-        const grokReady = Boolean(grokRelay?.apiKey || grokRelay?.apiKeys?.length);
-        const apiRouting = grokReady
-            ? resolved.apiRouting
-            : {
-                ...resolved.apiRouting,
-                text: resolved.apiRouting.text.providerId === "preset-grok-relay"
-                    ? { ...resolved.apiRouting.text, providerId: "preset-xai-official" }
-                    : resolved.apiRouting.text,
-                image: resolved.apiRouting.image.providerId === "preset-grok-relay"
-                    ? { ...resolved.apiRouting.image, providerId: "preset-xai-official" }
-                    : resolved.apiRouting.image,
-                video: resolved.apiRouting.video.providerId === "preset-grok-relay"
-                    ? { ...resolved.apiRouting.video, providerId: "preset-xai-official" }
-                    : resolved.apiRouting.video,
-            };
-        return { ...resolved, apiRelays, apiRouting };
+        return { ...resolved, apiRelays };
     }, [config, modelChannel, studioRelaysState]);
 }
 let configRehydrateTimer: number | null = null;
