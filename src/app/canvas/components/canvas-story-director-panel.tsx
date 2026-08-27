@@ -481,6 +481,7 @@ function StoryDirectorTextModelSelect({
             placeholder={placeholder}
             title={title}
             optionLabelProp="label"
+            notFoundContent={<span className="text-xs">没有可用模型。去「设置」启用中转并填密钥。</span>}
             popupMatchSelectWidth={false}
             styles={{ popup: { root: { minWidth: 280 } } }}
             optionRender={(ori) => {

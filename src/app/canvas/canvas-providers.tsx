@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
+import { useNavigate } from "@tanstack/react-router";
 
-import { ApiAccessSettingsDialog } from "@/components/api-access-settings-dialog";
 import { UpdateNotificationBridge } from "@/components/update-notification-bridge";
 import { getAntThemeConfig } from "@/lib/app-theme";
 import { syncAppDataToWebdav } from "@/services/app-sync";
@@ -145,12 +145,24 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
           <div className="flex h-full min-h-full flex-1 flex-col">
             {children}
             <UpdateNotificationBridge />
-            <ApiAccessSettingsDialog />
+            <CanvasSettingsGate />
           </div>
         </QueryClientProvider>
       </App>
     </ConfigProvider>
   );
+}
+
+function CanvasSettingsGate() {
+  const open = useConfigStore((state) => state.isConfigOpen);
+  const setOpen = useConfigStore((state) => state.setConfigDialogOpen);
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!open) return;
+    setOpen(false);
+    void navigate({ to: "/settings" });
+  }, [open, navigate, setOpen]);
+  return null;
 }
 
 function ConfigHydrationErrorShell({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {

@@ -32,7 +32,9 @@ import {
     type ProviderModelSelection,
 } from "@/stores/api-relay-config";
 import { hasProviderCredential, normalizeProviderCredentials } from "@/stores/provider-credentials";
+import { mergePersistedRelays } from "@/studio/relay-merge";
 import { shouldReplaceManagedRelays, studioRelays, studioRouting } from "@/studio/wiring";
+import { useStudioSession } from "@/studio/session";
 import {
     migrateLegacyImageGenerationSettings,
     normalizeImageAdvancedSettingsByScope,
@@ -293,29 +295,6 @@ function hasOwn(value: object, key: string) {
     return Object.prototype.hasOwnProperty.call(value, key);
 }
 
-function mergeTemplateCapabilityProfiles(
-    persisted: ApiRelayProvider[] | undefined,
-    templates: ApiRelayProvider[],
-): ApiRelayProvider[] {
-    if (!Array.isArray(persisted) || persisted.length === 0) return templates;
-    return persisted.map((provider) => {
-        const template = templates.find((item) => item.id === provider.id);
-        if (!template) return provider;
-        return {
-            ...provider,
-            adapterType: provider.adapterType || template.adapterType,
-            imageCapabilityProfiles: {
-                ...(template.imageCapabilityProfiles || {}),
-                ...(provider.imageCapabilityProfiles || {}),
-            },
-            videoCapabilityProfiles: {
-                ...(template.videoCapabilityProfiles || {}),
-                ...(provider.videoCapabilityProfiles || {}),
-            },
-        };
-    });
-}
-
 type ConfigStore = {
     config: AiConfig;
     webdav: WebdavSyncConfig;
@@ -510,12 +489,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const config = { ...defaultConfig, ...persistedConfig };
                 const persistedRelays = hasOwn(persistedConfig, "apiRelays") ? persistedConfig.apiRelays : undefined;
                 const replaceManaged = shouldReplaceManagedRelays(persistedRelays as ApiRelayProvider[] | undefined);
-                const apiRelays = replaceManaged
-                    ? defaultConfig.apiRelays
-                    : mergeTemplateCapabilityProfiles(
-                        persistedRelays as ApiRelayProvider[] | undefined,
-                        defaultConfig.apiRelays,
-                    );
+                const apiRelays = mergePersistedRelays(persistedRelays as ApiRelayProvider[] | undefined);
                 const { apiRelays: _defaultApiRelays, ...configWithoutRelays } = config;
                 const normalizedConfig = ensureApiRelaySettings({
                     ...configWithoutRelays,
@@ -576,7 +550,16 @@ export const useConfigStore = create<ConfigStore>()(
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
-    return useMemo(() => resolveEffectiveConfig(config, modelChannel), [config, modelChannel]);
+    const studioRelaysState = useStudioSession((state) => state.relays);
+    return useMemo(() => {
+        const resolved = resolveEffectiveConfig(config, modelChannel);
+        const studioIds = new Set((studioRelaysState || []).map((item) => item.id));
+        const extras = (resolved.apiRelays || []).filter((item) => !studioIds.has(item.id));
+        return {
+            ...resolved,
+            apiRelays: mergePersistedRelays([...(studioRelaysState || []), ...extras]),
+        };
+    }, [config, modelChannel, studioRelaysState]);
 }
 let configRehydrateTimer: number | null = null;
 

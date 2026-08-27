@@ -2338,7 +2338,7 @@ function Seedance2ProviderModelOptionPicker({
         placeholder="选择模型"
         emptyLabel={`暂无已配置${label}`}
         title={label}
-        triggerClassName="h-9 w-full rounded-lg border px-2 text-sm shadow-none hover:border-orange-400"
+        triggerClassName="min-h-9 h-auto w-full rounded-lg border px-2 py-1 text-sm shadow-none hover:border-orange-400"
         triggerStyle={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}
         contentClassName="z-[1300]"
       />
@@ -8381,6 +8381,8 @@ function InfiniteCanvasPage() {
 
   const previewNodeImage = useCallback(
     (node: CanvasNodeData) => {
+      const src = String(node.metadata?.content || "").trim();
+      if (!/^(data:image\/|blob:|https?:\/\/)/i.test(src)) return;
       touchNodeImage(node);
       setPreviewNodeId(node.id);
     },
@@ -17130,7 +17132,7 @@ function InfiniteCanvasPage() {
 
         <Modal
           title="图片详情"
-          open={Boolean(previewNode?.metadata?.content)}
+          open={Boolean(previewNode?.metadata?.content && /^(data:image\/|blob:|https?:\/\/)/i.test(String(previewNode.metadata.content)))}
           centered
           onCancel={() => setPreviewNodeId(null)}
           footer={null}
