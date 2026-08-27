@@ -141,35 +141,41 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2" data-canvas-no-drag>
-                    <StoryDirectorTextModelSelect
-                        value={storyDirectorTextModelPresentation.selectedValue}
-                        options={storyDirectorTextModelPresentation.options}
-                        title={storyDirectorTextModelPresentation.title}
-                        selectProps={selectOpenProps("textModel")}
-                        onChange={(value) => {
-                            closeSelect();
-                            const patch = storyDirectorTextModelPatchForValue(
-                                value,
-                                storyDirectorTextModels,
-                            );
-                            if (patch) onConfigChange(node.id, patch);
-                        }}
-                    />
-                    <StoryDirectorTextModelSelect
-                        value={storyDirectorImageModelPresentation.selectedValue}
-                        options={storyDirectorImageModelPresentation.options}
-                        title={storyDirectorImageModelPresentation.title}
-                        placeholder="选择图片模型"
-                        selectProps={selectOpenProps("headerImageModel")}
-                        onChange={(value) => {
-                            closeSelect();
-                            const patch = storyDirectorImageModelPatchForValue(
-                                value,
-                                storyDirectorImageModels,
-                            );
-                            if (patch) onConfigChange(node.id, patch);
-                        }}
-                    />
+                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                        <span className="text-[10px] leading-none opacity-55">文本模型</span>
+                        <StoryDirectorTextModelSelect
+                            value={storyDirectorTextModelPresentation.selectedValue}
+                            options={storyDirectorTextModelPresentation.options}
+                            title={storyDirectorTextModelPresentation.title}
+                            selectProps={selectOpenProps("textModel")}
+                            onChange={(value) => {
+                                closeSelect();
+                                const patch = storyDirectorTextModelPatchForValue(
+                                    value,
+                                    storyDirectorTextModels,
+                                );
+                                if (patch) onConfigChange(node.id, patch);
+                            }}
+                        />
+                    </label>
+                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                        <span className="text-[10px] leading-none opacity-55">图片模型</span>
+                        <StoryDirectorTextModelSelect
+                            value={storyDirectorImageModelPresentation.selectedValue}
+                            options={storyDirectorImageModelPresentation.options}
+                            title={storyDirectorImageModelPresentation.title}
+                            placeholder="选择图片模型"
+                            selectProps={selectOpenProps("headerImageModel")}
+                            onChange={(value) => {
+                                closeSelect();
+                                const patch = storyDirectorImageModelPatchForValue(
+                                    value,
+                                    storyDirectorImageModels,
+                                );
+                                if (patch) onConfigChange(node.id, patch);
+                            }}
+                        />
+                    </label>
                     <StatusPill analyzing={isAnalyzing} generating={isGenerating} done={hasAnalysis} error={hasError} />
                 </div>
             </div>
@@ -184,42 +190,45 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 />
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 [&>*]:min-w-0" data-canvas-no-drag>
+            <div className="mt-3 flex flex-col gap-2" data-canvas-no-drag>
                 <DirectorAction
+                    primary
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
-                    description="分析、角色图、分镜图、视频"
+                    description="分析故事 → 角色图 → 5 张分镜 → 视频占位"
                     disabled={!canRun || isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
+                <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
                 <DirectorAction
                     icon={<FileText className="size-4" />}
                     title="分析故事"
-                    description="生成角色/场景/分镜 JSON"
+                    description="只拆角色 / 场景 / 分镜，不生图"
                     disabled={!canRun || isAnalyzing || isGenerating}
                     onClick={() => onAnalyzeStory(node)}
                 />
                 <DirectorAction
                     icon={<ImageIcon className="size-4" />}
                     title="补齐缺失角色图"
-                    description={hasAnalysis ? (missingCharacterCount ? `缺 ${missingCharacterCount} 个，5并发` : "角色图已齐全") : "需先分析故事"}
+                    description={hasAnalysis ? (missingCharacterCount ? `还缺 ${missingCharacterCount} 张角色图` : "角色图已齐全") : "需先分析故事"}
                     disabled={!hasAnalysis || !missingCharacterCount || isAnalyzing || isGenerating}
                     onClick={() => onGenerateCharacters(node)}
                 />
                 <DirectorAction
                     icon={<ListChecks className="size-4" />}
                     title={storyboardMode === "grid9" ? "生成9宫格" : "生成分镜图"}
-                    description={storyboardMode === "grid9" ? "每9镜一张，5并发" : "按镜头提交"}
+                    description={storyboardMode === "grid9" ? "每 9 镜一张图" : "按镜头各生成一张图"}
                     disabled={!shots.length || isAnalyzing || isGenerating}
                     onClick={() => onGenerateShots(node)}
                 />
+                </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
-                    角色图配置节点
+                    单独调角色图参数
                 </Button>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
-                    分镜图配置节点
+                    单独调分镜图参数
                 </Button>
             </div>
 
@@ -569,9 +578,9 @@ function nearestGrid9ShotCount(value: number) {
     return Math.max(9, Math.min(99, Math.round((Number(value) || 9) / 9) * 9));
 }
 
-function DirectorAction({ icon, title, description, disabled, onClick }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void }) {
+function DirectorAction({ icon, title, description, disabled, onClick, primary = false }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void; primary?: boolean }) {
     return (
-        <Button type="default" className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
+        <Button type={primary ? "primary" : "default"} className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
             <span className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0">{icon}</span>
                 <span className="min-w-0">

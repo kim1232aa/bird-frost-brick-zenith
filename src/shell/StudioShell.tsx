@@ -69,7 +69,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
           >
             <span className="chip-full">{chip}</span>
             <span className="chip-short">{session?.role === "admin" ? "管理" : session ? "账户" : "登录"}</span>
-            {session?.role === "admin" ? <em className="role-pill">管理</em> : null}
+            {session?.role === "admin" && !chip.includes("管理") ? <em className="role-pill">管理</em> : null}
           </Link>
           <Link to="/account" className="studio-credits">
             {imageCredits} 积分

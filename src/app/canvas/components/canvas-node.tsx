@@ -3851,7 +3851,10 @@ function ImageContent({
     const isBatchChild = Boolean(node.metadata?.batchRootId);
     const wheelHoldRef = useRef<{ pointerId: number; wheelUsed: boolean } | null>(null);
     const [imageLoadFailed, setImageLoadFailed] = useState(false);
-    const imageSource = node.metadata?.content || "";
+    const imageSource = canvasNodeDisplayImageSrc(node.metadata);
+    useEffect(() => {
+        setImageLoadFailed(false);
+    }, [imageSource]);
     const showImagePlaceholder = imageLoadFailed || !imageSource;
     const storyLabel = storyImageLabel(node);
     const imageLabel = storyLabel || (resourceLabel?.active && resourceLabel.kind === "image" ? resourceLabel.label : `图片${node.metadata?.imageSequenceNumber || numericImageLabel(node.id)}`);
@@ -3904,8 +3907,8 @@ function ImageContent({
             <div className="relative h-full w-full overflow-hidden rounded-[inherit]" onPointerDown={startWheelHold} onPointerUp={stopWheelHold} onPointerCancel={stopWheelHold} onWheel={resizeImageByWheel}>
                 <div className="relative h-full w-full overflow-hidden">
                     {imageSource ? (
-                        <img
-                            src={imageSource}
+                        <ResolvedCanvasImage
+                            source={imageSource}
                             alt=""
                             draggable={false}
                             onError={() => setImageLoadFailed(true)}
@@ -4132,6 +4135,20 @@ function StoryDirectorConnectionHandles({ activeHandleId, visible, onMouseDown }
 
 function storyHandleTopPercent(index: number) {
     return [46, 55, 64, 73][index] || 55;
+}
+
+function canvasNodeDisplayImageSrc(metadata?: CanvasNodeData["metadata"]) {
+    const content = String(metadata?.content || "").trim();
+    const backend = String(metadata?.backendUrl || "").trim();
+    const storageKey = String(metadata?.storageKey || "").trim();
+    if (backend.startsWith("/gallery/")) return backend;
+    if (content.startsWith("/gallery/")) return content;
+    if (storageKey.startsWith("image:")) return storageKey;
+    if (content.startsWith("data:")) return content;
+    if (content.startsWith("blob:")) return backend.startsWith("/gallery/") || /^https?:\/\//i.test(backend) ? backend : "";
+    if (/^https?:\/\//i.test(content)) return content;
+    if (/^https?:\/\//i.test(backend)) return backend;
+    return content || backend;
 }
 
 function storyImageLabel(node: CanvasNodeData) {

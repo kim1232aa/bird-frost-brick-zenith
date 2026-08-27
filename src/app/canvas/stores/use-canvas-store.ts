@@ -352,13 +352,11 @@ function mediaUrl(node: CanvasNodeData) {
     return String(node.metadata?.content || node.metadata?.backendUrl || "").trim();
 }
 
-/** Survives reload. blob:/data: URLs die with the tab and must not block the seed. */
+/** Survives reload. blob:/data:/expired CDN URLs must not block the seed. */
 function hasDurableFrontendMedia(node: CanvasNodeData) {
+    if (String(node.metadata?.storageKey || "").trim()) return true;
     const url = mediaUrl(node);
-    if (!url) return false;
-    if (url.startsWith("/gallery/")) return true;
-    if (url.includes("imgen.x.ai")) return true;
-    return /^https?:\/\//i.test(url);
+    return url.startsWith("/gallery/");
 }
 
 function isIncompleteSeedGraph(project: CanvasProject, seedNodeCount: number, seedConnectionCount: number) {

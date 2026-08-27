@@ -124,6 +124,7 @@ import {
 import { rotateRelayApiKey } from "@/services/api/relay-proxy";
 import { resolveVideoAdapter, toStudioVideoWire, videoCreatePath, videoPollPath } from "@/studio/registry";
 import { draftPlan } from "@/studio/story/plan";
+import { STUDIO_ROUTES } from "@/studio/wiring";
 import {
   requestNativeRelayVideo,
   shouldUseNativeRelayVideo,
@@ -2827,13 +2828,24 @@ function InfiniteCanvasPage() {
         boardRoute.mode === "custom"
           ? boardRoute
           : effectiveConfig.apiRouting.text;
-      return route.providerId && route.model
-        ? { providerId: route.providerId, model: route.model }
+      if (route.providerId && route.model) {
+        return { providerId: route.providerId, model: route.model };
+      }
+      if (STUDIO_ROUTES.text.providerId && STUDIO_ROUTES.text.model) {
+        return { providerId: STUDIO_ROUTES.text.providerId, model: STUDIO_ROUTES.text.model };
+      }
+      const grok = storyDirectorTextModels.find((item) =>
+        /grok/i.test(`${item.model} ${item.providerName || ""}`),
+      );
+      const first = grok || storyDirectorTextModels[0];
+      return first?.providerId && first?.model
+        ? { providerId: first.providerId, model: first.model }
         : null;
     },
     [
       effectiveConfig.apiBoardRouting.storyDirector,
       effectiveConfig.apiRouting.text,
+      storyDirectorTextModels,
     ],
   );
   const storyDirectorImageModels = useMemo(
@@ -2843,11 +2855,21 @@ function InfiniteCanvasPage() {
   const storyDirectorInheritedImageModel = useMemo<StoryDirectorTextModelSelection | null>(
     () => {
       const route = effectiveConfig.apiRouting.image;
-      return route.providerId && route.model
-        ? { providerId: route.providerId, model: route.model }
+      if (route.providerId && route.model) {
+        return { providerId: route.providerId, model: route.model };
+      }
+      if (STUDIO_ROUTES.image.providerId && STUDIO_ROUTES.image.model) {
+        return { providerId: STUDIO_ROUTES.image.providerId, model: STUDIO_ROUTES.image.model };
+      }
+      const grok = storyDirectorImageModels.find((item) =>
+        /grok-imagine-image/i.test(String(item.model || "")),
+      );
+      const first = grok || storyDirectorImageModels[0];
+      return first?.providerId && first?.model
+        ? { providerId: first.providerId, model: first.model }
         : null;
     },
-    [effectiveConfig.apiRouting.image],
+    [effectiveConfig.apiRouting.image, storyDirectorImageModels],
   );
   const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
   const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
