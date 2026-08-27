@@ -196,7 +196,7 @@ function unresolvedOption(
   const selection = isProviderModelSelection(requested) ? requested : null;
   const model = selection?.model || cleanText(requested);
   const provider = selection?.providerId;
-  const reason = status === "ambiguous" ? "请选择 provider" : "provider 不可用";
+  const reason = status === "ambiguous" ? "请选择渠道" : "渠道不可用";
   return {
     value: `__unresolved_story_director_text_model__:${encodeURIComponent(
       JSON.stringify([provider || "", model]),
@@ -215,10 +215,6 @@ export function resolveStoryDirectorTextModelPresentation(
   if (!usesProviderOptions(availableTextModels)) {
     const models = normalizedLegacyTextModels(availableTextModels);
     const requestedInherited = cleanText(inheritedTextModel);
-    const inheritedAvailable = models.includes(requestedInherited);
-    const inheritLabel = requestedInherited
-      ? `继承：${requestedInherited}${inheritedAvailable ? "" : "（provider 不可用）"}`
-      : "";
     const savedModel = savedStoryDirectorTextModel(metadata);
     const customMode = metadata?.storyDirectorTextModelMode === "custom";
     const customAvailable = models.includes(savedModel);
@@ -231,19 +227,10 @@ export function resolveStoryDirectorTextModelPresentation(
         ? customAvailable
           ? savedModel
           : unresolvedCustom?.value || ""
-        : requestedInherited
-          ? STORY_DIRECTOR_TEXT_MODEL_INHERIT
+        : models.includes(requestedInherited)
+          ? requestedInherited
           : "";
     const options: StoryDirectorTextModelOption[] = [
-      ...(requestedInherited
-        ? [
-            {
-              value: STORY_DIRECTOR_TEXT_MODEL_INHERIT,
-              label: inheritLabel,
-              model: requestedInherited,
-            },
-          ]
-        : []),
       ...(unresolvedCustom ? [unresolvedCustom] : []),
       ...models.map((model) => ({ value: model, label: model, model })),
     ];
@@ -275,10 +262,6 @@ export function resolveStoryDirectorTextModelPresentation(
           inheritedResolution.status,
         )
       : undefined;
-  const inheritedDisplayOption = inheritedOption || unresolvedInherited;
-  const inheritLabel = inheritedDisplayOption
-    ? `继承：${inheritedDisplayOption.label}`
-    : "";
   const customRequested = savedStoryDirectorTextModelSelection(metadata);
   const customResolution = resolveAvailableProviderModelSelection(
     customRequested,
@@ -300,22 +283,10 @@ export function resolveStoryDirectorTextModelPresentation(
   const selectedValue =
     metadata?.storyDirectorTextModelMode === "custom"
       ? customOption?.value || unresolvedCustom?.value || ""
-      : inheritedDisplayOption
-        ? STORY_DIRECTOR_TEXT_MODEL_INHERIT
-        : "";
+      : inheritedOption?.value || unresolvedInherited?.value || "";
   const options: StoryDirectorTextModelOption[] = [
-    ...(inheritedDisplayOption
-      ? [
-          {
-            value: STORY_DIRECTOR_TEXT_MODEL_INHERIT,
-            label: inheritLabel,
-            model: inheritedDisplayOption.model,
-            providerId: inheritedDisplayOption.providerId,
-            providerName: inheritedDisplayOption.providerName,
-          },
-        ]
-      : []),
     ...(unresolvedCustom ? [unresolvedCustom] : []),
+    ...(unresolvedInherited && metadata?.storyDirectorTextModelMode !== "custom" ? [unresolvedInherited] : []),
     ...sourceOptions,
   ];
   return {
@@ -410,7 +381,6 @@ export function storyDirectorTextModelPatchForValue(
     : null;
 }
 
-/** Recover the user-authored story if analysis previously overwrote the textarea. */
 export function storyDirectorEditableText(metadata?: Partial<CanvasNodeMetadata>) {
   const current = cleanText(metadata?.storyText) || cleanText(metadata?.content);
   const original = cleanText(metadata?.storyOriginalText);
@@ -418,4 +388,3 @@ export function storyDirectorEditableText(metadata?: Partial<CanvasNodeMetadata>
   if (original && rendered && current === rendered) return original;
   return current;
 }
-
