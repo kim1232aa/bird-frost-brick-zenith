@@ -18,7 +18,6 @@ import { useCanvasStore } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { exportCanvasProjects } from "../utils/canvas-export";
 import { importCanvasArchive, type CanvasArchive, type CanvasArchiveImportHandlers } from "../utils/canvas-import";
-import { prefetchCanvasWorkspace } from "@/pages/canvas-workspace-fallback";
 
 export type CanvasHomeViewMode = "list" | "grid";
 
@@ -121,7 +120,6 @@ export default function CanvasPage() {
         void getDesktopSetting(CANVAS_HOME_VIEW_STORAGE_KEY).then((savedViewMode) => {
             if (active && (savedViewMode === "grid" || savedViewMode === "list")) setViewMode(savedViewMode);
         });
-        prefetchCanvasWorkspace();
         return () => { active = false; };
     }, []);
 

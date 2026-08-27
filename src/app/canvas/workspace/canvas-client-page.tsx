@@ -1794,7 +1794,7 @@ class CanvasWorkspaceErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }
 > {
-  state = { error: null };
+  override state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
@@ -2759,6 +2759,7 @@ function InfiniteCanvasPage() {
   const historyPausedRef = useRef(false);
   const didInitialCenterRef = useRef(false);
   const shouldCenterInitialViewportRef = useRef(false);
+  const pendingFitRef = useRef(false);
   const rafRef = useRef<number | null>(null);
   const toolbarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -3014,8 +3015,10 @@ function InfiniteCanvasPage() {
       ? useCanvasStore.getState().projects.find((item) => item.id === projectId)
       : null;
     if (!snapshot || snapshot.nodes.length === 0) {
-      setNodes([]);
-      setConnections([]);
+      if (!hydrated) {
+        setNodes([]);
+        setConnections([]);
+      }
     }
     if (!hydrated) return;
     let cancelled = false;
@@ -3064,11 +3067,15 @@ function InfiniteCanvasPage() {
         setBackgroundMode(targetProject.backgroundMode);
         setShowImageInfo(targetProject.showImageInfo || false);
         const restoredCanvasViewport = normalizeViewport(targetProject.viewport);
-        setViewport(restoredCanvasViewport);
-        didInitialCenterRef.current = false;
-        shouldCenterInitialViewportRef.current = isDefaultViewport(
-          restoredCanvasViewport,
+        const fittedViewport = fitViewportToNodes(
+          initialNodes,
+          size.width || 1200,
+          size.height || 720,
         );
+        setViewport(fittedViewport || restoredCanvasViewport);
+        didInitialCenterRef.current = Boolean(fittedViewport);
+        shouldCenterInitialViewportRef.current = !fittedViewport;
+        pendingFitRef.current = true;
         historyRef.current = { past: [], future: [] };
         if (historyCommitTimerRef.current) {
           clearTimeout(historyCommitTimerRef.current);
@@ -3200,6 +3207,37 @@ function InfiniteCanvasPage() {
       mediaRestoreController.abort();
     };
   }, [createProject, hydrated, openProject, projectId, replaceProjects, restoreAttempt, router]);
+
+  useEffect(() => {
+    if (!hydrated || !projectId) return;
+    const stored = currentProject?.nodes;
+    if (!stored?.length || nodes.length >= stored.length) return;
+    const next = withImageSequenceNumbers(sanitizeCanvasNodes(stored));
+    if (!next.length) return;
+    setNodes(next);
+    setConnections(
+      sanitizeCanvasConnections(currentProject?.connections || [], next),
+    );
+    const fitted = fitViewportToNodes(
+      next,
+      size.width || 1200,
+      size.height || 720,
+    );
+    if (fitted) {
+      setViewport(fitted);
+      didInitialCenterRef.current = true;
+      shouldCenterInitialViewportRef.current = false;
+    }
+    if (!loadedProjectId) setLoadedProjectId(projectId);
+  }, [
+    currentProject,
+    hydrated,
+    loadedProjectId,
+    nodes.length,
+    projectId,
+    size.height,
+    size.width,
+  ]);
 
   useEffect(() => {
     if (
@@ -4855,11 +4893,25 @@ function InfiniteCanvasPage() {
     const updateSize = () => {
       const rect = el.getBoundingClientRect();
       setSize({ width: rect.width, height: rect.height });
+      if (pendingFitRef.current && rect.width > 80 && rect.height > 80 && nodesRef.current.length) {
+        const fitted = fitViewportToNodes(nodesRef.current, rect.width, rect.height);
+        if (fitted) setViewport(fitted);
+        pendingFitRef.current = false;
+        didInitialCenterRef.current = true;
+        return;
+      }
       if (
         !didInitialCenterRef.current &&
         shouldCenterInitialViewportRef.current
       ) {
-        setViewport({ x: rect.width / 2, y: rect.height / 2, k: 1 });
+        const fitted = fitViewportToNodes(
+          nodesRef.current,
+          rect.width,
+          rect.height,
+        );
+        setViewport(
+          fitted || { x: rect.width / 2, y: rect.height / 2, k: 1 },
+        );
       }
       didInitialCenterRef.current = true;
     };
@@ -5271,27 +5323,34 @@ function InfiniteCanvasPage() {
     [nodes],
   );
   const visibleNodes = useMemo(() => {
+    const notHidden = (node: CanvasNodeData) =>
+      selectedNodeIds.has(node.id) ||
+      dialogNodeId === node.id ||
+      ((node.metadata?.seedanceWorkflowRole !== "result" ||
+        displayedSeedance2ResultNodeIds.has(node.id)) &&
+      !isHiddenBatchChild(node, nodes, collapsingBatchIds));
+
+    if (nodes.length <= 48) return nodes.filter(notHidden);
+
     const padding = 280;
     const rect = containerRef.current?.getBoundingClientRect();
     const width = rect?.width || size.width;
     const height = rect?.height || size.height;
+    if (!width || !height) return nodes.filter(notHidden);
     const viewLeft = -viewport.x / viewport.k - padding;
     const viewTop = -viewport.y / viewport.k - padding;
     const viewRight = viewLeft + width / viewport.k + padding * 2;
     const viewBottom = viewTop + height / viewport.k + padding * 2;
 
-    return nodes.filter(
+    const culled = nodes.filter(
       (node) =>
-        selectedNodeIds.has(node.id) ||
-        dialogNodeId === node.id ||
-        ((node.metadata?.seedanceWorkflowRole !== "result" ||
-          displayedSeedance2ResultNodeIds.has(node.id)) &&
-        !isHiddenBatchChild(node, nodes, collapsingBatchIds) &&
+        notHidden(node) &&
         node.position.x + node.width > viewLeft &&
         node.position.x < viewRight &&
         node.position.y + node.height > viewTop &&
-        node.position.y < viewBottom),
+        node.position.y < viewBottom,
     );
+    return culled.length ? culled : nodes.filter(notHidden);
   }, [
     collapsingBatchIds,
     dialogNodeId,
@@ -16150,7 +16209,7 @@ function InfiniteCanvasPage() {
           正在读取画布...
         </div>
       ) : null}
-      <section className="relative min-w-0 flex-1 overflow-hidden">
+      <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <CanvasTopBar
           title={currentProject?.title || "未命名画布"}
           titleDraft={titleDraft}
@@ -16179,6 +16238,7 @@ function InfiniteCanvasPage() {
           }}
         />
 
+        <div className="absolute inset-0 min-h-[calc(100vh-64px)]">
         <InfiniteCanvas
           containerRef={containerRef}
           viewport={viewport}
@@ -16354,6 +16414,7 @@ function InfiniteCanvasPage() {
             />
           ) : null}
         </InfiniteCanvas>
+        </div>
 
         {!nodes.length && !dialogNodeId ? (
           <CanvasEmptyStarter
@@ -18496,6 +18557,33 @@ function normalizeCanvasImageUrl(url: string) {
 
 function yieldToBrowser() {
   return new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+}
+
+function fitViewportToNodes(
+  nodes: CanvasNodeData[],
+  width: number,
+  height: number,
+): ViewportTransform | null {
+  if (!nodes.length || width < 40 || height < 40) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + Math.max(node.width || 0, 80));
+    maxY = Math.max(maxY, node.position.y + Math.max(node.height || 0, 80));
+  }
+  const pad = 72;
+  const worldW = Math.max(maxX - minX, 1) + pad * 2;
+  const worldH = Math.max(maxY - minY, 1) + pad * 2;
+  const k = Math.min(Math.max(Math.min(width / worldW, height / worldH), 0.2), 1);
+  return {
+    x: (width - worldW * k) / 2 - (minX - pad) * k,
+    y: (height - worldH * k) / 2 - (minY - pad) * k,
+    k,
+  };
 }
 
 function sanitizeCanvasNodes(nodes: CanvasNodeData[] | undefined) {

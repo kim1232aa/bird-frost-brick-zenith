@@ -2,7 +2,7 @@ import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { adapterForProvider } from "@/studio/adapters";
 import { STUDIO_PROVIDERS, STUDIO_ROUTES } from "@/studio/wiring";
 import { modelPoints, useOpsStore } from "@/studio/ops";
-import { imageRefs } from "@/studio/image-refs";
+import { collectImageRefs } from "@/studio/image-refs";
 import { providerById } from "./proxy";
 
 export type StudioImageResult = {
@@ -44,7 +44,7 @@ export async function generateStudioImage(input: {
       model,
     );
     if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
-    const refs = imageRefs(input);
+    const refs = collectImageRefs(input);
     const result = await Promise.race([
       adapter.generateImage(
         { provider },

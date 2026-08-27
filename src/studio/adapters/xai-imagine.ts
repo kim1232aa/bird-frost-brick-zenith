@@ -1,6 +1,6 @@
 import type { StudioAdapter } from "./types";
 import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import { collectImageRefs } from "@/studio/image-refs";
 
 function pollState(data: unknown): { status: "pending" | "completed" | "failed"; url?: string; error?: string } {
   if (!data || typeof data !== "object") return { status: "failed", error: "视频任务返回为空" };
@@ -18,23 +18,35 @@ function pollState(data: unknown): { status: "pending" | "completed" | "failed";
   return { status: "pending" };
 }
 
+function imagineImagePart(url: string) {
+  return { type: "image_url", url };
+}
+
 export const xaiImagineAdapter: StudioAdapter = {
   id: "xai-imagine",
   label: "xAI Imagine",
-  docs: "https://docs.x.ai/docs/guides/image-generation",
+  docs: "https://docs.x.ai/developers/model-capabilities/images/editing",
   async generateImage(ctx, input) {
-    const refs = imageRefs(input);
+    // Official: T2I → POST /v1/images/generations (prompt only).
+    // I2I  → POST /v1/images/edits, up to 3 refs as { type: "image_url", url }.
+    const refs = collectImageRefs(input, 3);
+    const editing = refs.length > 0 || input.operation === "edit";
+    if (editing && !refs.length) {
+      throw new Error("Grok Imagine 图生图需要至少 1 张参考图。官方路径是 POST /v1/images/edits。");
+    }
     const body: Record<string, unknown> = { model: input.model, prompt: input.prompt, n: input.n || 1 };
-    if (refs[0]) body.image = { url: refs[0] };
-    if (refs.length > 1) body.images = refs.map((url) => ({ url }));
+    if (editing) {
+      if (refs.length === 1) body.image = imagineImagePart(refs[0]);
+      else body.images = refs.map(imagineImagePart);
+    }
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: "/images/generations",
+      path: editing ? "/images/edits" : "/images/generations",
       body,
       timeoutMs: 180_000,
     });
     const urls = allImageUrls(data);
-    if (!urls[0]) throw new Error("Grok Imagine 没有返回图片");
+    if (!urls[0]) throw new Error(editing ? "Grok Imagine 图生图没有返回图片" : "Grok Imagine 没有返回图片");
     return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {

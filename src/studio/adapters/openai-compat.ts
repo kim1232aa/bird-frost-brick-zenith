@@ -11,7 +11,7 @@ export const openaiCompatAdapter: StudioAdapter = {
     const editing = input.operation === "edit" || refs.length > 0;
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: editing && ctx.provider.endpoints?.images !== "/images/edits" ? (ctx.provider.endpoints?.images || "/images/generations") : ctx.provider.endpoints?.images || "/images/generations",
+      path: editing ? "/images/edits" : ctx.provider.endpoints?.images || "/images/generations",
       body: {
         model: input.model,
         prompt: input.prompt,

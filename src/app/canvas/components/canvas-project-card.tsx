@@ -11,7 +11,7 @@ import { useCanvasStore, type CanvasProject } from "../stores/use-canvas-store";
 import { useCanvasUiStore } from "../stores/use-canvas-ui-store";
 import { CanvasNodeType } from "../types";
 import { exportCanvasProjects } from "../utils/canvas-export";
-import { prefetchCanvasWorkspace } from "@/pages/canvas-workspace-fallback";
+import { prefetchCanvasRuntime, prefetchCanvasWorkspace } from "@/pages/canvas-workspace-fallback";
 
 type CanvasProjectCardProps = {
     project: CanvasProject;
@@ -33,6 +33,7 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
     const selected = selectedIds.includes(project.id);
     const open = () => {
         prefetchCanvasWorkspace();
+        prefetchCanvasRuntime();
         void navigate({ to: "/canvas/workspace", search: { id: project.id } });
     };
     const saveTitle = () => {
@@ -89,7 +90,10 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
             <article
                 data-project-view="list"
                 className={"group flex min-h-20 cursor-pointer items-center gap-3 rounded-lg border bg-white px-3 py-2.5 shadow-sm transition hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
-                onPointerEnter={prefetchCanvasWorkspace}
+                onPointerEnter={() => {
+                    prefetchCanvasWorkspace();
+                    prefetchCanvasRuntime();
+                }}
                 onClick={() => !editing && open()}
             >
                 {selectionCheckbox("size-4 shrink-0 accent-stone-950 dark:accent-stone-100")}
@@ -133,7 +137,10 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
         <article
             data-project-view="grid"
             className={"group cursor-pointer overflow-hidden rounded-lg border bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md " + (selected ? "border-emerald-400 ring-2 ring-emerald-100" : "border-stone-200")}
-            onPointerEnter={prefetchCanvasWorkspace}
+            onPointerEnter={() => {
+                prefetchCanvasWorkspace();
+                prefetchCanvasRuntime();
+            }}
             onClick={() => !editing && open()}
         >
             <div className="relative aspect-video overflow-hidden bg-stone-100">

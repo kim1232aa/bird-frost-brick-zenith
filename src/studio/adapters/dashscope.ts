@@ -1,6 +1,6 @@
 import type { StudioAdapter } from "./types";
 import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import { collectImageRefs } from "@/studio/image-refs";
 
 function dashscopeHost(baseUrl: string) {
   if (baseUrl.includes("token-plan")) return "https://dashscope.aliyuncs.com";
@@ -12,6 +12,21 @@ function dashscopeHost(baseUrl: string) {
 
 function isQwenImage(model: string) {
   return /qwen[-_]?image/i.test(model);
+}
+
+function isWanxV1(model: string) {
+  return /^wanx-v1$/i.test(model.trim());
+}
+
+function isWanI2I(model: string) {
+  return /wan.*i2i|wan2\.[5-9]-image|wan2\.[6-9]-image|wan2\.6-image|wan2\.7-image/i.test(model);
+}
+
+function wanMaxRefs(model: string) {
+  if (/wan2\.7/i.test(model)) return 9;
+  if (/wan2\.6/i.test(model)) return 4;
+  if (/wan2\.5/i.test(model)) return 2;
+  return 1;
 }
 
 async function pollTask(ctx: Parameters<NonNullable<StudioAdapter["pollVideo"]>>[0], taskId: string) {
@@ -44,7 +59,8 @@ export const dashscopeAdapter: StudioAdapter = {
   docs: "https://help.aliyun.com/zh/model-studio/qwen-image-api",
   async generateImage(ctx, input) {
     const host = dashscopeHost(ctx.provider.baseUrl);
-    const refs = imageRefs(input);
+    const refs = collectImageRefs(input);
+
     if (isQwenImage(input.model)) {
       const data = await studioProxyJson<Record<string, unknown>>({
         provider: ctx.provider,
@@ -78,6 +94,32 @@ export const dashscopeAdapter: StudioAdapter = {
       if (!url) throw new Error("Qwen-Image 没有返回图片。官方路径是 /api/v1/services/aigc/multimodal-generation/generation，不是 compatible-mode /images/generations。");
       return { url, urls: merged.length ? merged : [url] };
     }
+
+    if (refs.length && (isWanI2I(input.model) || /wan2\.[5-9]-image/i.test(input.model))) {
+      const limited = collectImageRefs(input, wanMaxRefs(input.model));
+      const created = await studioProxyJson<Record<string, unknown>>({
+        provider: ctx.provider,
+        baseUrl: host,
+        path: "/api/v1/services/aigc/image2image/image-synthesis",
+        extraHeaders: { "X-DashScope-Async": "enable" },
+        body: {
+          model: input.model,
+          input: { prompt: input.prompt, images: limited },
+          parameters: { prompt_extend: true, n: input.n || 1 },
+        },
+        timeoutMs: 30_000,
+      });
+      const taskId = String((created.output as { task_id?: string } | undefined)?.task_id || created.task_id || "").trim();
+      if (!taskId) throw new Error("万相图生图没有返回 task_id。官方路径是 /api/v1/services/aigc/image2image/image-synthesis，字段是 input.images。");
+      const url = await pollTask(ctx, taskId);
+      if (!url) throw new Error("万相图生图完成但没有图片地址");
+      return { url, urls: [url] };
+    }
+
+    if (refs.length && !isWanxV1(input.model)) {
+      throw new Error(`模型 ${input.model} 是文生图，不能吃参考图。请换 Qwen-Image / wan2.5-i2i / wan2.6-image。`);
+    }
+
     const created = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       baseUrl: host,
@@ -85,8 +127,16 @@ export const dashscopeAdapter: StudioAdapter = {
       extraHeaders: { "X-DashScope-Async": "enable" },
       body: {
         model: input.model,
-        input: { prompt: input.prompt, ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}), ...(refs[0] ? { ref_img: refs[0], ref_image: refs[0] } : {}) },
-        parameters: { n: input.n || 1, size: input.size === "3K" ? "1440*1440" : "1280*1280" },
+        input: {
+          prompt: input.prompt,
+          ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+          ...(refs[0] && isWanxV1(input.model) ? { ref_image: refs[0] } : {}),
+        },
+        parameters: {
+          n: input.n || 1,
+          size: input.size === "3K" ? "1440*1440" : "1280*1280",
+          ...(refs[0] && isWanxV1(input.model) ? { ref_strength: input.strength ?? 0.7, ref_mode: "repaint" } : {}),
+        },
       },
       timeoutMs: 30_000,
     });
