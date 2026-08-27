@@ -16,11 +16,11 @@ export function StoryDirectorPage() {
   const navigate = useNavigate();
   const relays = useStudioSession((state) => state.relays);
   const addHistory = useStudioHistory((state) => state.add);
-  const [idea, setIdea] = useState("清凉写真NWSF");
+  const [idea, setIdea] = useState("");
   const [textModel, setTextModel] = useState(preferredTextKey());
   const [imageModel, setImageModel] = useState(preferredImageKey());
   const [videoModel, setVideoModel] = useState(preferredVideoKey());
-  const [style, setStyle] = useState("清凉写真");
+  const [style, setStyle] = useState("");
   const [mode, setMode] = useState<"single" | "grid9">("single");
   const [shotCount, setShotCount] = useState(5);
   const [ratio, setRatio] = useState("16:9");
@@ -36,33 +36,20 @@ export function StoryDirectorPage() {
 
   useEffect(() => {
     const next = queryParam("text") || queryParam("model");
-    if (next && next.includes("grok-4")) setTextModel(next);
-    else if (next && /imagine-video|seedance|ltx|hunyuan/i.test(next)) setVideoModel(next);
-    else if (next && next.includes("::")) setImageModel(next);
-  }, []);
-
-  useEffect(() => {
-    const image = preferredImageKey();
-    const video = preferredVideoKey();
-    const text = preferredTextKey();
-    if (image.includes("grok-imagine-image")) setImageModel(image);
-    if (video.includes("grok-imagine-video")) setVideoModel(video);
-    if (text.includes("grok-4")) setTextModel(text);
-  }, [relays]);
-
-  useEffect(() => {
-    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
-    setLogline(local.logline);
-    setScenes(local.scenes);
-    setCast(local.cast);
-    setShots(local.shots);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!next) return;
+    if (next.includes("::") && /imagine-video|seedance|ltx|hunyuan|agnes-video|wan2/i.test(next)) setVideoModel(next);
+    else if (next.includes("::") && /grok-4|gpt-|agnes-2|qwen-plus|qwen-max|sensenova-6/i.test(next)) setTextModel(next);
+    else if (next.includes("::")) setImageModel(next);
   }, []);
 
   const imageSel = splitModel(imageModel);
   const videoSel = splitModel(videoModel);
 
   const analyze = async () => {
+    if (!idea.trim()) {
+      setError("先在左边写下故事，再点拆分镜。不会后台自动生成。");
+      return;
+    }
     setJob({ type: "analyze" });
     setBusy("正在拆分镜…");
     setError("");
@@ -157,7 +144,7 @@ export function StoryDirectorPage() {
       const { createStudioVideo, waitStudioVideo } = await import("@/studio/generate/video");
       const stills = videoStillBundle(boardShots, index);
       if ((stills.all.length || 0) < 2) {
-        throw new Error("视频需要至少 2 张分镜静帧。Grok Imagine 可吃最多 5 张，不能只用一张。");
+        throw new Error("视频需要至少 2 张分镜静帧。当前模型按它自己的接口提交，不会改线路。");
       }
       const created = await createStudioVideo({
         relays,
@@ -221,6 +208,10 @@ export function StoryDirectorPage() {
   };
 
   const oneClickAll = async () => {
+    if (!idea.trim()) {
+      setError("先在左边写下故事，再点一键全流程。不会后台自动生成。");
+      return;
+    }
     setJob({ type: "all" });
     setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
     setError("");
@@ -331,7 +322,7 @@ export function StoryDirectorPage() {
           <button type="button" className="studio-ghost" onClick={pushCanvas}>
             推到画布
           </button>
-          {error ? <p className="studio-error">{error}</p> : null}
+          {error ? <p className="studio-error" role="alert">{error}</p> : null}
           {progress ? <p className="studio-hint">{progress}</p> : null}
         </div>
       </aside>
@@ -388,7 +379,7 @@ export function StoryDirectorPage() {
                       {person.locked ? " · 外貌已锁" : person.url ? " · 已出图" : " · 还没出图"}
                     </small>
                   </span>
-                  {person.status && person.status !== "pending" && person.status !== "ready" ? <p className="studio-error">{person.status}</p> : null}
+                  {person.status && person.status !== "pending" && person.status !== "ready" ? <p className="studio-error" role="alert">{person.status}</p> : null}
                   <div className="shot-actions">
                     <button type="button" disabled={running} onClick={() => void renderCharacter(index)}>
                       {person.url ? "重做角色图" : "生成角色图"}
@@ -433,7 +424,7 @@ export function StoryDirectorPage() {
                       {shot.camera} · {shot.scene} · {(shot.characters || []).join(" / ")} · {shot.duration || 5}s
                     </p>
                     <p>台词：{shot.dialogue || "无对白"}</p>
-                    {shot.error ? <p className="studio-error">{shot.error}</p> : null}
+                    {shot.error ? <p className="studio-error" role="alert">{shot.error}</p> : null}
                     <div className="shot-actions">
                       <button type="button" disabled={running} onClick={() => void renderShot(index)}>
                         {shot.url ? "重做这一镜" : "生成这一镜"}

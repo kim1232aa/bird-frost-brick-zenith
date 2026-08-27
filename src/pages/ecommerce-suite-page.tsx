@@ -133,7 +133,7 @@ export function EcommerceSuitePage() {
         </label>
         <label>
           产品描述
-          <textarea rows={3} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="材质、颜色、卖点，例如：哑光陶瓷马克杯，米白色，旮logo" />
+          <textarea rows={3} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="材质、颜色、卖点，例如：哑光陶瓷马克杯，米白色，无logo" />
         </label>
         <p className="studio-kicker">② 场景模板</p>
         <div className="chip-row">
@@ -212,7 +212,7 @@ export function EcommerceSuitePage() {
                       </a>
                     ) : null}
                   </div>
-                  {state.error ? <p className="studio-error" role="alert">{state.error}</p> : null}
+                  {state.error ? <p className="studio-error">{state.error}</p> : null}
                 </div>
               </article>
             );

@@ -75,13 +75,10 @@ export const useMembershipStore = create<MembershipState>()(
   persist(
     (set, get) => ({
       plan: "studio",
-      record: (kind, model = "", points = 1) => {
-        try {
-          useOpsStore.getState().spend(kind, model || kind, points);
-          return true;
-        } catch {
-          return false;
-        }
+      record: (_kind, _model = "", _points = 1) => {
+        // Real debit happens in generate helpers via ops.spend, with refund on failure.
+        // This marker stays for account UI callers and must not double-charge.
+        return true;
       },
       remaining: (kind) => useOpsStore.getState().credits[kind],
       upgrade: (plan = "pro") => {

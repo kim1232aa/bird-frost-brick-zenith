@@ -6,7 +6,7 @@ import { liveCatalog } from "./ops";
 import { ModelMenu } from "./model-menu";
 import { useOpsStore } from "./ops";
 import { useStudioSession } from "./session";
-import { useCurrentModels, type CurrentModelKind } from "./current-models-store";
+import { useCurrentModels } from "./current-models-store";
 
 export function CompactModelSelect({
   kind,
@@ -19,16 +19,28 @@ export function CompactModelSelect({
   onChange: (value: string) => void;
   label?: string;
 }) {
-  return <ModelMenu kind={kind} value={value} onChange={onChange} label={label} wiredOnly={false} />;
+  return (
+    <ModelMenu
+      kind={kind}
+      value={value}
+      onChange={(next) => {
+        useCurrentModels.getState().setKind(kind, next);
+        onChange(next);
+      }}
+      label={label}
+      wiredOnly={false}
+    />
+  );
 }
 
-function prefer(kind: CurrentModelKind) {
-  const saved = useCurrentModels.getState()[kind];
+function prefer(kind: ModelCard["kind"], favorite?: (card: ModelCard) => boolean) {
   const listed = liveCatalog(kind, false);
-  if (saved && listed.some((card) => catalogKey(card) === saved)) return saved;
   const wired = liveCatalog(kind, true);
+  const saved = kind === "audio" ? useCurrentModels.getState().audio : useCurrentModels.getState()[kind];
+  if (saved && listed.some((card) => catalogKey(card) === saved)) return saved;
   const pool = wired.length ? wired : listed;
-  return pool[0] ? catalogKey(pool[0]) : "";
+  const hit = favorite ? pool.find(favorite) : undefined;
+  return hit ? catalogKey(hit) : pool[0] ? catalogKey(pool[0]) : "";
 }
 
 export function preferredVideoKey() {
@@ -87,14 +99,16 @@ export function StudioModelField({
       <select
         value={safe}
         disabled={!cards.length}
+        title={cards.find((card) => catalogKey(card) === safe) ? `${cards.find((card) => catalogKey(card) === safe)?.provider} · ${cards.find((card) => catalogKey(card) === safe)?.model}` : "选择模型"}
         onChange={(event) => {
           const next = event.target.value;
-          if (!next) return;
-          useCurrentModels.getState().setKind(kind, next);
-          onChange(next);
+          if (next) {
+            useCurrentModels.getState().setKind(kind, next);
+            onChange(next);
+          }
         }}
       >
-        {cards.length === 0 ? <option value="">暂无上架模型，去后台看看</option> : null}
+        {cards.length === 0 ? <option value="">还没有可选手模型。去设置启用供应商，或确认目录没有被下架。</option> : null}
         {groups.map(([provider, list]) => (
           <optgroup key={provider} label={provider}>
             {list.map((card) => {
@@ -102,8 +116,8 @@ export function StudioModelField({
               const mark = card.wired ? "已接线" : "待接线";
               const extra = card.verified ? "" : " · 未实测";
               return (
-                <option key={key} value={key}>
-                  {card.model} · {mark}
+                <option key={key} value={key} title={`${card.provider} · ${card.model}`}>
+                  {card.provider} · {card.model} · {mark}
                   {extra}
                 </option>
               );

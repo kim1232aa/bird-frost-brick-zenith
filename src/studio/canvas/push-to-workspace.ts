@@ -170,7 +170,7 @@ export function pushStoryToCanvasWorkspace(payload: {
       ...spec.metadata,
       storyText: payload.text,
       content: payload.text,
-      storyStyle: payload.style || "清凉写真",
+      storyStyle: payload.style || "",
       storyShotCount: payload.shotCount || shots.length || 5,
       storyAspectRatio: payload.aspectRatio || "16:9",
       storyWorkflow: analyzed ? "analysis" : "idle",

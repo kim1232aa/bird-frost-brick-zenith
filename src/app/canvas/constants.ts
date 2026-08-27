@@ -41,7 +41,7 @@ export const NODE_SPECS = {
     },
     [CanvasNodeType.StoryDirector]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.StoryDirector],
-        metadata: { status: "idle", storyText: "清凉写真NWSF", content: "清凉写真NWSF", storyStyle: "清凉写真", storyShotCount: 5, storyAspectRatio: "16:9", storyWorkflow: "idle", storyStoryboardMode: "single" },
+        metadata: { status: "idle", storyText: "", content: "", storyStyle: "电影感写实", storyShotCount: 5, storyAspectRatio: "16:9", storyWorkflow: "idle", storyStoryboardMode: "single" },
     },
     [CanvasNodeType.Seedance2Workflow]: {
         ...NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow],

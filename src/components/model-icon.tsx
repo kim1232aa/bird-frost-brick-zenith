@@ -69,11 +69,17 @@ export function ModelIcon({ model, className }: { model: string; className?: str
 }
 
 export function ModelLabel({ model, label, className }: { model: string; label?: string; className?: string }) {
-    const visibleLabel = label || model;
+    const visibleLabel = String(label || model || "").trim();
+    const parts = visibleLabel.includes("·") ? visibleLabel.split("·").map((part) => part.trim()).filter(Boolean) : [];
+    const provider = parts.length >= 2 ? parts.slice(0, -1).join(" · ") : "";
+    const modelName = parts.length >= 2 ? parts[parts.length - 1] : visibleLabel || model;
     return (
         <span className={cn("flex min-w-0 items-center gap-2", className)}>
-            <ModelIcon model={model} />
-            <span className="min-w-0 whitespace-normal break-all" title={visibleLabel}>{visibleLabel}</span>
+            <ModelIcon model={model || modelName} />
+            <span className="flex min-w-0 flex-col leading-4" title={`${provider ? `${provider} · ` : ""}${modelName}`}>
+                <span className="min-w-0 whitespace-normal break-all font-medium">{modelName}</span>
+                {provider ? <span className="min-w-0 whitespace-normal break-all text-[11px] opacity-70">{provider}</span> : null}
+            </span>
         </span>
     );
 }
