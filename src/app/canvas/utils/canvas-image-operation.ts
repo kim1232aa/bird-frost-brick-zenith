@@ -2,7 +2,9 @@ import { resolveImageSettingsContext } from "@/components/provider-settings-cont
 import { readCivitaiCatalogServiceSnapshot } from "@/services/api/civitai-client";
 import { CIVITAI_FALLBACK_SERVICES, resolveCivitaiService } from "@/services/api/civitai-services";
 import {
+  nativeImageAdapterType,
   validateImageModelRequest,
+  type ImageProviderFamily,
   type ResolvedImageModelCapability,
 } from "@/services/api/image-model-capabilities";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -17,34 +19,99 @@ export const CANVAS_IMAGE_OPERATION_OPTIONS: Array<{ label: string; value: Canva
 
 export const CANVAS_IMAGE_OPERATION_EMPTY_HINT = "当前模型不支持此参考图组合，请改选编辑服务";
 
+/**
+ * Operations the *provider family* actually exposes. The currently selected
+ * Civitai createImage service or a disabled-relay routeError must not hide
+ * edit/variation that the same provider can run on a sibling service.
+ */
+const FAMILY_IMAGE_OPERATIONS: Record<ImageProviderFamily, readonly CanvasImageOperation[]> = {
+  openai: ["generate", "edit"],
+  agnes: ["generate", "edit"],
+  dashscope: ["generate", "edit"],
+  ark: ["generate", "edit"],
+  sensenova: ["generate"],
+  "sensenova-miaohua": ["generate", "edit"],
+  civitai: ["generate", "edit", "variation"],
+  custom: ["generate", "edit"],
+};
+
 export function resolveCanvasImageOperationOptions(
   config: AiConfig,
   referenceCount?: number,
   options?: { readonly compatibleOnly?: boolean },
 ) {
   const compatibleOnly = options?.compatibleOnly === true;
-  const filtered = CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => {
-    if (compatibleOnly) {
-      return !canvasImageOperationCapabilityError(config, option.value, referenceCount);
-    }
-    if (option.value === "generate") {
-      // Keep generate visible even when connected references are incompatible;
-      // the selected-state warning still explains that this service will not send them.
-      return !canvasImageOperationCapabilityError(config, "generate");
-    }
-    if (option.value === "edit" || option.value === "variation") {
-      if (!canvasImageOperationCapabilityError(config, option.value, referenceCount)) return true;
-      return Boolean(resolveCivitaiCanvasOperationSibling(config, option.value));
-    }
-    return !canvasImageOperationCapabilityError(config, option.value, referenceCount);
-  });
-  if (compatibleOnly || filtered.length) return filtered;
-  // Antd Select renders its default "暂无数据" when options is empty. A
-  // route error or missing catalog sibling must not blank the control.
-  if (!canvasImageOperationCapabilityError(config, "edit")) {
-    return CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => option.value === "edit");
+  const familyOps = new Set(resolveProviderFamilyImageOperations(config));
+  const familyListed = CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => familyOps.has(option.value));
+
+  if (compatibleOnly) {
+    const compatible = familyListed.filter(
+      (option) => !canvasImageOperationCapabilityError(config, option.value, referenceCount),
+    );
+    return compatible.length ? compatible : familyListed.slice(0, 1);
   }
+
+  // Show the provider's operations even when the current Civitai service is
+  // T2I-only or the selected relay is marked disabled. The orange warning
+  // still explains route / capability problems for the selected operation.
+  if (familyListed.length) return familyListed;
   return CANVAS_IMAGE_OPERATION_OPTIONS.filter((option) => option.value === "generate");
+}
+
+export function resolveProviderFamilyImageOperations(config: AiConfig): CanvasImageOperation[] {
+  const family = resolveCanvasImageProviderFamily(config);
+  const model = currentImageModelId(config);
+  const ops = [...FAMILY_IMAGE_OPERATIONS[family]];
+  if (family === "openai" && isLegacyDallE2Model(model)) {
+    if (!ops.includes("variation")) ops.push("variation");
+  }
+  return ops;
+}
+
+function resolveCanvasImageProviderFamily(config: AiConfig): ImageProviderFamily {
+  const context = resolveImageSettingsContext(config, "generate");
+  if (context.capability.provider && context.capability.provider !== "custom") {
+    return context.capability.provider;
+  }
+
+  const selection = config.requestModelSelections?.image;
+  const providerId =
+    selection && typeof selection !== "string" ? String(selection.providerId || "").trim() : "";
+  const selectedProvider = providerId
+    ? config.apiRelays?.find((provider) => provider.id === providerId)
+    : undefined;
+  const adapterFamily = nativeImageAdapterType(selectedProvider);
+  if (adapterFamily) return adapterFamily;
+
+  const inferred = inferImageProviderFamilyFromModel(context.capability.model || currentImageModelId(config));
+  return inferred || "custom";
+}
+
+function inferImageProviderFamilyFromModel(model: string): ImageProviderFamily | "" {
+  const key = String(model || "").trim().toLowerCase();
+  if (!key) return "";
+  if (
+    key.startsWith("image/")
+    || key.includes("/createimage")
+    || key.includes("/editimage")
+    || key.includes("/createvariant")
+    || key.includes("krea2")
+  ) {
+    return "civitai";
+  }
+  if (key.includes("gpt-image") || key.startsWith("dall-e") || key.startsWith("dalle-") || key.startsWith("grok-imagine-image") || key.startsWith("grok-2-image")) {
+    return "openai";
+  }
+  if (key.startsWith("agnes-image")) return "agnes";
+  if (key.startsWith("qwen-image") || key.startsWith("wan2-") || key === "z-image-turbo") return "dashscope";
+  if (key.includes("seedream")) return "ark";
+  if (key.includes("sensenova") || key.includes("miaohua")) return key.includes("miaohua") ? "sensenova-miaohua" : "sensenova";
+  return "";
+}
+
+function isLegacyDallE2Model(model: string) {
+  const key = String(model || "").trim().toLowerCase().replace(/[._]+/g, "-");
+  return key === "dall-e-2" || key === "dalle-2" || key.includes("/dall-e-2") || key.includes("/dalle-2");
 }
 
 export function resolveStoryWorkflowImageOperation(
