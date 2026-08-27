@@ -46,6 +46,8 @@ const MODELSCOPE_TOKEN = readEnvKey("VITE_MODELSCOPE_TOKEN", "STUDIO_MODELSCOPE_
 const HUGGINGFACE_TOKEN = readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN");
 const GROK_RELAY_KEY = readEnvKey("VITE_GROK_RELAY_KEY", "STUDIO_GROK_RELAY_KEY");
 const HANSYAI_KEY = readEnvKey("VITE_HANSYAI_KEY", "STUDIO_HANSYAI_KEY");
+const AGNES_KEY = readEnvKey("VITE_AGNES_KEY", "STUDIO_AGNES_KEY");
+const SENSENOVA_KEY = readEnvKey("VITE_SENSENOVA_KEY", "STUDIO_SENSENOVA_KEY");
 
 const GROK_VIDEO_PROFILES = {
   "grok-imagine-video": "xai-imagine-video" as const,
@@ -337,31 +339,40 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     name: "Agnes AI",
     adapter: "agnes",
     baseUrl: "https://apihub.agnes-ai.com/v1",
-    apiKey: "",
-    enabled: false,
+    apiKey: AGNES_KEY,
+    enabled: Boolean(AGNES_KEY),
     capabilities: ["text", "image", "video"],
-    remark: "Agnes 多模态。视频 POST /videos，模型 agnes-video-v2.0。",
-    models: ["agnes-2.5-flash", "agnes-image-2.1-flash", "agnes-video-v2.0"],
-    textModels: ["agnes-2.5-flash", "agnes-2.5-pro-alpha"],
+    remark: "官方 apihub。生图 agnes-image-2.1-flash（size 1K–4K + ratio）；视频 agnes-video-2.5-flash，720P，文生/首尾帧/参考图最多 5 张。",
+    models: ["agnes-2.5-flash", "agnes-2.5-pro", "agnes-image-2.1-flash", "agnes-image-2.0-flash", "agnes-video-2.5-flash", "agnes-video-2.5", "agnes-video-v2.0"],
+    textModels: ["agnes-2.5-flash", "agnes-2.5-pro", "agnes-2.5-pro-alpha"],
     imageModels: ["agnes-image-2.1-flash", "agnes-image-2.0-flash"],
-    videoModels: ["agnes-video-v2.0"],
+    videoModels: ["agnes-video-2.5-flash", "agnes-video-2.5", "agnes-video-v2.0"],
     audioModels: [],
-    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos" },
+    imageCapabilityProfiles: {
+      "agnes-image-2.1-flash": { generate: "agnes-image-2.1-generate", edit: "agnes-image-2.1-edit" },
+      "agnes-image-2.0-flash": { generate: "agnes-image-2.0-generate", edit: "agnes-image-2.0-edit" },
+    },
+    videoCapabilityProfiles: { "agnes-video-2.5-flash": "agnes-video-v2" },
+    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos", videosPoll: "/videos/{id}" },
   },
   {
     id: "preset-sensenova",
     name: "商汤日日新",
     adapter: "sensenova",
     baseUrl: "https://token.sensenova.cn/v1",
-    apiKey: "",
-    enabled: false,
+    apiKey: SENSENOVA_KEY,
+    enabled: Boolean(SENSENOVA_KEY),
     capabilities: ["text", "image"],
-    remark: "无视频。生图 size 仅接受 2048x2048 等大尺寸。",
-    models: ["sensenova-u1-fast", "sensenova-6.7-flash-lite"],
-    textModels: ["sensenova-6.7-flash-lite"],
-    imageModels: ["sensenova-u1-fast"],
+    remark: "官方 token.sensenova.cn。生图 sensenova-u1-fast，尺寸必须是文档里的大图档，默认 2048x2048。不支持视频。",
+    models: ["sensenova-u1-fast", "sensenova-u1.5-lite", "sensenova-6.8-flash-lite", "sensenova-6.7-flash-lite"],
+    textModels: ["sensenova-6.8-flash-lite", "sensenova-6.7-flash-lite"],
+    imageModels: ["sensenova-u1-fast", "sensenova-u1.5-lite"],
     videoModels: [],
     audioModels: [],
+    imageCapabilityProfiles: {
+      "sensenova-u1-fast": { generate: "sensenova-u1-generate" },
+      "sensenova-u1.5-lite": { generate: "sensenova-u1-generate" },
+    },
     endpoints: { chat: "/chat/completions", images: "/images/generations" },
   },
   {

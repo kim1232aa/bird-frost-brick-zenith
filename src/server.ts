@@ -1,9 +1,12 @@
+import { setDefaultResultOrder } from "node:dns";
 import {
   createStartHandler,
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
 import type { Register } from "@tanstack/react-router";
 import type { RequestHandler } from "@tanstack/react-start/server";
+
+setDefaultResultOrder("ipv4first");
 
 const inner = createStartHandler(defaultStreamHandler);
 

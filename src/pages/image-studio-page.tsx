@@ -36,6 +36,8 @@ function engineFamily(selection: string) {
   if (selection.includes("civitai") || /krea2|flux2|sdxl|anima|z-image-turbo|qwen-3\.0/i.test(selection)) return "civitai" as const;
   if (/gpt-image/i.test(selection)) return "gpt" as const;
   if (/grok-imagine-image/i.test(selection)) return "grok" as const;
+  if (/agnes-image/i.test(selection)) return "agnes" as const;
+  if (/sensenova/i.test(selection)) return "sensenova" as const;
   return "generic" as const;
 }
 
@@ -167,7 +169,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         prompt,
         providerId,
         model,
-        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : undefined,
+        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : family === "agnes" || family === "sensenova" ? aspect : undefined,
         width: family === "civitai" || family === "grok" ? dims.width : undefined,
         height: family === "civitai" || family === "grok" ? dims.height : undefined,
         seed: family === "civitai" && seed ? Number(seed) : undefined,

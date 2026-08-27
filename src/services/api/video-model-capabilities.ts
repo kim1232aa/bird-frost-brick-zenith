@@ -2023,7 +2023,8 @@ function dashscopeProfileForModel(model: string): VideoCapabilityProfileId {
 }
 
 function isExactAgnesVideoModel(model: string) {
-    return normalizeModelKey(model) === "agnes-video-v2-0";
+    const key = normalizeModelKey(model);
+    return key === "agnes-video-v2-0" || key === "agnes-video-2-5-flash" || key === "agnes-video-2-5";
 }
 
 function isExactOpenAiVideoModel(model: string) {
@@ -2086,7 +2087,9 @@ function resolvedProfile(id: VideoCapabilityProfileId, model: string, provider: 
 function videoGenerationParametersForModel(provider: VideoCapabilityProfile["provider"], model: string): VideoGenerationParameterContract {
     const normalized = normalizeModelKey(model);
     if (provider === "agnes") {
-        return normalized === "agnes-video-v2-0" ? AGNES_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("agnes", model);
+        return normalized === "agnes-video-v2-0" || normalized === "agnes-video-2-5-flash" || normalized === "agnes-video-2-5"
+            ? AGNES_VIDEO_GENERATION_PARAMETERS
+            : unknownGenerationParameters("agnes", model);
     }
     if (provider === "openai") {
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);

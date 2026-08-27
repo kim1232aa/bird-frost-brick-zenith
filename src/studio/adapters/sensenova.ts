@@ -1,23 +1,36 @@
 import type { StudioAdapter } from "./types";
 import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+
+const U1_SIZES: Record<string, string> = {
+  "1:1": "2048x2048",
+  "16:9": "2752x1536",
+  "9:16": "1536x2752",
+  "3:4": "1760x2368",
+  "4:3": "2368x1760",
+  "2:3": "1664x2496",
+  "3:2": "2496x1664",
+};
+
+function sensenovaSize(size?: string) {
+  const raw = String(size || "").trim();
+  if (/^\d+x\d+$/i.test(raw)) return raw;
+  if (U1_SIZES[raw]) return U1_SIZES[raw];
+  return "2048x2048";
+}
 
 export const sensenovaAdapter: StudioAdapter = {
   id: "sensenova",
   label: "商汤日日新",
-  docs: "https://platform.sensenova.cn/",
+  docs: "https://platform.sensenova.cn/docs",
   async generateImage(ctx, input) {
-    const refs = imageRefs(input);
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/images/generations",
       body: {
-        model: input.model,
+        model: input.model || "sensenova-u1-fast",
         prompt: input.prompt,
-        size: input.size || "2048x2048",
+        size: sensenovaSize(input.size),
         n: input.n || 1,
-        ...(refs[0] ? { image: refs[0] } : {}),
-        ...(refs.length > 1 ? { images: refs } : {}),
       },
       timeoutMs: 120_000,
     });

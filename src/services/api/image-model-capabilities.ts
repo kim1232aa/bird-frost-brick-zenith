@@ -1469,10 +1469,13 @@ function resolveArk(model: string, operation: ImageOperation, provider?: ImageCa
 }
 
 function resolveSenseNova(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
-    if (normalizeModelKey(model) !== "sensenova-u1-fast") return unknownNativeResolved(operation, model, provider, "Token Plan SenseNova 图片模型合同未识别");
+    const key = normalizeModelKey(model);
+    if (key !== "sensenova-u1-fast" && key !== "sensenova-u1-5-lite") {
+        return unknownNativeResolved(operation, model, provider, "Token Plan SenseNova 图片模型合同未识别");
+    }
     return operation === "generate"
-        ? resolvedProfile("sensenova-u1-generate", model, provider, false, "SenseNova U1 Fast model ID")
-        : unsupportedResolved(operation, model, provider, "SenseNova U1 Fast 官方合同仅支持文生图；秒画是另一个 adapter 和端点");
+        ? resolvedProfile("sensenova-u1-generate", model, provider, false, "SenseNova U1 文生图合同")
+        : unsupportedResolved(operation, model, provider, "日日新 U1 只做文生图，改图请换别的模型");
 }
 
 function resolveMiaohua(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {

@@ -1,3 +1,8 @@
+import { spawn } from "node:child_process";
+import { setDefaultResultOrder } from "node:dns";
+
+setDefaultResultOrder("ipv4first");
+
 const RELAY_TIMEOUT_MS = 10 * 60 * 1000;
 const FETCH_URL_TIMEOUT_MS = 2 * 60 * 1000;
 const IMAGE_HOST_TIMEOUT_MS = 60 * 1000;
@@ -235,24 +240,85 @@ async function forward(request: Request, target: URL, headers: Headers, timeoutM
     );
   }
   if (!headers.has("accept")) headers.set("Accept", "application/json, */*");
+  const method = request.method;
+  const body =
+    method === "GET" || method === "HEAD" ? undefined : Buffer.from(await request.arrayBuffer());
   const init: RequestInit = {
-    method: request.method,
+    method,
     headers,
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
+    ...(body ? { body } : {}),
   };
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = request.body;
-    (init as RequestInit & { duplex?: string }).duplex = "half";
-  }
   try {
     const upstream = await fetch(target, init);
     return await toClientResponse(upstream);
-  } catch {
+  } catch (error) {
     const host = target.hostname.toLowerCase();
     const loopback = host === "localhost" || host === "127.0.0.1" || host === "::1";
-    return jsonError(502, loopback ? "无法连接本机中转服务，请确认服务正在运行后重试" : "无法连接上游服务，请检查网络或代理后重试");
+    if (!loopback) {
+      try {
+        return await curlForward(target, method, headers, body, timeoutMs);
+      } catch {
+        /* fall through to the original error */
+      }
+    }
+    const detail = error instanceof Error ? error.message.replace(/\s+/g, " ").slice(0, 180) : "";
+    return jsonError(
+      502,
+      loopback
+        ? "无法连接本机中转服务，请确认服务正在运行后重试"
+        : `无法连接上游服务${detail ? `（${detail}）` : ""}，请检查网络或代理后重试`,
+    );
   }
+}
+
+function curlForward(target: URL, method: string, headers: Headers, body: Buffer | undefined, timeoutMs: number) {
+  return new Promise<Response>((resolve, reject) => {
+    const args = [
+      "-sS",
+      "-D",
+      "-",
+      "--max-time",
+      String(Math.max(15, Math.ceil(timeoutMs / 1000))),
+      "-X",
+      method || "GET",
+      target.toString(),
+    ];
+    headers.forEach((value, key) => {
+      if (key.toLowerCase() === "content-length") return;
+      args.push("-H", `${key}: ${value}`);
+    });
+    if (body && body.length) args.push("--data-binary", "@-");
+    const child = spawn("curl", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const chunks: Buffer[] = [];
+    const errChunks: Buffer[] = [];
+    child.stdout.on("data", (chunk) => chunks.push(chunk as Buffer));
+    child.stderr.on("data", (chunk) => errChunks.push(chunk as Buffer));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(Buffer.concat(errChunks).toString("utf8").trim() || `curl ${code}`));
+        return;
+      }
+      const raw = Buffer.concat(chunks);
+      const split = raw.indexOf("\r\n\r\n");
+      const head = (split >= 0 ? raw.subarray(0, split) : raw).toString("utf8");
+      const payload = split >= 0 ? raw.subarray(split + 4) : Buffer.alloc(0);
+      const lines = head.split(/\r?\n/);
+      const status = Number((lines[0] || "").split(" ")[1] || "200") || 200;
+      const out = new Headers();
+      for (const line of lines.slice(1)) {
+        const idx = line.indexOf(":");
+        if (idx > 0) out.append(line.slice(0, idx).trim(), line.slice(idx + 1).trim());
+      }
+      out.delete("content-encoding");
+      out.set("content-length", String(payload.byteLength));
+      resolve(new Response(payload, { status, headers: out }));
+    });
+    if (body && body.length) child.stdin.end(body);
+    else child.stdin.end();
+  });
 }
 
 async function toClientResponse(upstream: Response) {
