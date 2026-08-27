@@ -35,7 +35,10 @@ export function BoundlessCanvasWorkspace() {
       const store = useCanvasStore.getState();
       if (id && store.openProject(id)) return;
       const fallback =
-        store.projects.find((item) => item.title.includes("清凉写真")) || store.projects[0];
+        store.projects.find((item) => item.title === "无限画布 1") ||
+        store.projects.find((item) => item.title.includes("无限画布")) ||
+        store.projects.find((item) => item.title.includes("清凉写真")) ||
+        store.projects[0];
       if (fallback) {
         if (!id || id !== fallback.id) {
           void navigate({ to: "/canvas/workspace", search: { id: fallback.id } });

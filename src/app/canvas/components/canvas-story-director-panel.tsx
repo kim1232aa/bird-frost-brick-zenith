@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Input, Select } from "antd";
 
-import { ModelLabel } from "@/components/model-icon";
+import { ModelIcon } from "@/components/model-icon";
 import { resolveImageSettingsContext } from "@/components/image-settings-panel";
 
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -15,8 +15,11 @@ import type { CanvasNodeData, CanvasNodeMetadata } from "../types";
 import {
     resolveStoryDirectorImageModelPresentation,
     resolveStoryDirectorTextModelPresentation,
+    storyDirectorEditableText,
     storyDirectorImageModelPatchForValue,
     storyDirectorTextModelPatchForValue,
+    STORY_DIRECTOR_IMAGE_MODEL_INHERIT,
+    STORY_DIRECTOR_TEXT_MODEL_INHERIT,
     type StoryDirectorTextModelSelection,
     type StoryDirectorTextModelSourceOption,
     type StoryDirectorTextModelOption,
@@ -57,13 +60,13 @@ const qualityOptions = [
     { value: "high", label: "4K" },
 ];
 
-type StorySelectKey = "textModel" | "imageModel" | "style" | "mode" | "aspect" | "quality";
+type StorySelectKey = "textModel" | "headerImageModel" | "imageModel" | "style" | "mode" | "aspect" | "quality";
 
 export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirectorInheritedTextModel = null, storyDirectorTextModels = [], storyDirectorInheritedImageModel = null, storyDirectorImageModels = [], config, onConfigChange, onAnalyzeStory, onGenerateCharacters, onGenerateShots, onRunAll, onCreateCharacterConfig, onCreateShotConfig, onImageSettingsOpenChange }: CanvasStoryDirectorPanelProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panelRef = useRef<HTMLDivElement | null>(null);
     const [openSelect, setOpenSelect] = useState<StorySelectKey | null>(null);
-    const storyText = node.metadata?.storyText ?? node.metadata?.content ?? "";
+    const storyText = storyDirectorEditableText(node.metadata);
     const canRun = Boolean(storyText.trim()) && storyText.trim() !== "在这里粘贴小说、章节或剧情梗概。\n\n建议包含：人物、场景、关键事件、对白、画风要求。";
     const storyStyle = node.metadata?.storyStyle || "电影感写实";
     const storyShotCount = node.metadata?.storyShotCount || 5;
@@ -100,7 +103,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         storyDirectorInheritedImageModel,
         storyDirectorImageModels,
     );
-    const getPopupContainer = useCallback((trigger: HTMLElement) => trigger.parentElement || document.body, []);
+    const getPopupContainer = useCallback(() => document.body, []);
     const closeSelect = useCallback(() => {
         setOpenSelect(null);
         window.setTimeout(() => {
@@ -157,7 +160,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                         options={storyDirectorImageModelPresentation.options}
                         title={storyDirectorImageModelPresentation.title}
                         placeholder="选择图片模型"
-                        selectProps={selectOpenProps("imageModel")}
+                        selectProps={selectOpenProps("headerImageModel")}
                         onChange={(value) => {
                             closeSelect();
                             const patch = storyDirectorImageModelPatchForValue(
@@ -318,11 +321,13 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                         图片生成模型与参数
                     </div>
                     <LabeledControl label="图片模型">
-                        <Select
-                            className="!w-full"
+                        <StoryDirectorTextModelSelect
                             value={storyDirectorImageModelPresentation.selectedValue}
                             options={storyDirectorImageModelPresentation.options}
-                            {...selectOpenProps("imageModel")}
+                            title={storyDirectorImageModelPresentation.title}
+                            placeholder="选择图片模型"
+                            fullWidth
+                            selectProps={selectOpenProps("imageModel")}
                             onChange={(value) => {
                                 closeSelect();
                                 const patch = storyDirectorImageModelPatchForValue(value, storyDirectorImageModels);
@@ -392,6 +397,13 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
 
                 {node.metadata?.errorDetails ? <div className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">{node.metadata.errorDetails}</div> : null}
 
+                {node.metadata?.storyAnalysisRenderedText && node.metadata.storyAnalysisRenderedText.trim() !== storyText.trim() ? (
+                    <section className="mt-3 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+                        <SectionHeader icon={<FileText className="size-3.5" />} label="故事内容发展" />
+                        <pre className="thin-scrollbar mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-5 opacity-80">{node.metadata.storyAnalysisRenderedText}</pre>
+                    </section>
+                ) : null}
+
                 {characters.length ? (
                     <section className="mt-3 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
                         <SectionHeader icon={<WandSparkles className="size-3.5" />} label="角色资产" />
@@ -423,6 +435,7 @@ function StoryDirectorTextModelSelect({
     options,
     title,
     placeholder = "选择模型",
+    fullWidth = false,
     selectProps,
     onChange,
 }: {
@@ -430,6 +443,7 @@ function StoryDirectorTextModelSelect({
     options: StoryDirectorTextModelOption[];
     title: string;
     placeholder?: string;
+    fullWidth?: boolean;
     selectProps: {
         open: boolean;
         onOpenChange: (open: boolean) => void;
@@ -437,20 +451,111 @@ function StoryDirectorTextModelSelect({
     };
     onChange: (value: string) => void;
 }) {
+    const selectOptions = groupStoryDirectorModelOptions(options);
     return (
         <Select
             size="small"
-            className="!w-[164px]"
+            className={fullWidth ? "!w-full" : "!h-auto !w-[176px] min-h-8"}
             value={value || undefined}
-            options={options.map((option) => ({ ...option, label: option.model ? <ModelLabel model={option.model} label={option.label} /> : option.label }))}
+            options={selectOptions}
             placeholder={placeholder}
             title={title}
             optionLabelProp="label"
             popupMatchSelectWidth={false}
-            styles={{ popup: { root: { minWidth: 220 } } }}
+            styles={{ popup: { root: { minWidth: 280 } } }}
+            optionRender={(ori) => {
+                const data = ori.data as unknown as StoryDirectorTextModelOption | undefined;
+                if (!data?.model || !data.value) return ori.label;
+                const providerName = String(data.providerName || "").trim();
+                const inherit = isStoryDirectorInheritValue(data.value);
+                if (providerName && !inherit) {
+                    return (
+                        <span className="flex min-w-0 items-center gap-2">
+                            <ModelIcon model={data.model} />
+                            <span className="min-w-0 break-all">{data.model}</span>
+                        </span>
+                    );
+                }
+                return ori.label;
+            }}
             {...selectProps}
             onChange={onChange}
         />
+    );
+}
+
+function isStoryDirectorInheritValue(value: string) {
+    return value === STORY_DIRECTOR_TEXT_MODEL_INHERIT || value === STORY_DIRECTOR_IMAGE_MODEL_INHERIT;
+}
+
+function groupStoryDirectorModelOptions(options: StoryDirectorTextModelOption[]) {
+    const specials: StoryDirectorTextModelOption[] = [];
+    const rest: StoryDirectorTextModelOption[] = [];
+    for (const option of options) {
+        if (isStoryDirectorInheritValue(option.value) || option.value.startsWith("__unresolved_story_director_text_model__")) {
+            specials.push(option);
+        } else {
+            rest.push(option);
+        }
+    }
+    const groups = new Map<string, StoryDirectorTextModelOption[]>();
+    for (const option of rest) {
+        const key = option.providerName || option.providerId || "其它模型";
+        const list = groups.get(key) || [];
+        list.push(option);
+        groups.set(key, list);
+    }
+    return [
+        ...specials.map((option) => ({
+            ...option,
+            label: (
+                <StoryDirectorModelOptionLabel
+                    model={option.model}
+                    providerName={option.providerName}
+                    label={option.label}
+                    inherit={isStoryDirectorInheritValue(option.value)}
+                />
+            ),
+        })),
+        ...[...groups.entries()].map(([groupLabel, list]) => ({
+            label: groupLabel,
+            options: list.map((option) => ({
+                ...option,
+                label: (
+                    <StoryDirectorModelOptionLabel
+                        model={option.model}
+                        providerName={option.providerName}
+                        label={option.label}
+                    />
+                ),
+            })),
+        })),
+    ];
+}
+
+function StoryDirectorModelOptionLabel({
+    model,
+    providerName,
+    label,
+    inherit = false,
+}: {
+    model?: string;
+    providerName?: string;
+    label: string;
+    inherit?: boolean;
+}) {
+    const name = model || label;
+    const vendor = String(providerName || "").trim();
+    return (
+        <span className="flex min-w-0 flex-col items-start leading-4">
+            <span className="flex min-w-0 items-center gap-1.5">
+                {model ? <ModelIcon model={model} className="size-3.5" /> : null}
+                <span className="min-w-0 break-all text-[12px] font-medium">
+                    {inherit ? `继承：${name}` : name}
+                </span>
+            </span>
+            {vendor ? <span className="w-full break-words text-[11px] opacity-70">{vendor}</span> : null}
+        </span>
     );
 }
 

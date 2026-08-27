@@ -19,6 +19,7 @@ export type StoryDirectorTextModelOption = {
   label: string;
   model?: string;
   providerId?: string;
+  providerName?: string;
 };
 
 export type AvailableProviderModelResolution = {
@@ -202,7 +203,7 @@ function unresolvedOption(
     )}`,
     label: `${provider ? `${provider} · ` : ""}${model}（${reason}）`,
     model,
-    ...(provider ? { providerId: provider } : {}),
+    ...(provider ? { providerId: provider, providerName: provider } : {}),
   };
 }
 
@@ -310,6 +311,7 @@ export function resolveStoryDirectorTextModelPresentation(
             label: inheritLabel,
             model: inheritedDisplayOption.model,
             providerId: inheritedDisplayOption.providerId,
+            providerName: inheritedDisplayOption.providerName,
           },
         ]
       : []),
@@ -407,3 +409,13 @@ export function storyDirectorTextModelPatchForValue(
       }
     : null;
 }
+
+/** Recover the user-authored story if analysis previously overwrote the textarea. */
+export function storyDirectorEditableText(metadata?: Partial<CanvasNodeMetadata>) {
+  const current = cleanText(metadata?.storyText) || cleanText(metadata?.content);
+  const original = cleanText(metadata?.storyOriginalText);
+  const rendered = cleanText(metadata?.storyAnalysisRenderedText);
+  if (original && rendered && current === rendered) return original;
+  return current;
+}
+

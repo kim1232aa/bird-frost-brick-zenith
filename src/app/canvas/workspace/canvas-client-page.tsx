@@ -430,6 +430,7 @@ import {
   hasCustomStoryDirectorTextModel,
   resolveStoryDirectorImageModelSelection,
   resolveStoryDirectorTextModelSelection,
+  storyDirectorEditableText,
   type StoryDirectorTextModelSelection,
 } from "../utils/story-director-text-model";
 import { normalizeStoryImageQuality } from "../utils/story-image-quality";
@@ -648,7 +649,7 @@ const CANVAS_IMAGE_TASK_POLL_INTERVAL_MS = 2_000;
 const CANVAS_IMAGE_TASK_POLL_RETRY_LIMIT = 15;
 const CANVAS_IMAGE_TASK_MISSING_GRACE_MS = 360_000;
 const localCanvasImageTasks = new Map<string, Promise<GeneratedImageResult>>();
-const STORY_DIRECTOR_IMAGE_CONCURRENCY = 5;
+const STORY_DIRECTOR_IMAGE_CONCURRENCY = 2;
 const STORY_DIRECTOR_SHOT_COLUMNS = 5;
 const STORY_DIRECTOR_SHOT_NODE_WIDTH = 340;
 const STORY_DIRECTOR_SHOT_NODE_HEIGHT = 604;
@@ -8743,11 +8744,7 @@ function InfiniteCanvasPage() {
 
   const createStoryDirectorConfig = useCallback(
     async (node: CanvasNodeData, kind: StoryDirectorConfigKind) => {
-      const storyText = (
-        node.metadata?.storyText ||
-        node.metadata?.content ||
-        ""
-      ).trim();
+      const storyText = storyDirectorEditableText(node.metadata);
       if (!storyText || storyText === STORY_DIRECTOR_PLACEHOLDER.trim()) {
         message.warning("请先在故事导演节点中粘贴小说或剧情文本");
         return;
@@ -8899,11 +8896,7 @@ function InfiniteCanvasPage() {
 
   const analyzeStoryDirector = useCallback(
     async (node: CanvasNodeData) => {
-      const storyText = (
-        node.metadata?.storyText ||
-        node.metadata?.content ||
-        ""
-      ).trim();
+      const storyText = storyDirectorEditableText(node.metadata);
       if (!storyText || storyText === STORY_DIRECTOR_PLACEHOLDER.trim()) {
         message.warning("请先粘贴小说或剧情文本");
         return null;
@@ -9107,8 +9100,8 @@ function InfiniteCanvasPage() {
                       storyAnalysisSourceText: storyText,
                       storyAnalysisRenderedText: storyDevelopmentText,
                       storyAnalysisShotCount: requestedShotCount,
-                      storyText: storyDevelopmentText,
-                      content: storyDevelopmentText,
+                      storyText,
+                      content: storyText,
                       storyCharacters: analysis.characters,
                       storyScenes: analysis.scenes,
                       storyShots: analysis.shots,
@@ -9546,7 +9539,7 @@ function InfiniteCanvasPage() {
                 (item) => item.id === nodeId,
               );
               if (uploadedCharacterNode)
-                await deriveCharacterTurnaroundViews(uploadedCharacterNode);
+                void deriveCharacterTurnaroundViews(uploadedCharacterNode);
             } catch (error) {
               const errorDetails = formatCanvasGenerationError(
                 error,
@@ -10350,6 +10343,96 @@ function InfiniteCanvasPage() {
                 error,
                 "分镜图生成失败",
               );
+              const canFallbackGenerate =
+                operation === "edit" &&
+                /Concurrency|429|Too Many Requests|OAuth|503|Service Unavailable/i.test(
+                  errorDetails,
+                );
+              if (canFallbackGenerate) {
+                try {
+                  message.warning(
+                    `第${shot.index}镜图生图受限，改用文生图补齐`,
+                  );
+                  const fallbackTaskId = `canvas-story-shot-fallback-${nodeId}-${Date.now()}`;
+                  resumedImageTaskIdsRef.current.add(fallbackTaskId);
+                  const pollTaskId = await submitCanvasImageTask(
+                    fallbackTaskId,
+                    requestImageConfig,
+                    "generate",
+                    prompt,
+                    [],
+                    {
+                      useReferenceLabels: false,
+                      boardRouteKey: "imageGeneration",
+                    },
+                  );
+                  const generated = await pollCanvasImageTask(pollTaskId);
+                  const uploaded = await uploadImage(
+                    generated.dataUrl,
+                    CANVAS_RETAINED_IMAGE_UPLOAD_OPTIONS,
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            width: shotNodeSize.width,
+                            height: shotNodeSize.height,
+                            metadata: {
+                              ...item.metadata,
+                              ...imageMetadata(uploaded, generated),
+                              prompt,
+                              ...buildImageGenerationMetadata(
+                                "generate",
+                                requestImageConfig,
+                                1,
+                                [],
+                              ),
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryShotStatus(item, shot.id, {
+                              status: "done",
+                              resultNodeIds: [
+                                ...(shot.resultNodeIds || []),
+                                nodeId,
+                              ],
+                              finalPrompt: prompt,
+                            })
+                          : item,
+                    ),
+                  );
+                  resumedImageTaskIdsRef.current.delete(fallbackTaskId);
+                  return;
+                } catch (fallbackError) {
+                  const fallbackDetails = formatCanvasGenerationError(
+                    fallbackError,
+                    "分镜图生成失败",
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            metadata: {
+                              ...item.metadata,
+                              status: NODE_STATUS_ERROR,
+                              errorDetails: fallbackDetails,
+                              sourceImageTaskId: undefined,
+                              imageGenerationAttemptId: undefined,
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryShotStatus(item, shot.id, {
+                              status: "error",
+                              errorDetails: fallbackDetails,
+                            })
+                          : item,
+                    ),
+                  );
+                  throw new Error(fallbackDetails);
+                }
+              }
               applyPersistedNodes((prev) =>
                 prev.map((item) =>
                   item.id === nodeId
@@ -10437,9 +10520,7 @@ function InfiniteCanvasPage() {
     async (node: CanvasNodeData) => {
       const current =
         nodesRef.current.find((item) => item.id === node.id) || node;
-      const analysis =
-        reusableStoryDirectorAnalysis(current) ||
-        (await analyzeStoryDirector(current));
+      const analysis = await analyzeStoryDirector(current);
       if (!analysis) return;
       const latest =
         nodesRef.current.find((item) => item.id === node.id) || node;
@@ -10448,6 +10529,23 @@ function InfiniteCanvasPage() {
       const afterCharacters =
         nodesRef.current.find((item) => item.id === node.id) || latest;
       await generateStoryShots(afterCharacters);
+      const afterShots =
+        nodesRef.current.find((item) => item.id === afterCharacters.id) ||
+        afterCharacters;
+      const pendingShots = (afterShots.metadata?.storyShots || []).filter(
+        (shot) =>
+          shot.status !== "done" && !(shot.resultNodeIds || []).length,
+      );
+      if (pendingShots.length) {
+        message.warning(
+          `还有 ${pendingShots.length} 个分镜未完成，正在等待后自动补齐`,
+        );
+        await sleep(12_000);
+        const retryNode =
+          nodesRef.current.find((item) => item.id === afterShots.id) ||
+          afterShots;
+        await generateStoryShots(retryNode);
+      }
     },
     [analyzeStoryDirector, generateStoryCharacters, generateStoryShots],
   );
@@ -19355,19 +19453,15 @@ function reusableStoryDirectorAnalysis(
   const metadata = node.metadata;
   const raw = String(metadata?.storyAnalysisRaw || "").trim();
   const source = String(metadata?.storyAnalysisSourceText || "").trim();
-  const rendered = String(metadata?.storyAnalysisRenderedText || "").trim();
-  const storyText = String(metadata?.storyText || "").trim();
-  const content = String(metadata?.content || "").trim();
+  const storyText = storyDirectorEditableText(metadata);
   const requestedShotCount = metadata?.storyShotCount || 5;
   if (
     metadata?.storyAnalysisStatus !== NODE_STATUS_SUCCESS ||
     !raw ||
     !source ||
-    !rendered ||
     metadata.storyAnalysisShotCount !== requestedShotCount ||
-    (!storyText && !content) ||
-    (storyText && storyText !== rendered) ||
-    (content && content !== rendered) ||
+    !storyText ||
+    source !== storyText ||
     detectTextApiResponseError(raw)
   ) {
     return null;

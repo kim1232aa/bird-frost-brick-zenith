@@ -1113,7 +1113,9 @@ export function nativeImageAdapterType(provider?: ImageCapabilityProvider): Imag
     if (!provider) return "";
     const explicit = String(provider.adapterType || "").trim().toLowerCase();
     if (explicit) {
-        if (explicit === "openai" || explicit === "openai-images") return "openai";
+        if (explicit === "openai" || explicit === "openai-images" || explicit === "openai-compat" || explicit === "openai-compatible") return "openai";
+        // Studio Grok / Imagine relays speak the OpenAI Images wire protocol.
+        if (explicit === "xai-imagine" || explicit === "xai") return "openai";
         if (explicit === "agnes") return "agnes";
         if (explicit === "dashscope") return "dashscope";
         if (explicit === "ark") return "ark";

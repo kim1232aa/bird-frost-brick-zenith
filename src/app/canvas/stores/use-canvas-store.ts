@@ -235,7 +235,18 @@ export const useCanvasStore = create<CanvasStore>()(
             replaceProjects: (projects, syncDeleted) => set((state) => ({ projects, syncDeleted: syncDeleted ?? state.syncDeleted })),
             updateProject: (id, patch) =>
                 set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, ...patch, updatedAt: new Date().toISOString() } : project)),
+                    projects: state.projects.map((project) => {
+                        if (project.id !== id) return project;
+                        if (
+                            Array.isArray(patch.nodes) &&
+                            patch.nodes.length === 0 &&
+                            (project.nodes?.length || 0) > 0
+                        ) {
+                            const { nodes: _ignored, ...rest } = patch;
+                            return { ...project, ...rest, updatedAt: new Date().toISOString() };
+                        }
+                        return { ...project, ...patch, updatedAt: new Date().toISOString() };
+                    }),
                 })),
             retryHydration: async () => {
                 clearCanvasRehydrateRetry();

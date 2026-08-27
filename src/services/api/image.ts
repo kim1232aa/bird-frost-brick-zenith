@@ -468,17 +468,19 @@ function prepareImageSettings(capability: ResolvedImageModelCapability, config: 
     const kind = capability.serialization.kind;
 
     if (kind === "openai-images-generate" || kind === "openai-images-edit" || kind === "openai-images-variation" || kind === "openai-responses-image-tool") {
-        const size = capability.size.state === "supported" && capability.size.kind === "dimensions"
-            ? !rawSize
+        const size = capability.size.state !== "supported"
+            ? undefined
+            : capability.size.kind === "dimensions"
+        ? !rawSize
                 ? undefined
                 : rawSize.includes(":")
                   ? resolveCapabilityAspectSize(capability, config.quality, rawSize)
                   : rawSize
             : rawSize && lowerSize !== "auto"
-              ? rawSize.includes(":") && capability.size.state === "supported" && capability.size.kind === "enum"
+              ? rawSize.includes(":") && capability.size.kind === "enum"
                 ? closestEnumImageSize(capability.size.values, rawSize) || rawSize
                 : rawSize
-              : capability.size.state === "supported" && capability.size.kind === "enum" && capability.size.allowAuto
+              : capability.size.kind === "enum" && capability.size.allowAuto
                 ? "auto"
                 : undefined;
         const requestQuality = quality && capability.quality.state === "supported" && capability.quality.values.some((value) => value.toLowerCase() === quality)
@@ -535,6 +537,7 @@ function prepareImageSettings(capability: ResolvedImageModelCapability, config: 
         };
     }
 
+    if (capability.size.state !== "supported") return {};
     const size = !rawSize || lowerSize === "auto"
         ? undefined
         : parseImageDimensions(rawSize)
