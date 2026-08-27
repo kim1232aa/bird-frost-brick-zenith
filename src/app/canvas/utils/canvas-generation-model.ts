@@ -13,12 +13,6 @@ import type {
   CanvasNodeMetadata,
 } from "../types";
 
-/**
- * Pin a Canvas node's explicit model in both the legacy request field and the
- * capability-specific field consumed by request routing. The latter removes
- * the ambiguity for model IDs intentionally classified for more than one
- * capability (for example, both text and image).
- */
 export function applyExplicitCanvasGenerationModel(
   config: AiConfig,
   mode: CanvasGenerationMode,
@@ -56,22 +50,6 @@ export function applyExplicitCanvasGenerationModel(
   };
 }
 
-/**
- * Resolve the selection shown by a global Canvas picker without guessing a
- * provider for legacy duplicate model IDs. An unavailable/ambiguous legacy
- * model remains visible through `legacyModel` until the user chooses a pair.
- */
-function remapDeadGrokSelection(
-  selection: ProviderModelSelection | null,
-  config: AiConfig,
-): ProviderModelSelection | null {
-  if (!selection || selection.providerId !== "preset-grok-relay") return selection;
-  const grok = (config.apiRelays || []).find((item) => item.id === "preset-grok-relay");
-  if (grok?.apiKey || grok?.apiKeys?.length) return selection;
-  if (!(config.apiRelays || []).some((item) => item.id === "preset-xai-official")) return selection;
-  return { ...selection, providerId: "preset-xai-official" };
-}
-
 export function resolveCanvasGenerationModelSelection(
   config: AiConfig,
   metadata: CanvasNodeMetadata | undefined,
@@ -86,7 +64,7 @@ export function resolveCanvasGenerationModelSelection(
         }
       : undefined;
   if (exactVideoScope) {
-    return { selection: remapDeadGrokSelection(exactVideoScope, config), legacyModel: "" };
+    return { selection: exactVideoScope, legacyModel: "" };
   }
   const model = firstNonEmptyModel(
     mode === "video" ? metadata?.seedanceModel : undefined,
@@ -99,35 +77,25 @@ export function resolveCanvasGenerationModelSelection(
   );
 
   if (model && providerId) {
-    return { selection: remapDeadGrokSelection({ providerId, model }, config), legacyModel: "" };
+    return { selection: { providerId, model }, legacyModel: "" };
   }
   if (model) {
     const resolution = resolveProviderModelSelection(config, mode, model);
     return resolution.status === "resolved"
-      ? { selection: remapDeadGrokSelection(resolution.selection, config), legacyModel: "" }
+      ? { selection: resolution.selection, legacyModel: "" }
       : { selection: null, legacyModel: model };
   }
 
   const route = config.apiRouting[mode];
   if (route?.providerId && route.model) {
     return {
-      selection: remapDeadGrokSelection({ providerId: route.providerId, model: route.model }, config),
+      selection: { providerId: route.providerId, model: route.model },
       legacyModel: "",
     };
   }
   return { selection: null, legacyModel: "" };
 }
 
-/**
- * Return a node's saved model only when it still belongs to the selected mode.
- *
- * Explicit provider classification is authoritative for opaque/custom model
- * ids. If its provider later disappears, the node selection remains explicit
- * so request routing reports that no provider owns it instead of silently
- * substituting the workspace default. A model explicitly classified only for a
- * different capability is the one case that is treated as a cross-mode stale
- * value and ignored.
- */
 export function replayableCanvasGenerationModel(
   config: AiConfig,
   metadata: CanvasNodeMetadata | undefined,
@@ -169,8 +137,6 @@ export function replayableCanvasGenerationModel(
     return "";
   }
 
-  // An unclassified opaque node value is still explicit user state. Keeping it
-  // lets strict route resolution block with a useful ownership error.
   return candidate;
 }
 
