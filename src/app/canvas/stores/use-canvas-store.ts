@@ -237,10 +237,13 @@ export const useCanvasStore = create<CanvasStore>()(
                 set((state) => ({
                     projects: state.projects.map((project) => {
                         if (project.id !== id) return project;
+                        // Ignore accidental nodes-only wipes (hydration / empty patch).
+                        // Intentional 删除选中 / 清空画布 also sends connections and must persist.
                         if (
                             Array.isArray(patch.nodes) &&
                             patch.nodes.length === 0 &&
-                            (project.nodes?.length || 0) > 0
+                            (project.nodes?.length || 0) > 0 &&
+                            !Array.isArray(patch.connections)
                         ) {
                             const { nodes: _ignored, ...rest } = patch;
                             return { ...project, ...rest, updatedAt: new Date().toISOString() };
@@ -363,9 +366,11 @@ function isIncompleteSeedGraph(project: CanvasProject, seedNodeCount: number, se
     const nodes = project.nodes || [];
     const connections = project.connections || [];
     const hasDirector = nodes.some((node) => node.type === "story_director");
+    // A live director means the user already owns this canvas. Never clobber it
+    // with /recovery/latest-story-canvas.json just because imageCount < 2.
+    if (hasDirector) return false;
     const imageCount = nodes.filter((node) => node.type === "image").length;
     return (
-        !hasDirector ||
         imageCount < 2 ||
         nodes.length < Math.min(seedNodeCount, 8) ||
         connections.length < Math.min(seedConnectionCount, 8) ||
