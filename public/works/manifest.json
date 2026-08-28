@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "cc540246-b703-4963-8bc0-ba506a5e01d9",
+      "kind": "image",
+      "title": "一只白瓷马克杯，纯白背景，商品静物，工作室灯光",
+      "prompt": "一只白瓷马克杯，纯白背景，商品静物，工作室灯光",
+      "model": "grok-imagine-image",
+      "urls": [
+        "/works/cc540246-b703-4963-8bc0-ba506a5e01d9-0.jpg"
+      ],
+      "createdAt": 1787952438839
+    }
+  ]
+}

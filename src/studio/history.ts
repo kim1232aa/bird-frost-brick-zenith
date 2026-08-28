@@ -44,7 +44,8 @@ async function persistItem(item: StudioHistoryItem) {
   const next = { ...item, urls };
   if (!urls[0]) return next;
   try {
-    await saveStudioWork({ data: next });
+    const saved = await saveStudioWork({ data: next });
+    if (saved?.item?.urls?.[0]) return saved.item;
   } catch {
     /* keep the local copy if the vault is down */
   }
@@ -60,9 +61,7 @@ export const useStudioHistory = create<HistoryState>()(
         const row: StudioHistoryItem = { ...item, id: crypto.randomUUID(), createdAt: Date.now() };
         set({ items: [row, ...get().items].slice(0, 80) });
         void persistItem(row).then((next) => {
-          if (next.urls[0] && next.urls[0] !== row.urls[0]) {
-            set({ items: get().items.map((current) => (current.id === row.id ? next : current)) });
-          }
+          set({ items: get().items.map((current) => (current.id === row.id ? next : current)) });
         });
         return row;
       },

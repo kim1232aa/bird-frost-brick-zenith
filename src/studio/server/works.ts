@@ -1,5 +1,6 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 
 export type StoredWork = {
@@ -12,15 +13,14 @@ export type StoredWork = {
   createdAt: number;
 };
 
-type WorkRow = {
-  id: string;
-  kind: string;
-  title: string;
-  prompt: string;
-  model: string;
-  urls_json: string;
-  created_at: string;
-};
+const OWNER = "studio";
+const WORKS_DIR = join(process.cwd(), "public", "works");
+const MANIFEST = join(WORKS_DIR, "manifest.json");
+
+function asKind(value: string): StoredWork["kind"] {
+  if (value === "video" || value === "story" || value === "ecommerce") return value;
+  return "image";
+}
 
 function parseUrls(value: unknown): string[] {
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
@@ -33,37 +33,114 @@ function parseUrls(value: unknown): string[] {
   }
 }
 
-function asKind(value: string): StoredWork["kind"] {
-  if (value === "video" || value === "story" || value === "ecommerce") return value;
-  return "image";
+async function readManifest(): Promise<StoredWork[]> {
+  try {
+    const raw = JSON.parse(await readFile(MANIFEST, "utf8")) as { items?: StoredWork[] };
+    return Array.isArray(raw.items) ? raw.items.filter((item) => item?.id && item.urls?.[0]) : [];
+  } catch {
+    return [];
+  }
 }
 
-function asItem(row: WorkRow): StoredWork {
-  const created = Date.parse(row.created_at);
-  return {
-    id: row.id,
-    kind: asKind(row.kind),
-    title: row.title || "未命名",
-    prompt: row.prompt || "",
-    model: row.model || "",
-    urls: parseUrls(row.urls_json),
-    createdAt: Number.isFinite(created) ? created : Date.now(),
-  };
+async function writeManifest(items: StoredWork[]) {
+  await mkdir(WORKS_DIR, { recursive: true });
+  await writeFile(MANIFEST, JSON.stringify({ items: items.slice(0, 80) }, null, 2));
 }
 
-export const listStudioWorks = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+function extOf(kind: string, mime: string, url: string) {
+  if (kind === "video" || mime.includes("mp4") || url.includes(".mp4")) return "mp4";
+  if (mime.includes("jpeg") || mime.includes("jpg") || url.startsWith("data:image/jpeg") || url.includes(".jpg")) return "jpg";
+  if (mime.includes("webp") || url.startsWith("data:image/webp")) return "webp";
+  return "png";
+}
+
+async function materialize(id: string, index: number, kind: string, url: string) {
+  if (!url) return "";
+  if (url.startsWith("/works/") || url.startsWith("/gallery/")) return url;
+  let bytes: Buffer | null = null;
+  let mime = "";
+  try {
+    if (url.startsWith("data:")) {
+      const match = url.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return url;
+      mime = match[1];
+      bytes = Buffer.from(match[2], "base64");
+    } else if (/^https?:\/\//i.test(url)) {
+      const response = await fetch(url);
+      if (!response.ok) return url;
+      mime = response.headers.get("content-type") || "";
+      bytes = Buffer.from(await response.arrayBuffer());
+    }
+  } catch {
+    return url;
+  }
+  if (!bytes?.length) return url;
+  const ext = extOf(kind, mime, url);
+  const name = `${id}-${index}.${ext}`;
+  await mkdir(WORKS_DIR, { recursive: true });
+  await writeFile(join(WORKS_DIR, name), bytes);
+  return `/works/${name}`;
+}
+
+async function upsertDb(item: StoredWork) {
+  try {
     const sql = await getSql();
-    const rows = await sql.query<WorkRow>(
-      "select id, kind, title, prompt, model, urls_json, created_at::text as created_at from studio_works where user_id = $1 order by created_at desc limit 80",
-      [context.userId],
+    await sql.query(
+      `insert into studio_works (id, user_id, kind, title, prompt, model, urls_json, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0))
+       on conflict (id) do update set
+         title = excluded.title,
+         prompt = excluded.prompt,
+         model = excluded.model,
+         urls_json = excluded.urls_json`,
+      [item.id, OWNER, item.kind, item.title, item.prompt, item.model, JSON.stringify(item.urls), item.createdAt],
     );
-    return rows.map(asItem);
-  });
+  } catch {
+    /* file manifest is the durable copy in preview */
+  }
+}
+
+async function listDb(): Promise<StoredWork[]> {
+  try {
+    const sql = await getSql();
+    const rows = await sql.query<{
+      id: string;
+      kind: string;
+      title: string;
+      prompt: string;
+      model: string;
+      urls_json: string;
+      created_at: string;
+    }>(
+      "select id, kind, title, prompt, model, urls_json, created_at::text as created_at from studio_works where user_id = $1 order by created_at desc limit 80",
+      [OWNER],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      kind: asKind(row.kind),
+      title: row.title || "未命名",
+      prompt: row.prompt || "",
+      model: row.model || "",
+      urls: parseUrls(row.urls_json),
+      createdAt: Date.parse(row.created_at) || Date.now(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export const listStudioWorks = createServerFn({ method: "GET" }).handler(async () => {
+  const seen = new Set<string>();
+  const out: StoredWork[] = [];
+  for (const item of [...(await listDb()), ...(await readManifest())]) {
+    if (!item.id || seen.has(item.id) || !item.urls[0]) continue;
+    seen.add(item.id);
+    out.push(item);
+  }
+  return out.sort((a, b) => b.createdAt - a.createdAt).slice(0, 80);
+});
 
 export const saveStudioWork = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
   .validator((value: StoredWork) => ({
     id: String(value?.id || "").trim(),
     kind: asKind(String(value?.kind || "image")),
@@ -73,29 +150,31 @@ export const saveStudioWork = createServerFn({ method: "POST" })
     urls: Array.isArray(value?.urls) ? value.urls.filter((item) => typeof item === "string").slice(0, 8) : [],
     createdAt: typeof value?.createdAt === "number" ? value.createdAt : Date.now(),
   }))
-  .handler(async ({ context, data }) => {
-    if (!data.id || !data.urls[0]) return { ok: false as const };
-    const sql = await getSql();
-    await sql.query(
-      `insert into studio_works (id, user_id, kind, title, prompt, model, urls_json, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8 / 1000.0))
-       on conflict (id) do update set
-         title = excluded.title,
-         prompt = excluded.prompt,
-         model = excluded.model,
-         urls_json = excluded.urls_json
-       where studio_works.user_id = excluded.user_id`,
-      [data.id, context.userId, data.kind, data.title, data.prompt, data.model, JSON.stringify(data.urls), data.createdAt],
-    );
-    return { ok: true as const };
+  .handler(async ({ data }) => {
+    if (!data.id || !data.urls[0]) return { ok: false as const, item: null };
+    const urls = [];
+    for (const [index, url] of data.urls.entries()) {
+      urls.push(await materialize(data.id, index, data.kind, url));
+    }
+    const item: StoredWork = { ...data, urls: urls.filter(Boolean) };
+    if (!item.urls[0]) return { ok: false as const, item: null };
+    const current = await readManifest();
+    await writeManifest([item, ...current.filter((row) => row.id !== item.id)]);
+    await upsertDb(item);
+    return { ok: true as const, item };
   });
 
 export const deleteStudioWork = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
   .validator((value: { id: string }) => ({ id: String(value?.id || "").trim() }))
-  .handler(async ({ context, data }) => {
+  .handler(async ({ data }) => {
     if (!data.id) return { ok: false as const };
-    const sql = await getSql();
-    await sql.query("delete from studio_works where id = $1 and user_id = $2", [data.id, context.userId]);
+    const current = await readManifest();
+    await writeManifest(current.filter((row) => row.id !== data.id));
+    try {
+      const sql = await getSql();
+      await sql.query("delete from studio_works where id = $1 and user_id = $2", [data.id, OWNER]);
+    } catch {
+      /* ignore */
+    }
     return { ok: true as const };
   });
