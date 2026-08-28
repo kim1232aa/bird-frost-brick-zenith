@@ -78,7 +78,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     if (next) setSelection(next);
   }, []);
 
-  const models = liveCatalog("video", false);
+  const models = liveCatalog("video", true);
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection);
   const isArk = /volcengine|seedance/i.test(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;

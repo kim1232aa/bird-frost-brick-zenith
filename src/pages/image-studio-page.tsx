@@ -63,7 +63,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const succeedJob = useStudioJobs((state) => state.succeed);
   const failJob = useStudioJobs((state) => state.fail);
   const access = useGenerateAccess();
-  const allModels = liveCatalog("image", false);
+  const allModels = liveCatalog("image", true);
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [selection, setSelection] = useState(preferredImageKey());
@@ -95,7 +95,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   }, []);
 
   const models = useMemo(() => {
-    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model) && card.wired);
+    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model));
     return allModels.filter((card) => !isEditOnlyModel(card.model));
   }, [allModels, mode]);
 

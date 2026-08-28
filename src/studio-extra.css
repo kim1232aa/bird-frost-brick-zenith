@@ -381,6 +381,14 @@
   border-radius: 12px;
 }
 
+.shot-grid .shot-card img {
+  width: 100%;
+  height: auto;
+  max-height: 220px;
+  object-fit: contain;
+  background: #f8fafc;
+}
+
 .bp-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

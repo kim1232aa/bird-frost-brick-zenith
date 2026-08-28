@@ -9,6 +9,9 @@ export const openaiCompatAdapter: StudioAdapter = {
   async generateImage(ctx, input) {
     const refs = imageRefs(input);
     const editing = input.operation === "edit" || refs.length > 0;
+    if (editing && !refs.length) {
+      throw new Error("改图至少需要 1 张参考图");
+    }
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: editing ? "/images/edits" : ctx.provider.endpoints?.images || "/images/generations",
@@ -17,10 +20,14 @@ export const openaiCompatAdapter: StudioAdapter = {
         prompt: input.prompt,
         n: input.n || 1,
         ...(input.size ? { size: input.size } : {}),
-        ...(refs.length === 1 ? { image: refs[0] } : {}),
-        ...(refs.length > 1 ? { image: refs[0], images: refs } : {}),
+        ...(editing
+          ? {
+              images: refs.map((url) => ({ image_url: url })),
+              image: { image_url: refs[0] },
+            }
+          : {}),
       },
-      timeoutMs: 120_000,
+      timeoutMs: 180_000,
     });
     const urls = allImageUrls(data);
     if (!urls[0]) throw new Error("OpenAI 兼容生图没有返回图片");

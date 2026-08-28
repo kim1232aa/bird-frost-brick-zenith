@@ -28,7 +28,7 @@ export function CompactModelSelect({
         onChange(next);
       }}
       label={label}
-      wiredOnly={false}
+      wiredOnly
     />
   );
 }
@@ -37,7 +37,7 @@ function prefer(kind: ModelCard["kind"], favorite?: (card: ModelCard) => boolean
   const listed = liveCatalog(kind, false);
   const wired = liveCatalog(kind, true);
   const saved = kind === "audio" ? useCurrentModels.getState().audio : useCurrentModels.getState()[kind];
-  if (saved && listed.some((card) => catalogKey(card) === saved)) return saved;
+  if (saved && wired.some((card) => catalogKey(card) === saved)) return saved;
   const pool = wired.length ? wired : listed;
   const hit = favorite ? pool.find(favorite) : undefined;
   return hit ? catalogKey(hit) : pool[0] ? catalogKey(pool[0]) : "";
@@ -81,7 +81,7 @@ export function StudioModelField({
 }) {
   useStudioSession((state) => state.relays);
   useOpsStore((state) => state.unlisted);
-  const cards = incoming?.length ? incoming : liveCatalog(kind, false);
+  const cards = incoming?.length ? incoming : liveCatalog(kind, true);
   const groups = useMemo(() => {
     const map = new Map<string, ModelCard[]>();
     for (const card of cards) {
