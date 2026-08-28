@@ -78,12 +78,26 @@ export async function waitStudioVideo(input: {
   model?: string;
   ticketId?: string;
   onTick?: (n: number) => void;
+  prompt?: string;
+  workTitle?: string;
 }) {
   try {
     for (let i = 0; i < 60; i += 1) {
       input.onTick?.(i + 1);
       const state = await pollStudioVideo(input);
-      if (state.status === "completed" && state.url) return state.url;
+      if (state.status === "completed" && state.url) {
+        if (typeof window !== "undefined") {
+          const { recordGeneratedWork } = await import("@/studio/history");
+          recordGeneratedWork({
+            kind: "video",
+            title: (input.workTitle || input.prompt || input.model || "视频").slice(0, 40),
+            prompt: input.prompt || "",
+            model: input.model || "",
+            urls: [state.url],
+          });
+        }
+        return state.url;
+      }
       if (state.status === "failed") throw new Error(state.error || "视频生成失败");
       await new Promise((resolve) => window.setTimeout(resolve, 4000));
     }

@@ -52,12 +52,23 @@ async function persistItem(item: StudioHistoryItem) {
   return next;
 }
 
+export function recordGeneratedWork(item: Omit<StudioHistoryItem, "id" | "createdAt">) {
+  if (typeof window === "undefined") return;
+  if (!item.urls?.[0]) return;
+  useStudioHistory.getState().add(item);
+}
+
 export const useStudioHistory = create<HistoryState>()(
   persist(
     (set, get) => ({
       items: [],
       hydrated: false,
       add: (item) => {
+        const first = item.urls?.[0] || "";
+        if (first) {
+          const existing = get().items.find((row) => row.urls[0] === first);
+          if (existing) return existing;
+        }
         const row: StudioHistoryItem = { ...item, id: crypto.randomUUID(), createdAt: Date.now() };
         set({ items: [row, ...get().items].slice(0, 80) });
         void persistItem(row).then((next) => {

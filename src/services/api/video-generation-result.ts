@@ -30,10 +30,23 @@ export function createVideoGenerationResult(
         }
         return output;
     });
-    return {
+    const result = {
         ...normalized[0],
         outputs: normalized,
     };
+    const url = String(result.url || "").trim();
+    if (typeof window !== "undefined" && url) {
+        void import("@/studio/history").then(({ recordGeneratedWork }) => {
+            recordGeneratedWork({
+                kind: "video",
+                title: `画布视频 · ${providerLabel}`.slice(0, 40),
+                prompt: "",
+                model: providerLabel,
+                urls: [url],
+            });
+        });
+    }
+    return result;
 }
 
 export function videoGenerationResultOutputs(result: VideoGenerationResult): readonly VideoGenerationOutput[] {

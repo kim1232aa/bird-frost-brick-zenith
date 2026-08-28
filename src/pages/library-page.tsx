@@ -8,6 +8,14 @@ import { downloadBlob, exportStudioLibrary, importStudioLibrary } from "@/studio
 import { useMediaDraft } from "@/studio/media-draft";
 import { dropToCanvas } from "@/studio/split";
 
+function kindLabel(kind: string, title = "") {
+  if (kind === "story" || title.startsWith("故事")) return "故事导演";
+  if (title.startsWith("画布")) return "无限画布";
+  if (kind === "ecommerce") return "电商套图";
+  if (kind === "video") return "视频";
+  return "图片";
+}
+
 function WorkCard({
   item,
   sample,
@@ -28,7 +36,7 @@ function WorkCard({
       <div>
         <b>{item.title}</b>
         <p>
-          {item.model}
+          {kindLabel(item.kind, item.title)} · {item.model}
           {item.urls.length > 1 ? ` · ${item.urls.length} 张` : ""}
         </p>
         <div className="shot-actions">
@@ -116,7 +124,7 @@ export function LibraryPage() {
       <header className="studio-library-head">
         <div>
           <h1>作品</h1>
-          <p className="studio-lead">这里只放你生成成功的记录。样张在下面单独一栏，不会冒充本机作品。</p>
+          <p className="studio-lead">生图、改图、故事导演分镜、无限画布出片，成功后都会进这里。样张在下面单独一栏。</p>
         </div>
         <div className="result-actions">
           <button type="button" className="studio-ghost" onClick={() => inputRef.current?.click()}>

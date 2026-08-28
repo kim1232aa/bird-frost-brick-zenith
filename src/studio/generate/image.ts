@@ -29,6 +29,8 @@ export async function generateStudioImage(input: {
   operation?: "generate" | "edit";
   loras?: Record<string, number> | Readonly<Record<string, number>>;
   strength?: number;
+  workTitle?: string;
+  workKind?: "image" | "story" | "ecommerce";
 }): Promise<StudioImageResult> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请填写提示词");
@@ -73,6 +75,16 @@ export async function generateStudioImage(input: {
     ]);
     const urls = (result.urls && result.urls.length ? result.urls : [result.url]).filter(Boolean);
     if (!urls[0]) throw new Error("没有返回图片");
+    if (typeof window !== "undefined") {
+      const { recordGeneratedWork } = await import("@/studio/history");
+      recordGeneratedWork({
+        kind: input.workKind || "image",
+        title: (input.workTitle || prompt).slice(0, 40),
+        prompt,
+        model,
+        urls,
+      });
+    }
     return { url: urls[0], urls, model, providerId };
   } catch (err) {
     useOpsStore.getState().refund(ticket.id);
