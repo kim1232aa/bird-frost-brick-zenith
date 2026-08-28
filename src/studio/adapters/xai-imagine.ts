@@ -52,7 +52,7 @@ export const xaiImagineAdapter: StudioAdapter = {
   async createVideo(ctx, input) {
     const stills = Array.from(
       new Set([input.imageUrl, ...(input.imageUrls || []), input.lastFrameUrl].map((item) => String(item || "").trim()).filter(Boolean)),
-    ).slice(0, 5);
+    ).slice(0, 7);
     const first = input.imageUrl || stills[0];
     const last = input.lastFrameUrl && input.lastFrameUrl !== first ? input.lastFrameUrl : stills.length > 1 ? stills[stills.length - 1] : undefined;
     const body = {
@@ -61,6 +61,7 @@ export const xaiImagineAdapter: StudioAdapter = {
       ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
       ...(input.aspectRatio ? { aspect_ratio: input.aspectRatio } : {}),
       ...(input.resolution ? { resolution: input.resolution } : {}),
+      ...(typeof input.generateAudio === "boolean" ? { generate_audio: input.generateAudio } : {}),
       ...(first ? { image: { url: first } } : {}),
       ...(last ? { last_frame_image: { url: last } } : {}),
       ...(stills.length ? { image_urls: stills } : {}),
