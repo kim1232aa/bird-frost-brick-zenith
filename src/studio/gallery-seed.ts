@@ -13,8 +13,8 @@ export const GALLERY_SEED: StudioHistoryItem[] = [
   {
     id: "seed-civitai",
     kind: "image",
-    title: "Civitai Krea 2 Turbo · 陶瓷杯",
-    prompt: "studio product photo of a matte ceramic mug",
+    title: "Civitai Krea 2 Turbo · 人像",
+    prompt: "cinematic portrait, rain, neon rim light",
     model: "krea2-turbo",
     urls: ["/gallery/civitai-krea.jpg"],
     createdAt: 0,
@@ -26,15 +26,6 @@ export const GALLERY_SEED: StudioHistoryItem[] = [
     prompt: "a ceramic mug rotating slowly on a white studio turntable",
     model: "grok-imagine-video",
     urls: ["/gallery/grok-video.mp4"],
-    createdAt: 0,
-  },
-  {
-    id: "seed-remix",
-    kind: "image",
-    title: "Civitai remix · 138552012",
-    prompt: "official metadata remix of civitai image 138552012",
-    model: "krea2-turbo",
-    urls: ["/gallery/remix-138552012.jpg"],
     createdAt: 0,
   },
 ];

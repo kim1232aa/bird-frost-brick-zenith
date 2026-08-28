@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { bootstrapStudioAuth, useAccountStore } from "@/studio/account";
+import { useStudioHistory } from "@/studio/history";
 import { useStudioSession } from "@/studio/session";
 
 const queryClient = new QueryClient({
@@ -23,6 +24,7 @@ export function StudioRuntime({ children }: { children: ReactNode }) {
     const persist = useStudioSession.persist;
     const run = () => {
       void useStudioSession.getState().hydrateVault();
+      void useStudioHistory.getState().hydrate();
     };
     if (persist.hasHydrated()) run();
     const unsub = persist.onFinishHydration(run);
