@@ -105,6 +105,9 @@ export function serializeDashscopeImageParameters(model: string, options: { size
         if (n !== 1) throw new Error(`${model} 单次请求固定生成 1 张；多张必须由客户端独立调用`);
         return { ...(size ? { size } : {}), prompt_extend: false };
     }
+    if (modelKey.startsWith("qwen-image-2-") || modelKey.startsWith("qwen-image-3-")) {
+        return { ...(size ? { size } : {}), n, prompt_extend: true, watermark: false };
+    }
     if (modelKey === "wan2-7-image" || modelKey === "wan2-7-image-pro") {
         const sequential = options.sequential === true;
         const max = sequential ? 12 : 4;

@@ -15,6 +15,7 @@ import {
     isSameProviderDiscoveryConnection,
     safeProviderDiscoveryErrorMessage,
 } from "@/components/provider-discovery-state";
+import { RelayConfigTransferPanel } from "@/components/relay-config-transfer-panel";
 import { WebdavSettingsPanel } from "@/components/webdav-settings-panel";
 import { Button } from "@/components/ui/button";
 import {
@@ -450,6 +451,8 @@ export function ApiAccessSettingsDialog() {
                                     <div className="text-base font-semibold">中转设置</div>
                                     <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">配置中转地址和每个中转可用的<span className="whitespace-nowrap">模型列表</span>。</div>
                                 </div>
+
+                                <RelayConfigTransferPanel />
                                 <div className="grid gap-2 rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-3 sm:grid-cols-3">
                                     {(["text", "image", "video"] as const).map((capability) => {
                                         const route = STUDIO_ROUTES[capability];
@@ -877,6 +880,9 @@ function RelayProviderCard({ provider, displayName, loading, onChange, onDelete,
                         <option value="ark">火山方舟 Ark</option>
                         <option value="sensenova">SenseNova</option>
                         <option value="sensenova-miaohua">SenseTime 秒画</option>
+                        <option value="xai-imagine">xAI Grok Imagine</option>
+                        <option value="modelscope">ModelScope</option>
+                        <option value="huggingface">Hugging Face</option>
                         <option value="civitai-orchestration">Civitai Orchestration</option>
                     </select>
                 </Field>

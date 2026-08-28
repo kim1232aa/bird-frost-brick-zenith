@@ -508,6 +508,12 @@ const DASHSCOPE_512_TO_2048_SIZE = dimensions({
     boundsPublished: true,
     rules: { minPixels: 512 * 512, maxPixels: 2048 * 2048 },
 });
+const DASHSCOPE_QWEN_20_SIZE = dimensions({
+    boundsPublished: true,
+    rules: { minPixels: 512 * 512, maxPixels: 2048 * 2048, maxAspectRatio: 8 },
+    examples: ["2048x2048", "2688x1536", "1536x2688", "2368x1728", "1728x2368"],
+    note: "Qwen-Image 2.0/3.0 official 2K presets; default 2048x2048",
+});
 const DASHSCOPE_QWEN_SINGLE_SIZES = enumSize(["1664x928", "1472x1104", "1328x1328", "1104x1472", "928x1664"]);
 const DASHSCOPE_WAN27_PRO_SIZE = dimensions({
     boundsPublished: true,
@@ -908,7 +914,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         label: "DashScope Qwen Image generation",
         outputCount: nativeBatch(1, 6),
         referenceCount: UNSUPPORTED_REFERENCES,
-        size: DASHSCOPE_512_TO_2048_SIZE,
+        size: DASHSCOPE_QWEN_20_SIZE,
         quantityField: "n",
         evidence: [DASHSCOPE_QWEN_IMAGE_DOC],
     }),
@@ -918,7 +924,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         label: "DashScope Qwen Image edit",
         outputCount: nativeBatch(1, 6),
         referenceCount: references(1, 3),
-        size: DASHSCOPE_512_TO_2048_SIZE,
+        size: DASHSCOPE_QWEN_20_SIZE,
         quantityField: "n",
         evidence: [DASHSCOPE_QWEN_IMAGE_DOC, DASHSCOPE_QWEN_EDIT_DOC],
     }),

@@ -20,6 +20,7 @@ export type ImageGenInput = {
   model: string;
   prompt: string;
   size?: string;
+  aspectRatio?: string;
   width?: number;
   height?: number;
   seed?: number;

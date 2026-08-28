@@ -14,6 +14,10 @@ function isQwenImage(model: string) {
   return /qwen[-_]?image/i.test(model);
 }
 
+function isQwenImage20or30(model: string) {
+  return /qwen[-_]?image[-_]?[23]/i.test(model);
+}
+
 function isWanxV1(model: string) {
   return /^wanx-v1$/i.test(model.trim());
 }
@@ -27,6 +31,53 @@ function wanMaxRefs(model: string) {
   if (/wan2\.6/i.test(model)) return 4;
   if (/wan2\.5/i.test(model)) return 2;
   return 1;
+}
+
+/** Official Qwen-Image 2.0/3.0 2K presets: https://help.aliyun.com/zh/model-studio/qwen-image-api */
+const QWEN20_2K: Record<string, string> = {
+  "1:1": "2048*2048",
+  "16:9": "2688*1536",
+  "9:16": "1536*2688",
+  "4:3": "2368*1728",
+  "3:4": "1728*2368",
+};
+const QWEN20_1K: Record<string, string> = {
+  "1:1": "1024*1024",
+  "16:9": "1344*768",
+  "9:16": "768*1344",
+  "4:3": "1152*864",
+  "3:4": "864*1152",
+};
+const QWEN_PLUS: Record<string, string> = {
+  "1:1": "1328*1328",
+  "16:9": "1664*928",
+  "9:16": "928*1664",
+  "4:3": "1472*1104",
+  "3:4": "1104*1472",
+};
+
+function parsePixelSize(value: string) {
+  const match = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(String(value || "").trim());
+  if (!match) return undefined;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
+export function qwenImagePixelSize(model: string, size?: string, ratio?: string) {
+  const raw = String(size || "2K").trim() || "2K";
+  const aspect = String(ratio || "1:1").trim() || "1:1";
+  const pixels = parsePixelSize(raw);
+  if (pixels) {
+    const area = pixels.width * pixels.height;
+    if (area >= 512 * 512 && area <= 2048 * 2048) return `${pixels.width}*${pixels.height}`;
+  }
+  if (!isQwenImage20or30(model)) {
+    return QWEN_PLUS[aspect] || "1328*1328";
+  }
+  const tier = raw.toUpperCase();
+  if (tier === "1K") return QWEN20_1K[aspect] || "1024*1024";
+  return QWEN20_2K[aspect] || "2048*2048";
 }
 
 async function pollTask(ctx: Parameters<NonNullable<StudioAdapter["pollVideo"]>>[0], taskId: string) {
@@ -72,15 +123,20 @@ export const dashscopeAdapter: StudioAdapter = {
             messages: [
               {
                 role: "user",
-                content: [{ text: input.prompt }, ...refs.map((url) => ({ image: url }))],
+                content: [
+                  ...refs.map((url) => ({ image: url })),
+                  { text: input.prompt },
+                ],
               },
             ],
           },
           parameters: {
             watermark: false,
             prompt_extend: true,
-            n: input.n || 1,
-            size: input.size === "3K" ? "2048*2048" : input.size === "1K" ? "1024*1024" : "1328*1328",
+            n: Math.max(1, Math.min(isQwenImage20or30(input.model) ? 6 : 1, input.n || 1)),
+            size: qwenImagePixelSize(input.model, input.size, input.aspectRatio),
+            ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+            ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
           },
         },
         timeoutMs: 120_000,

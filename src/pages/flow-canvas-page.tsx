@@ -561,6 +561,7 @@ function CanvasInner() {
         model: selection.model,
         imageUrl: node.data.kind === "upscale" ? imageUrl : characters[0]?.data.url || imageUrl,
         size: node.data.size || node.data.quality || "2K",
+        aspectRatio: node.data.ratio || "1:1",
         negativePrompt: node.data.negative,
         seed: node.data.seed ? Number(node.data.seed) : undefined,
         n: node.data.count,

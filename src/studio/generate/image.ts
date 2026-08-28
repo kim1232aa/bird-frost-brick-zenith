@@ -18,6 +18,7 @@ export async function generateStudioImage(input: {
   model?: string;
   providerId?: string;
   size?: string;
+  aspectRatio?: string;
   imageUrl?: string;
   imageUrls?: string[];
   width?: number;
@@ -53,6 +54,7 @@ export async function generateStudioImage(input: {
           model,
           prompt,
           size: input.size,
+          aspectRatio: input.aspectRatio,
           imageUrl: refs[0],
           imageUrls: refs,
           width: input.width,
