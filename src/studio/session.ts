@@ -60,7 +60,7 @@ function readPersisted(value: unknown): PersistedSession {
 export const useStudioSession = create<StudioSession>()(
   persist(
     (set, get) => ({
-      relays: withAllEnabled(studioRelays()),
+      relays: studioRelays(),
       hiddenPresetIds: [],
       setRelayKey: (id, apiKey) =>
         set({
@@ -106,7 +106,7 @@ export const useStudioSession = create<StudioSession>()(
     }),
     {
       name: "boundless-studio:session",
-      version: 11,
+      version: 13,
       migrate: (persisted) => {
         const saved = readPersisted(persisted);
         return {

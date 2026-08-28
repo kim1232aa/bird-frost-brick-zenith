@@ -22,6 +22,17 @@ import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
 
 type VideoMode = "t2v" | "i2v" | "flf" | "extract";
 
+const TEMPLATE_GROUPS = (() => {
+  const map = new Map<string, typeof VIDEO_TEMPLATES>();
+  for (const item of VIDEO_TEMPLATES) {
+    const group = item.group || "模板";
+    const list = map.get(group) || [];
+    list.push(item);
+    map.set(group, list);
+  }
+  return [...map.entries()];
+})();
+
 export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMode }) {
   const navigate = useNavigate();
   const relays = useStudioSession((state) => state.relays);
@@ -35,7 +46,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const access = useGenerateAccess();
   const [selection, setSelection] = useState(preferredVideoKey());
   const [textModel, setTextModel] = useState(preferredTextKey());
-  const [prompt, setPrompt] = useState(VIDEO_TEMPLATES[0].prompt);
+  const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(6);
   const [ratio, setRatio] = useState("16:9");
   const firstFrame = useMediaDraft((state) => state.firstFrame);
@@ -65,11 +76,6 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     if (next) setSelection(next);
   }, []);
 
-  useEffect(() => {
-    const allowed = liveCatalog("video", false).map((item) => catalogKey(item));
-    if (selection && allowed.length && !allowed.includes(selection)) setSelection(preferredVideoKey());
-  }, [selection]);
-
   const models = liveCatalog("video", false);
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection);
   const groups = useMemo(() => {
@@ -83,10 +89,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   }, [models]);
   const isArk = /volcengine|seedance/i.test(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;
-  const recent = useMemo(
-    () => [...items.filter((item) => item.kind === "video" && item.urls[0]), ...GALLERY_SEED.filter((item) => item.kind === "video")],
-    [items],
-  );
+  const mine = useMemo(() => items.filter((item) => item.kind === "video" && item.urls[0]), [items]);
+  const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "video"), []);
   const creditCost = duration >= 8 ? 2 : 1;
 
   const goMode = (next: VideoMode) => {
@@ -170,9 +174,9 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       const message = err instanceof Error ? err.message : "视频生成失败";
       failJob(jobId, message);
       if (message.includes("eligible")) {
-        setError("Grok 视频额度暂时用尽。这条接线之前已经出过片，样片在右侧可播。");
+        setError(`${card?.model || "当前模型"} 返回额度不足。换一条已接线的视频模型，或稍后再试。不会自动改线路。`);
       } else if (/cloudflare|403/i.test(message)) {
-        setError("Grok 中转被 Cloudflare 拦截。请改用 Civitai LTX 2.3，或稍后再试。");
+        setError(`${card?.provider || "当前中转"} 被拦截（403）。换一条已接线的视频模型，或稍后再试。不会自动改线路。`);
       } else {
         setError(message);
       }
@@ -226,7 +230,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         ? { kicker: "VIDEO", title: "首尾帧驱动", copy: "首帧和尾帧都会提交。火山 Seedance 走 last_frame。" }
         : mode === "i2v"
           ? { kicker: "VIDEO", title: "图生视频", copy: "必须上传首帧。尾帧可选，火山适配器已接通 lastFrameUrl。" }
-          : { kicker: "VIDEO", title: "文生视频", copy: "写镜头、选时长和画幅。积分只是本地演示。" };
+          : { kicker: "VIDEO", title: "文生视频", copy: "写镜头、选时长和画幅。点生成走你选的视频模型，成功才扣本账号视频点。" };
 
   if (mode === "extract") {
     return (
@@ -275,7 +279,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
               <button type="button" className="studio-ghost" disabled={!clipUrl} onClick={extractCurrent}>
                 抽当前帧
               </button>
-              {error ? <p className="studio-error">{error}</p> : null}
+              {error ? <p className="studio-error" role="alert">{error}</p> : null}
             </div>
           </aside>
           <section className="bp-right">
@@ -348,7 +352,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         <p>{hero.copy}</p>
       </header>
       <GuestGenerateBanner kind="video" />
-      <p className="alert-banner warn">Grok 视频额度用尽时，右侧仍可播放已实测样片。也可改用 Civitai LTX。</p>
+      <p className="alert-banner warn">选哪个模型就打哪条接线。额度不够或中转失败时，错误出在按钮下面，不会自动换供应商。</p>
       <div className="bp-work">
       <aside className="bp-left">
         <p className="studio-kicker">{card?.model || "生视频"}</p>
@@ -412,19 +416,23 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             <small>不上传则走文生视频</small>
           </label>
         )}
-        <p className="studio-kicker">没思路？点模板</p>
-        <div className="chip-row">
-          {VIDEO_TEMPLATES.map((item) => (
-            <button
-              key={item.label}
-              type="button"
-              className={prompt === item.prompt ? "is-active" : undefined}
-              onClick={() => setPrompt(item.prompt)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
+        {TEMPLATE_GROUPS.map(([group, list]) => (
+          <div key={group}>
+            <p className="studio-kicker">{group}</p>
+            <div className="chip-row">
+              {list.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  className={prompt === item.prompt ? "is-active" : undefined}
+                  onClick={() => setPrompt(item.prompt)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
         <p className="studio-kicker">选择模型 · {models.length} 个可切换</p>
         <div className="bp-pick" data-testid="video-models">
           {models.length === 0 ? <p className="studio-hint">后台还没有上架视频模型。</p> : null}
@@ -479,21 +487,21 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             <span>{busy ? `生成中 · ${busy}` : mode === "flf" ? "按首尾帧生成" : "生成视频"}</span>
             <small>{disabledReason || `${creditCost} 点 · 剩余 ${remaining}`}</small>
           </button>
-          {error ? <p className="studio-error">{error}</p> : null}
+          {error ? <p className="studio-error" role="alert">{error}</p> : null}
         </div>
       </aside>
       <section className="bp-right">
         <header className="bp-bar">
           <div>
-            <p className="studio-kicker">{url || busy ? "生成结果" : "示例效果"}</p>
-            <strong>{card?.model}</strong>
+            <p className="studio-kicker">{url || busy ? "生成结果" : "预览"}</p>
+            <strong>{card?.provider ? `${card.provider} · ${card.model}` : card?.model || "未选模型"}</strong>
           </div>
         </header>
         <WorkbenchStatus
           busy={busy}
           error={error}
           done={url ? `${card?.model || "模型"} 已出片` : ""}
-          idle="右侧先看示例。生成后视频会在上面播放。"
+          idle="生成后视频会出现在上面。下面参考样片只带提示词，不会冒充当前模型的成片。"
         />
         {url || busy ? (
           <>
@@ -522,13 +530,44 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
               </div>
             ) : null}
           </>
+        ) : (
+          <div className="bp-stage">
+            <p className="studio-hint">还没有成片。写镜头描述，点绿色按钮即可。</p>
+          </div>
+        )}
+        {mine.length ? (
+          <>
+            <p className="bp-examples-title">我的成片</p>
+            <div className="bp-examples">
+              {mine.map((item) => (
+                <button key={item.id} type="button" className={url === item.urls[0] ? "is-active" : undefined} onClick={() => item.urls[0] && setUrl(item.urls[0])}>
+                  <video src={item.urls[0]} muted />
+                  <span>
+                    {item.title}
+                    <br />
+                    {item.model}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
         ) : null}
-        <p className="bp-examples-title">示例效果</p>
+        <p className="bp-examples-title">参考样片（点一下只带提示词）</p>
         <div className="bp-examples">
-          {recent.map((item) => (
-            <button key={item.id} type="button" className={url === item.urls[0] ? "is-active" : undefined} onClick={() => item.urls[0] && setUrl(item.urls[0])}>
-              {item.kind === "video" ? <video src={item.urls[0]} muted /> : <img src={item.urls[0]} alt="" />}
-              <span>{item.title}</span>
+          {seeds.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                if (item.prompt) setPrompt(item.prompt);
+              }}
+            >
+              <video src={item.urls[0]} muted />
+              <span>
+                {item.title}
+                <br />
+                参考 · {item.model}
+              </span>
             </button>
           ))}
         </div>

@@ -123,6 +123,7 @@ import {
 } from "@/services/api/ai-routing";
 import { rotateRelayApiKey } from "@/services/api/relay-proxy";
 import { resolveVideoAdapter, toStudioVideoWire, videoCreatePath, videoPollPath } from "@/studio/registry";
+import { draftPlan } from "@/studio/story/plan";
 import {
   requestNativeRelayVideo,
   shouldUseNativeRelayVideo,
@@ -331,6 +332,7 @@ import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import {
   flushCanvasPersistence,
   importLatestStorySeed,
+  INFINITE_CANVAS_SEED_ID,
   useCanvasStore,
   type CanvasProject,
 } from "../stores/use-canvas-store";
@@ -433,6 +435,7 @@ import {
   storyDirectorEditableText,
   type StoryDirectorTextModelSelection,
 } from "../utils/story-director-text-model";
+import { wiredStoryDirectorModels } from "../utils/story-director-wired-models";
 import { normalizeStoryImageQuality } from "../utils/story-image-quality";
 import { selectStoryDirectorShotRetryWork } from "../utils/story-director-shot-retry-selection";
 import {
@@ -650,6 +653,7 @@ const CANVAS_IMAGE_TASK_POLL_RETRY_LIMIT = 15;
 const CANVAS_IMAGE_TASK_MISSING_GRACE_MS = 360_000;
 const localCanvasImageTasks = new Map<string, Promise<GeneratedImageResult>>();
 const STORY_DIRECTOR_IMAGE_CONCURRENCY = 2;
+const STORY_DIRECTOR_VIDEO_CONCURRENCY = 2;
 const STORY_DIRECTOR_SHOT_COLUMNS = 5;
 const STORY_DIRECTOR_SHOT_NODE_WIDTH = 340;
 const STORY_DIRECTOR_SHOT_NODE_HEIGHT = 604;
@@ -754,6 +758,22 @@ const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用�
 const STORY_DIRECTOR_PLACEHOLDER = `在这里粘贴小说、章节或剧情梗概。
 
 建议包含：人物、场景、关键事件、对白、画风要求。`;
+
+function canvasPreviewableSrc(node?: CanvasNodeData | null) {
+  if (!node) return "";
+  const meta = node.metadata || {};
+  const candidates = [meta.content, meta.backendUrl];
+  for (const candidate of candidates) {
+    const src = String(candidate || "").trim();
+    if (/^(data:image\/|blob:|https?:\/\/|\/)/i.test(src)) return src;
+  }
+  return "";
+}
+
+function canvasPreviewPrompt(node?: CanvasNodeData | null) {
+  if (!node) return "";
+  return String(node.metadata?.prompt || node.metadata?.storyText || node.title || "").trim();
+}
 
 function createCanvasNode(
   type: CanvasNodeType,
@@ -1969,34 +1989,34 @@ function ConnectionCreateMenu({
         <ConnectionCreateOption
           theme={theme}
           icon={<List className="size-5" />}
-          title="文本生成"
-          description="脚本、广告词、品牌文案"
+          title="加一段文字"
+          description="剧本、旁白、广告词"
           onClick={() => onCreate(CanvasNodeType.Text)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<ImageIcon className="size-5" />}
-          title="图片生成"
-          description="引用该节点生成图片"
+          title="按这个出图"
+          description="用当前这块去生成图片"
           onClick={() => onCreate(CanvasNodeType.Image)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Settings2 className="size-5" />}
-          title="生成配置"
-          description="连接素材后直接配置生图参数"
+          title="加一块设置"
+          description="单独改生图用哪个模型和参数"
           onClick={() => onCreate(CanvasNodeType.Config)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Video className="size-5" />}
-          title="视频生成"
+          title="按这个出视频"
           onClick={() => onCreate(CanvasNodeType.Video)}
         />
         <ConnectionCreateOption
           theme={theme}
           icon={<Music2 className="size-5" />}
-          title="音频参考"
+          title="加一段音频"
           onClick={() => onCreate(CanvasNodeType.Audio)}
         />
       </div>
@@ -2113,7 +2133,7 @@ function CanvasEmptyStarter({
           <CanvasStarterAction
             theme={theme}
             icon={<Film className="size-4" />}
-            label="Seedance2"
+            label="分镜视频"
             onClick={onSeedance2Workflow}
           />
           <CanvasStarterAction
@@ -2334,7 +2354,7 @@ function Seedance2ProviderModelOptionPicker({
         placeholder="选择模型"
         emptyLabel={`暂无已配置${label}`}
         title={label}
-        triggerClassName="h-9 w-full rounded-lg border px-2 text-sm shadow-none hover:border-orange-400"
+        triggerClassName="min-h-9 h-auto w-full rounded-lg border px-2 py-1 text-sm shadow-none hover:border-orange-400"
         triggerStyle={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text }}
         contentClassName="z-[1300]"
       />
@@ -2346,18 +2366,24 @@ function Seedance2WorkflowPanel({
   node,
   onConfigChange,
   onCreatePlaceholders,
+  onGenerateVideos,
   storyDirectorSourceResolution,
   isCreatingPlaceholders = false,
   rewriteStreamingChars = 0,
+  pendingPlaceholderCount = 0,
+  videoBatch = null,
   onClose,
   embedded = false,
 }: {
   node: CanvasNodeData;
   onConfigChange: (nodeId: string, patch: Partial<CanvasNodeData["metadata"]>) => void;
   onCreatePlaceholders: (node: CanvasNodeData) => void;
+  onGenerateVideos?: (node: CanvasNodeData) => void;
   storyDirectorSourceResolution: Seedance2StoryDirectorSourceResolution;
   isCreatingPlaceholders?: boolean;
   rewriteStreamingChars?: number;
+  pendingPlaceholderCount?: number;
+  videoBatch?: { done: number; total: number } | null;
   onClose?: () => void;
   embedded?: boolean;
 }) {
@@ -2702,7 +2728,7 @@ function Seedance2WorkflowPanel({
         </div>
       ) : null}
       <div className="mt-4 flex gap-2" data-canvas-no-drag data-canvas-no-zoom>
-        <button type="button" disabled={isCreatingPlaceholders || !storyDirectorSource || workflowModelBlocked} className="h-10 flex-1 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
+        <button type="button" disabled={isCreatingPlaceholders || Boolean(videoBatch) || !storyDirectorSource || workflowModelBlocked} className="h-10 flex-1 rounded-xl bg-orange-500 px-3 text-sm font-semibold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
           if (workflowOperationSelection.migrationSource && workflowOperation) {
             const migrationPatch = workflowOperationPatch(
               workflowOperation,
@@ -2718,8 +2744,31 @@ function Seedance2WorkflowPanel({
           onCreatePlaceholders(node);
         }}>
           {isCreatingPlaceholders
-            ? `正在整批改写（${rewriteCompletedCount}/${rewriteTotalCount || storyShotCount}）...`
-            : "创建 / 刷新视频占位框"}
+            ? `正在按分镜摆格子（${rewriteCompletedCount}/${rewriteTotalCount || storyShotCount}）...`
+            : "按分镜摆出空视频格"}
+        </button>
+        <button
+          type="button"
+          disabled={
+            isCreatingPlaceholders ||
+            Boolean(videoBatch) ||
+            !onGenerateVideos ||
+            pendingPlaceholderCount <= 0 ||
+            workflowModelBlocked
+          }
+          className="h-10 flex-1 rounded-xl border px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            borderColor: theme.node.stroke,
+            background: theme.node.fill,
+            color: theme.node.text,
+          }}
+          onClick={() => onGenerateVideos?.(node)}
+        >
+          {videoBatch
+            ? `正在生成视频（${videoBatch.done}/${videoBatch.total}）...`
+            : pendingPlaceholderCount > 0
+              ? `把空格子都生成视频（${pendingPlaceholderCount}）`
+              : "把空格子都生成视频"}
         </button>
       </div>
     </div>
@@ -2784,10 +2833,10 @@ function InfiniteCanvasPage() {
 
   const config = useConfigStore((state) => state.config);
   const effectiveConfig = useEffectiveConfig();
-  const storyDirectorTextModels = useMemo(
-    () => selectableProviderModelsByCapability(effectiveConfig, "text"),
-    [effectiveConfig],
-  );
+  const storyDirectorTextModels = useMemo(() => {
+    const listed = selectableProviderModelsByCapability(effectiveConfig, "text");
+    return listed.length ? listed : wiredStoryDirectorModels("text");
+  }, [effectiveConfig]);
   const storyDirectorInheritedTextModel = useMemo<StoryDirectorTextModelSelection | null>(
     () => {
       const boardRoute = effectiveConfig.apiBoardRouting.storyDirector;
@@ -2795,27 +2844,36 @@ function InfiniteCanvasPage() {
         boardRoute.mode === "custom"
           ? boardRoute
           : effectiveConfig.apiRouting.text;
-      return route.providerId && route.model
-        ? { providerId: route.providerId, model: route.model }
+      if (route.providerId && route.model) {
+        return { providerId: route.providerId, model: route.model };
+      }
+      const first = storyDirectorTextModels[0];
+      return first?.providerId && first?.model
+        ? { providerId: first.providerId, model: first.model }
         : null;
     },
     [
       effectiveConfig.apiBoardRouting.storyDirector,
       effectiveConfig.apiRouting.text,
+      storyDirectorTextModels,
     ],
   );
-  const storyDirectorImageModels = useMemo(
-    () => selectableProviderModelsByCapability(effectiveConfig, "image"),
-    [effectiveConfig],
-  );
+  const storyDirectorImageModels = useMemo(() => {
+    const listed = selectableProviderModelsByCapability(effectiveConfig, "image");
+    return listed.length ? listed : wiredStoryDirectorModels("image");
+  }, [effectiveConfig]);
   const storyDirectorInheritedImageModel = useMemo<StoryDirectorTextModelSelection | null>(
     () => {
       const route = effectiveConfig.apiRouting.image;
-      return route.providerId && route.model
-        ? { providerId: route.providerId, model: route.model }
+      if (route.providerId && route.model) {
+        return { providerId: route.providerId, model: route.model };
+      }
+      const first = storyDirectorImageModels[0];
+      return first?.providerId && first?.model
+        ? { providerId: first.providerId, model: first.model }
         : null;
     },
-    [effectiveConfig.apiRouting.image],
+    [effectiveConfig.apiRouting.image, storyDirectorImageModels],
   );
   const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
   const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -2871,6 +2929,11 @@ function InfiniteCanvasPage() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [runningNodeId, setRunningNodeId] = useState<string | null>(null);
   const [rewriteStreamingChars, setRewriteStreamingChars] = useState(0);
+  const [seedance2VideoBatch, setSeedance2VideoBatch] = useState<{
+    workflowId: string;
+    done: number;
+    total: number;
+  } | null>(null);
   const rewriteStreamingLastPushRef = useRef(0);
   const [isMiniMapOpen, setIsMiniMapOpen] = useState(false);
   const [backgroundMode, setBackgroundMode] =
@@ -2962,6 +3025,9 @@ function InfiniteCanvasPage() {
   const videoTaskControllersRef = useRef<Map<string, AbortController>>(new Map());
   const videoTaskResumeTimersRef = useRef<Map<string, number>>(new Map());
   const videoGenerationEntryLocksRef = useRef<Map<string, string>>(new Map());
+  const generateSeedance2VideoFromPlaceholderRef = useRef<
+    (node: CanvasNodeData) => Promise<void>
+  >(async () => {});
   const nodeGenerationLocksRef = useRef<Set<string>>(new Set());
   const [videoTaskResumeRevision, setVideoTaskResumeRevision] = useState(0);
   const characterDerivationFlightsRef = useRef<Map<string, Promise<void>>>(
@@ -3189,7 +3255,11 @@ function InfiniteCanvasPage() {
     if (!project) {
       void importLatestStorySeed().then(() => {
         if (cancelled) return;
-        const recovered = useCanvasStore.getState().openProject(projectId);
+        const recovered =
+          useCanvasStore.getState().openProject(projectId) ||
+          (projectId === INFINITE_CANVAS_SEED_ID
+            ? useCanvasStore.getState().openProject(INFINITE_CANVAS_SEED_ID)
+            : null);
         if (recovered) {
           void restoreProjectState(recovered);
           return;
@@ -7611,7 +7681,7 @@ function InfiniteCanvasPage() {
           : null;
         if (
           selectedNode?.type === CanvasNodeType.Image &&
-          selectedNode.metadata?.content
+          (canvasPreviewableSrc(selectedNode) || canvasPreviewPrompt(selectedNode))
         ) {
           event.preventDefault();
           setPreviewNodeId(selectedNode.id);
@@ -8315,6 +8385,9 @@ function InfiniteCanvasPage() {
 
   const previewNodeImage = useCallback(
     (node: CanvasNodeData) => {
+      const src = canvasPreviewableSrc(node);
+      const prompt = canvasPreviewPrompt(node);
+      if (!src && !prompt) return;
       touchNodeImage(node);
       setPreviewNodeId(node.id);
     },
@@ -8680,7 +8753,7 @@ function InfiniteCanvasPage() {
             item.type === CanvasNodeType.Text ||
             item.type === CanvasNodeType.StoryDirector,
         )?.metadata?.content ||
-        "清凉写真NWSF";
+        "";
       const sourceBounds = targetNodes.length
         ? targetNodes.reduce(
             (acc, node) => ({
@@ -8700,7 +8773,7 @@ function InfiniteCanvasPage() {
       const node = createCanvasNode(CanvasNodeType.StoryDirector, position, {
         storyText: sourceText,
         content: sourceText,
-        storyStyle: "清凉写真",
+        storyStyle: "电影感写实",
         storyShotCount: 5,
         storyAspectRatio: "16:9",
         storyWorkflow: "idle",
@@ -9545,6 +9618,102 @@ function InfiniteCanvasPage() {
                 error,
                 "角色图生成失败",
               );
+              const canFallbackGenerate =
+                operation === "edit" && isTransientImageLimitError(errorDetails);
+              if (canFallbackGenerate) {
+                try {
+                  message.warning(
+                    `${character.name} 图生图受限，改用文生图补齐`,
+                  );
+                  const fallbackTaskId = `canvas-story-char-fallback-${nodeId}-${Date.now()}`;
+                  resumedImageTaskIdsRef.current.add(fallbackTaskId);
+                  const pollTaskId = await submitCanvasImageTask(
+                    fallbackTaskId,
+                    requestImageConfig,
+                    "generate",
+                    prompt,
+                    [],
+                    {
+                      useReferenceLabels: false,
+                      boardRouteKey: "imageGeneration",
+                    },
+                  );
+                  const generated = await pollCanvasImageTask(pollTaskId);
+                  const uploaded = await uploadImage(
+                    generated.dataUrl,
+                    CANVAS_RETAINED_IMAGE_UPLOAD_OPTIONS,
+                  );
+                  const size = imageNodeSize(
+                    uploaded.width,
+                    uploaded.height,
+                    imageSpec.width,
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            width: size.width,
+                            height: size.height,
+                            metadata: {
+                              ...item.metadata,
+                              ...imageMetadata(uploaded, generated),
+                              prompt,
+                              ...buildImageGenerationMetadata(
+                                "generate",
+                                requestImageConfig,
+                                1,
+                                [],
+                              ),
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryCharacterStatus(item, character.id, {
+                              status: "ready",
+                              referenceNodeId: nodeId,
+                              referenceImageUrl: uploaded.url,
+                              assetSource: "generated",
+                              assetLocked: true,
+                            })
+                          : item,
+                    ),
+                  );
+                  resumedImageTaskIdsRef.current.delete(fallbackTaskId);
+                  const uploadedCharacterNode = nodesRef.current.find(
+                    (item) => item.id === nodeId,
+                  );
+                  if (uploadedCharacterNode)
+                    void deriveCharacterTurnaroundViews(uploadedCharacterNode);
+                  return;
+                } catch (fallbackError) {
+                  const fallbackDetails = formatCanvasGenerationError(
+                    fallbackError,
+                    "角色图生成失败",
+                  );
+                  applyPersistedNodes((prev) =>
+                    prev.map((item) =>
+                      item.id === nodeId
+                        ? {
+                            ...item,
+                            metadata: {
+                              ...item.metadata,
+                              status: NODE_STATUS_ERROR,
+                              errorDetails: fallbackDetails,
+                              sourceImageTaskId: undefined,
+                              imageGenerationAttemptId: undefined,
+                            },
+                          }
+                        : item.id === current.id
+                          ? updateStoryCharacterStatus(item, character.id, {
+                              status: "error",
+                              errorDetails: fallbackDetails,
+                            })
+                          : item,
+                    ),
+                  );
+                  throw new Error(fallbackDetails);
+                }
+              }
               applyPersistedNodes((prev) =>
                 prev.map((item) =>
                   item.id === nodeId
@@ -10345,9 +10514,7 @@ function InfiniteCanvasPage() {
               );
               const canFallbackGenerate =
                 operation === "edit" &&
-                /Concurrency|429|Too Many Requests|OAuth|503|Service Unavailable/i.test(
-                  errorDetails,
-                );
+                isTransientImageLimitError(errorDetails);
               if (canFallbackGenerate) {
                 try {
                   message.warning(
@@ -10516,12 +10683,147 @@ function InfiniteCanvasPage() {
     ],
   );
 
+  const generateAllSeedance2PlaceholderVideos = useCallback(
+    async (workflowNode: CanvasNodeData) => {
+      const placeholders = listPendingSeedance2Placeholders(
+        nodesRef.current,
+        workflowNode.id,
+      );
+      if (!placeholders.length) {
+        message.info("没有待生成的视频占位框，请先创建或刷新占位框");
+        return;
+      }
+      setSeedance2VideoBatch({
+        workflowId: workflowNode.id,
+        done: 0,
+        total: placeholders.length,
+      });
+      let done = 0;
+      try {
+        message.info(
+          `开始生成 ${placeholders.length} 个分镜视频（并发 ${STORY_DIRECTOR_VIDEO_CONCURRENCY}）`,
+        );
+        await runWithConcurrency(
+          placeholders,
+          STORY_DIRECTOR_VIDEO_CONCURRENCY,
+          async (placeholder) => {
+            await generateSeedance2VideoFromPlaceholderRef.current(placeholder);
+            done += 1;
+            setSeedance2VideoBatch((current) =>
+              current && current.workflowId === workflowNode.id
+                ? { ...current, done }
+                : current,
+            );
+          },
+        );
+      } finally {
+        setSeedance2VideoBatch((current) =>
+          current?.workflowId === workflowNode.id ? null : current,
+        );
+      }
+    },
+    [message],
+  );
+
+  const ensureStoryDirectorVideoWorkflow = useCallback(
+    (storyDirector: CanvasNodeData) => {
+      const latestDirector =
+        nodesRef.current.find((item) => item.id === storyDirector.id) ||
+        storyDirector;
+      const bound = nodesRef.current.find((node) => {
+        if (node.type !== CanvasNodeType.Seedance2Workflow) return false;
+        if (node.metadata?.seedanceStoryDirectorNodeId === latestDirector.id) {
+          return true;
+        }
+        return connectionsRef.current.some(
+          (connection) =>
+            connection.fromNodeId === latestDirector.id &&
+            connection.toNodeId === node.id,
+        );
+      });
+      if (bound) return bound;
+      const workflows = nodesRef.current.filter(
+        (node) => node.type === CanvasNodeType.Seedance2Workflow,
+      );
+      if (workflows.length === 1) return workflows[0];
+      if (workflows.length > 1) {
+        message.warning("画布中有多个视频工作流，请连接其中一个后再生成视频");
+        return null;
+      }
+      const spec = NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow];
+      createSeedance2Workflow({
+        x: latestDirector.position.x + latestDirector.width / 2,
+        y: latestDirector.position.y + latestDirector.height + spec.height / 2 + 160,
+      });
+      return (
+        nodesRef.current.find(
+          (node) => node.type === CanvasNodeType.Seedance2Workflow,
+        ) || null
+      );
+    },
+    [createSeedance2Workflow, message],
+  );
+
   const runStoryDirectorAll = useCallback(
     async (node: CanvasNodeData) => {
       const current =
         nodesRef.current.find((item) => item.id === node.id) || node;
-      const analysis = await analyzeStoryDirector(current);
-      if (!analysis) return;
+      let analysis = await analyzeStoryDirector(current);
+      if (!analysis) {
+        const latest =
+          nodesRef.current.find((item) => item.id === node.id) || current;
+        if (latest.metadata?.storyAnalysisStatus !== NODE_STATUS_ERROR) return;
+        const idea = storyDirectorEditableText(latest.metadata);
+        if (!idea.trim() || idea.trim() === STORY_DIRECTOR_PLACEHOLDER.trim()) {
+          return;
+        }
+        try {
+          analysis = draftStoryDirectorAnalysis(
+            idea,
+            latest.metadata?.storyStyle || "电影感写实",
+            latest.metadata?.storyShotCount || 5,
+          );
+        } catch (error) {
+          message.error(
+            error instanceof Error ? error.message : "本地分镜回退失败",
+          );
+          return;
+        }
+        const fallbackRaw = JSON.stringify({
+          characters: analysis.characters,
+          scenes: analysis.scenes,
+          shots: analysis.shots,
+        });
+        applyPersistedNodes((prev) =>
+          prev.map((item) =>
+            item.id === latest.id
+              ? {
+                  ...item,
+                  metadata: {
+                    ...item.metadata,
+                    storyAnalysisStatus: NODE_STATUS_SUCCESS,
+                    storyGenerationStatus: "idle",
+                    storyAnalysisRaw: fallbackRaw,
+                    storyOriginalText:
+                      item.metadata?.storyOriginalText || idea,
+                    storyAnalysisSourceText: idea,
+                    storyAnalysisRenderedText: idea,
+                    storyAnalysisShotCount: analysis!.shots.length,
+                    storyText: idea,
+                    content: idea,
+                    storyCharacters: analysis!.characters,
+                    storyScenes: analysis!.scenes,
+                    storyShots: analysis!.shots,
+                    storyShotCount: analysis!.shots.length,
+                    status: NODE_STATUS_SUCCESS,
+                    errorDetails: `分析失败，已改用本地分镜继续全流程`,
+                  },
+                }
+              : item,
+          ),
+        );
+        message.warning("分析失败，已改用本地分镜继续全流程");
+      }
       const latest =
         nodesRef.current.find((item) => item.id === node.id) || node;
       const charactersReady = await generateStoryCharacters(latest, analysis);
@@ -10546,8 +10848,34 @@ function InfiniteCanvasPage() {
           afterShots;
         await generateStoryShots(retryNode);
       }
+      const readyDirector =
+        nodesRef.current.find((item) => item.id === afterShots.id) ||
+        afterShots;
+      const readyShots = (readyDirector.metadata?.storyShots || []).filter(
+        (shot) =>
+          shot.status === "done" || (shot.resultNodeIds || []).length > 0,
+      );
+      if (!readyShots.length) {
+        message.warning("没有完成的分镜图，已跳过视频工作流");
+        return;
+      }
+      const workflow = ensureStoryDirectorVideoWorkflow(readyDirector);
+      if (!workflow) return;
+      await rebuildSeedance2Placeholders(workflow);
+      const latestWorkflow =
+        nodesRef.current.find((item) => item.id === workflow.id) || workflow;
+      await generateAllSeedance2PlaceholderVideos(latestWorkflow);
     },
-    [analyzeStoryDirector, generateStoryCharacters, generateStoryShots],
+    [
+      analyzeStoryDirector,
+      applyPersistedNodes,
+      ensureStoryDirectorVideoWorkflow,
+      generateAllSeedance2PlaceholderVideos,
+      generateStoryCharacters,
+      generateStoryShots,
+      message,
+      rebuildSeedance2Placeholders,
+    ],
   );
 
   const createImageReversePromptNodes = useCallback(
@@ -13294,6 +13622,8 @@ function InfiniteCanvasPage() {
       resumeCustomerSeedanceTask,
     ],
   );
+  generateSeedance2VideoFromPlaceholderRef.current =
+    generateSeedance2VideoFromPlaceholder;
 
   const handleGenerateNode = useCallback(
     async (
@@ -16204,8 +16534,19 @@ function InfiniteCanvasPage() {
           rewriteStreamingChars={
             runningNodeId === contentNode.id ? rewriteStreamingChars : 0
           }
+          pendingPlaceholderCount={
+            listPendingSeedance2Placeholders(nodes, contentNode.id).length
+          }
+          videoBatch={
+            seedance2VideoBatch?.workflowId === contentNode.id
+              ? seedance2VideoBatch
+              : null
+          }
           onConfigChange={handleConfigNodeChange}
           onCreatePlaceholders={rebuildSeedance2Placeholders}
+          onGenerateVideos={(target) =>
+            void generateAllSeedance2PlaceholderVideos(target)
+          }
           storyDirectorSourceResolution={
             seedance2StoryDirectorSourceByNodeId.get(contentNode.id) || {
               status: "missing",
@@ -16244,13 +16585,16 @@ function InfiniteCanvasPage() {
       effectiveConfig,
       generateStoryCharacters,
       generateStoryShots,
+      generateAllSeedance2PlaceholderVideos,
       handleConfigNodeChange,
       handleGenerateNode,
+      nodes,
       rebuildSeedance2Placeholders,
       rewriteStreamingChars,
       runningNodeId,
       runStoryDirectorAll,
       seedance2StoryDirectorSourceByNodeId,
+      seedance2VideoBatch,
       storyDirectorImageModels,
       storyDirectorInheritedImageModel,
       storyDirectorInheritedTextModel,
@@ -16793,31 +17137,49 @@ function InfiniteCanvasPage() {
 
         <Modal
           title="图片详情"
-          open={Boolean(previewNode?.metadata?.content)}
+          open={Boolean(previewNode && (canvasPreviewableSrc(previewNode) || canvasPreviewPrompt(previewNode)))}
           centered
           onCancel={() => setPreviewNodeId(null)}
           footer={null}
-          width="auto"
+          width={720}
           styles={{
             body: {
-              padding: 0,
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
+              padding: 16,
               maxHeight: "80vh",
+              overflow: "auto",
             },
           }}
         >
-          {previewNode?.metadata?.content ? (
-            <img
-              src={previewNode.metadata.content}
-              alt={previewNode.title || "图片"}
-              style={{
-                maxWidth: "100%",
-                maxHeight: "80vh",
-                objectFit: "contain",
-              }}
-            />
+          {previewNode ? (
+            <div className="grid gap-3">
+              {canvasPreviewableSrc(previewNode) ? (
+                <img
+                  src={canvasPreviewableSrc(previewNode)}
+                  alt={previewNode.title || "图片"}
+                  style={{
+                    width: "100%",
+                    maxHeight: "56vh",
+                    objectFit: "contain",
+                    background: "#0F172A",
+                    borderRadius: 12,
+                  }}
+                />
+              ) : (
+                <div className="rounded-xl border px-4 py-10 text-center text-sm" role="status">
+                  这张节点还没有可预览的图。提示词可以先看下面。
+                </div>
+              )}
+              <div className="grid gap-1 text-sm">
+                <div className="font-medium">{previewNode.title || "画布图片"}</div>
+                {canvasPreviewPrompt(previewNode) ? (
+                  <p className="whitespace-pre-wrap break-words text-sm leading-6 opacity-80">
+                    {canvasPreviewPrompt(previewNode)}
+                  </p>
+                ) : (
+                  <p className="text-sm opacity-60">没有保存提示词。</p>
+                )}
+              </div>
+            </div>
           ) : null}
         </Modal>
 
@@ -17302,6 +17664,12 @@ function referencesImageLabel(prompt: string) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientImageLimitError(message: string) {
+  return /Concurrency|429|Too Many Requests|OAuth|503|Service Unavailable/i.test(
+    message,
+  );
 }
 
 async function runWithConcurrency<T>(
@@ -19445,6 +19813,68 @@ function storyDevelopmentFunctionLabel(index: number, total: number) {
   if (index === total - 1) return "结尾收束结果";
   if (index === Math.floor(total / 2)) return "中段转折升级";
   return "过程推进";
+}
+
+function draftStoryDirectorAnalysis(
+  idea: string,
+  style: string,
+  shotCount: number,
+): StoryAnalysisResult {
+  const plan = draftPlan(idea, style, shotCount);
+  return parseStoryAnalysis(
+    JSON.stringify({
+      characters: plan.cast.map((person) => ({
+        id: person.id,
+        name: person.name,
+        importance: person.importance,
+        appearance: person.appearance || person.look,
+        visualPrompt: person.visualPrompt || person.look,
+        personality: person.personality,
+        negativePrompt: person.negativePrompt,
+      })),
+      scenes: plan.sceneBoard.map((scene) => ({
+        id: scene.id,
+        name: scene.name,
+        description: scene.description,
+        mood: scene.mood,
+      })),
+      shots: plan.shots.map((shot) => ({
+        id: shot.id,
+        index: shot.index,
+        title: shot.title,
+        sceneId: shot.sceneId,
+        appearingCharacterIds: shot.appearingCharacterIds,
+        excludedCharacterIds: shot.excludedCharacterIds,
+        action: shot.action || shot.prompt,
+        camera: shot.camera,
+        emotion: shot.emotion,
+        continuityNote: shot.continuityNote,
+        visualContent: shot.visualContent || shot.prompt,
+        imagePrompt: shot.imagePrompt || shot.prompt,
+        prompt: shot.prompt,
+      })),
+    }),
+  );
+}
+
+function listPendingSeedance2Placeholders(
+  nodes: CanvasNodeData[],
+  workflowNodeId: string,
+) {
+  return nodes
+    .filter(
+      (node) =>
+        node.type === CanvasNodeType.Video &&
+        node.metadata?.seedanceWorkflowRole === "placeholder" &&
+        node.metadata?.seedanceWorkflowNodeId === workflowNodeId &&
+        !String(node.metadata?.content || "").trim() &&
+        !hasNonterminalVideoTask(node.metadata),
+    )
+    .sort(
+      (left, right) =>
+        Number(left.metadata?.seedanceStoryShotIndex || 0) -
+        Number(right.metadata?.seedanceStoryShotIndex || 0),
+    );
 }
 
 function reusableStoryDirectorAnalysis(

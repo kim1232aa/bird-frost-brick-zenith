@@ -217,7 +217,7 @@ export function resolveStoryDirectorTextModelPresentation(
     const requestedInherited = cleanText(inheritedTextModel);
     const inheritedAvailable = models.includes(requestedInherited);
     const inheritLabel = requestedInherited
-      ? `继承：${requestedInherited}${inheritedAvailable ? "" : "（provider 不可用）"}`
+      ? `${requestedInherited}${inheritedAvailable ? "" : "（还没接线）"}`
       : "";
     const savedModel = savedStoryDirectorTextModel(metadata);
     const customMode = metadata?.storyDirectorTextModelMode === "custom";
@@ -277,7 +277,7 @@ export function resolveStoryDirectorTextModelPresentation(
       : undefined;
   const inheritedDisplayOption = inheritedOption || unresolvedInherited;
   const inheritLabel = inheritedDisplayOption
-    ? `继承：${inheritedDisplayOption.label}`
+    ? inheritedDisplayOption.label
     : "";
   const customRequested = savedStoryDirectorTextModelSelection(metadata);
   const customResolution = resolveAvailableProviderModelSelection(

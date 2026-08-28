@@ -1,6 +1,6 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { adapterForProvider } from "@/studio/adapters";
-import { STUDIO_PROVIDERS, STUDIO_ROUTES } from "@/studio/wiring";
+import { STUDIO_PROVIDERS } from "@/studio/wiring";
 import { providerById } from "./proxy";
 
 export async function generateStudioAudio(input: {
@@ -12,8 +12,9 @@ export async function generateStudioAudio(input: {
 }) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请填写旁白/台词");
-  const providerId = input.providerId || STUDIO_ROUTES.audio.providerId;
-  const model = input.model || STUDIO_ROUTES.audio.model;
+  const providerId = String(input.providerId || "").trim();
+  const model = String(input.model || "").trim();
+  if (!providerId || !model) throw new Error("请先选择供应商和模型。选哪个就走哪个，不会自动改线路。");
   const provider = providerById(providerId, input.relays);
   const blueprint = STUDIO_PROVIDERS.find((item) => item.id === providerId);
   const adapter = adapterForProvider(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { adapterForProvider, listStudioAdapters } from "@/studio/adapters";
 import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/protocols";
@@ -57,13 +57,6 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState(emptyDraft);
   const [pane, setPane] = useState<"list" | "editor">("list");
-
-  useEffect(() => {
-    const currentItem = relays.find((item) => item.id === active);
-    if (mode === "edit" && currentItem?.apiKey) return;
-    const ready = relays.find((item) => item.enabled && item.apiKey);
-    if (ready && ready.id !== active) setActive(ready.id);
-  }, [relays, active, mode]);
 
   const current = relays.find((item) => item.id === active) || relays[0];
   const counts = useMemo(() => {

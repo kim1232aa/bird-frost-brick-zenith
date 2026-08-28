@@ -50,26 +50,31 @@ export function CanvasWorkspaceLite() {
     () => (project?.nodes || []).filter((node) => node.type === CanvasNodeType.Video && mediaUrl(node)),
     [project],
   );
-  const storyText = String(director?.metadata?.storyText || director?.metadata?.content || "清凉写真NWSF");
-  const style = String(director?.metadata?.storyStyle || "清凉写真");
+  const storyText = String(director?.metadata?.storyText || director?.metadata?.content || "");
+  const style = String(director?.metadata?.storyStyle || "");
   const shotCount = Number(director?.metadata?.storyShotCount || 5);
   const ratio = String(director?.metadata?.storyAspectRatio || "16:9");
+  const textKey = preferredTextKey();
+  const imageKey = preferredImageKey();
+  const videoKey = preferredVideoKey();
 
   const runAll = async () => {
     setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
     setError("");
-    const textModel = preferredTextKey();
-    const imageKey = preferredImageKey();
-    const videoKey = preferredVideoKey();
     const imageSel = splitModel(imageKey);
     const videoSel = splitModel(videoKey);
-    const idea = storyText.trim() || "清凉写真NWSF";
+    const idea = storyText.trim();
+    if (!idea) {
+      setBusy("");
+      setError("先在故事导演里写下故事，再点一键全流程。不会后台自动生成。");
+      return;
+    }
     const local = draftPlan(idea, style, shotCount);
     let plan = local;
     try {
       const { planStory } = await import("@/studio/story/plan");
       try {
-        plan = await planStory({ relays, idea, textModel, style, shotCount });
+        plan = await planStory({ relays, idea, textModel: textKey, style, shotCount });
       } catch (analyzeErr) {
         setError(analyzeErr instanceof Error ? `分析失败，改用本地分镜：${analyzeErr.message}` : "分析失败，改用本地分镜");
       }
@@ -82,7 +87,7 @@ export function CanvasWorkspaceLite() {
           relays,
           providerId: imageSel.providerId,
           model: imageSel.model,
-          prompt: `character bible portrait, locked identity, studio, adult 24+, ${person.look}, name ${person.name}, ${style}`,
+          prompt: `character bible portrait, locked identity, studio, adult 24+, ${person.look}, name ${person.name}${style ? `, ${style}` : ""}`,
           size: "1024x1024",
         });
         plan.cast[i] = { ...person, url: result.url, status: "ready" };
@@ -96,7 +101,7 @@ export function CanvasWorkspaceLite() {
           relays,
           providerId: imageSel.providerId,
           model: imageSel.model,
-          prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(plan.cast)}. Adult 24+ fashion photoshoot still, photorealistic.`,
+          prompt: `${shot.prompt}. Camera: ${shot.camera}.${style ? ` Style: ${style}.` : ""} Character lock: ${characterLock(plan.cast)}. Adult 24+ fashion photoshoot still, photorealistic.`,
           imageUrl: refs[0],
           imageUrls: refs,
           size: stillSizeForQuality("2K", ratio),
@@ -104,7 +109,7 @@ export function CanvasWorkspaceLite() {
         plan.shots[i] = { ...shot, url: result.url, status: "done", error: "" };
       }
       const stills = storyStillUrls(plan.shots);
-      if (stills.length < 2) throw new Error("视频需要至少 2 张分镜静帧。Grok Imagine 可吃最多 5 张，不能只用一张。");
+      if (stills.length < 2) throw new Error("视频需要至少 2 张分镜静帧。多参考模型可吃最多 5 张，不能只用一张。");
       setBusy(`正在用 ${stills.length} 张分镜静帧生成视频…`);
       const { createStudioVideo, waitStudioVideo } = await import("@/studio/generate/video");
       const bundle = videoStillBundle(plan.shots, 0);
@@ -185,19 +190,21 @@ export function CanvasWorkspaceLite() {
           {busy || "一键全流程"}
         </button>
       </header>
-      {error ? <p className="studio-error px-4 py-2">{error}</p> : null}
+      {error ? <p className="studio-error px-4 py-2" role="alert">{error}</p> : null}
       {busy ? <p className="studio-hint px-4 py-2">{busy}</p> : null}
 
       <section className="grid gap-4 p-4 xl:grid-cols-[minmax(280px,360px)_1fr]">
         <article className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
           <p className="studio-kicker">故事导演</p>
           <h2 className="mt-1 text-base">分析故事，生成角色资产，再按镜头批量生成分镜</h2>
-          <p className="mt-3 whitespace-pre-wrap text-sm text-stone-600">{storyText}</p>
+          <p className="mt-3 whitespace-pre-wrap text-sm text-stone-600">{storyText || "还没有故事。到完整画布的故事导演节点里写，或点一键全流程前先填文本。"}</p>
           <dl className="mt-4 grid grid-cols-2 gap-2 text-xs text-stone-500">
-            <div>画风 {style}</div>
+            <div>画风 {style || "未设"}</div>
             <div>镜头 {shotCount}</div>
             <div>画幅 {ratio}</div>
-            <div>模型 Grok</div>
+            <div>文本 {splitModel(textKey).model || "未选"}</div>
+            <div>生图 {splitModel(imageKey).model || "未选"}</div>
+            <div>视频 {splitModel(videoKey).model || "未选"}</div>
           </dl>
         </article>
 

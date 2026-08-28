@@ -7,6 +7,7 @@ import { Button, Input, Select } from "antd";
 
 import { ModelIcon } from "@/components/model-icon";
 import { resolveImageSettingsContext } from "@/components/image-settings-panel";
+import { resolveImageModelCapability } from "@/services/api/image-model-capabilities";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -24,7 +25,8 @@ import {
     type StoryDirectorTextModelSourceOption,
     type StoryDirectorTextModelOption,
 } from "../utils/story-director-text-model";
-import { normalizeStoryImageQuality, storyImageQualityPatch } from "../utils/story-image-quality";
+import { wiredStoryDirectorModels } from "../utils/story-director-wired-models";
+import { normalizeStoryImageQuality, storyDirectorQualityOptions, storyImageQualityPatch } from "../utils/story-image-quality";
 import { resolveStoryWorkflowImageOperation } from "../utils/canvas-image-operation";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 
@@ -47,25 +49,26 @@ type CanvasStoryDirectorPanelProps = {
 };
 
 const aspectOptions = ["16:9", "9:16", "1:1"].map((value) => ({ value, label: value }));
-const stylePresetValues = ["清凉写真", "电影感写实", "国风仙侠", "暗黑奇幻", "赛博朋克", "日系动画", "美式漫画", "水彩绘本", "黏土动画", "像素游戏", "黑白分镜"];
+const stylePresetValues = ["电影感写实", "国风仙侠", "暗黑奇幻", "赛博朋克", "日系动画", "美式漫画", "水彩绘本", "黏土动画", "像素游戏", "黑白分镜", "清凉写真"];
 const customStyleValue = "__custom_style__";
 const styleOptions = [...stylePresetValues.map((value) => ({ value, label: value })), { value: customStyleValue, label: "自定义" }];
 const storyboardModeOptions = [
     { value: "single", label: "逐镜生成" },
     { value: "grid9", label: "9宫格分镜" },
 ];
-const qualityOptions = [
-    { value: "low", label: "1K" },
-    { value: "medium", label: "2K" },
-    { value: "high", label: "4K" },
-];
 
 type StorySelectKey = "textModel" | "headerImageModel" | "imageModel" | "style" | "mode" | "aspect" | "quality";
 
-export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirectorInheritedTextModel = null, storyDirectorTextModels = [], storyDirectorInheritedImageModel = null, storyDirectorImageModels = [], config, onConfigChange, onAnalyzeStory, onGenerateCharacters, onGenerateShots, onRunAll, onCreateCharacterConfig, onCreateShotConfig, onImageSettingsOpenChange }: CanvasStoryDirectorPanelProps) {
+export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirectorInheritedTextModel = null, storyDirectorTextModels: storyDirectorTextModelsProp = [], storyDirectorInheritedImageModel = null, storyDirectorImageModels: storyDirectorImageModelsProp = [], config, onConfigChange, onAnalyzeStory, onGenerateCharacters, onGenerateShots, onRunAll, onCreateCharacterConfig, onCreateShotConfig, onImageSettingsOpenChange }: CanvasStoryDirectorPanelProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const panelRef = useRef<HTMLDivElement | null>(null);
     const [openSelect, setOpenSelect] = useState<StorySelectKey | null>(null);
+    const storyDirectorTextModels = storyDirectorTextModelsProp.length
+      ? storyDirectorTextModelsProp
+      : wiredStoryDirectorModels("text");
+    const storyDirectorImageModels = storyDirectorImageModelsProp.length
+      ? storyDirectorImageModelsProp
+      : wiredStoryDirectorModels("image");
     const storyText = storyDirectorEditableText(node.metadata);
     const canRun = Boolean(storyText.trim()) && storyText.trim() !== "在这里粘贴小说、章节或剧情梗概。\n\n建议包含：人物、场景、关键事件、对白、画风要求。";
     const storyStyle = node.metadata?.storyStyle || "电影感写实";
@@ -103,6 +106,19 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         storyDirectorInheritedImageModel,
         storyDirectorImageModels,
     );
+    const selectedImageOption = storyDirectorImageModelPresentation.options.find(
+        (option) => option.value === storyDirectorImageModelPresentation.selectedValue,
+    );
+    const selectedImageModel = selectedImageOption?.model || storyDirectorInheritedImageModel?.model || "";
+    const selectedImageProviderId = selectedImageOption?.providerId || storyDirectorInheritedImageModel?.providerId || "";
+    const selectedImageCapability = config
+        ? resolveImageModelCapability({
+            model: selectedImageModel,
+            operation: "generate",
+            provider: config.apiRelays.find((relay) => relay.id === selectedImageProviderId),
+        })
+        : null;
+    const qualityOptions = storyDirectorQualityOptions(selectedImageCapability);
     const getPopupContainer = useCallback(() => document.body, []);
     const closeSelect = useCallback(() => {
         setOpenSelect(null);
@@ -141,35 +157,41 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-2" data-canvas-no-drag>
-                    <StoryDirectorTextModelSelect
-                        value={storyDirectorTextModelPresentation.selectedValue}
-                        options={storyDirectorTextModelPresentation.options}
-                        title={storyDirectorTextModelPresentation.title}
-                        selectProps={selectOpenProps("textModel")}
-                        onChange={(value) => {
-                            closeSelect();
-                            const patch = storyDirectorTextModelPatchForValue(
-                                value,
-                                storyDirectorTextModels,
-                            );
-                            if (patch) onConfigChange(node.id, patch);
-                        }}
-                    />
-                    <StoryDirectorTextModelSelect
-                        value={storyDirectorImageModelPresentation.selectedValue}
-                        options={storyDirectorImageModelPresentation.options}
-                        title={storyDirectorImageModelPresentation.title}
-                        placeholder="选择图片模型"
-                        selectProps={selectOpenProps("headerImageModel")}
-                        onChange={(value) => {
-                            closeSelect();
-                            const patch = storyDirectorImageModelPatchForValue(
-                                value,
-                                storyDirectorImageModels,
-                            );
-                            if (patch) onConfigChange(node.id, patch);
-                        }}
-                    />
+                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                        <span className="text-[10px] leading-none opacity-55">文本模型</span>
+                        <StoryDirectorTextModelSelect
+                            value={storyDirectorTextModelPresentation.selectedValue}
+                            options={storyDirectorTextModelPresentation.options}
+                            title={storyDirectorTextModelPresentation.title}
+                            selectProps={selectOpenProps("textModel")}
+                            onChange={(value) => {
+                                closeSelect();
+                                const patch = storyDirectorTextModelPatchForValue(
+                                    value,
+                                    storyDirectorTextModels,
+                                );
+                                if (patch) onConfigChange(node.id, patch);
+                            }}
+                        />
+                    </label>
+                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                        <span className="text-[10px] leading-none opacity-55">图片模型</span>
+                        <StoryDirectorTextModelSelect
+                            value={storyDirectorImageModelPresentation.selectedValue}
+                            options={storyDirectorImageModelPresentation.options}
+                            title={storyDirectorImageModelPresentation.title}
+                            placeholder="选择图片模型"
+                            selectProps={selectOpenProps("headerImageModel")}
+                            onChange={(value) => {
+                                closeSelect();
+                                const patch = storyDirectorImageModelPatchForValue(
+                                    value,
+                                    storyDirectorImageModels,
+                                );
+                                if (patch) onConfigChange(node.id, patch);
+                            }}
+                        />
+                    </label>
                     <StatusPill analyzing={isAnalyzing} generating={isGenerating} done={hasAnalysis} error={hasError} />
                 </div>
             </div>
@@ -184,42 +206,45 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 />
             </div>
 
-            <div className="mt-3 grid grid-cols-2 gap-2 [&>*]:min-w-0" data-canvas-no-drag>
+            <div className="mt-3 flex flex-col gap-2" data-canvas-no-drag>
                 <DirectorAction
+                    primary
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
-                    description="分析、角色图、分镜图"
+                    description="分析故事 → 角色图 → 5 张分镜 → 视频占位"
                     disabled={!canRun || isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
+                <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
                 <DirectorAction
                     icon={<FileText className="size-4" />}
                     title="分析故事"
-                    description="生成角色/场景/分镜 JSON"
+                    description="只拆角色 / 场景 / 分镜，不生图"
                     disabled={!canRun || isAnalyzing || isGenerating}
                     onClick={() => onAnalyzeStory(node)}
                 />
                 <DirectorAction
                     icon={<ImageIcon className="size-4" />}
                     title="补齐缺失角色图"
-                    description={hasAnalysis ? (missingCharacterCount ? `缺 ${missingCharacterCount} 个，5并发` : "角色图已齐全") : "需先分析故事"}
+                    description={hasAnalysis ? (missingCharacterCount ? `还缺 ${missingCharacterCount} 张角色图` : "角色图已齐全") : "需先分析故事"}
                     disabled={!hasAnalysis || !missingCharacterCount || isAnalyzing || isGenerating}
                     onClick={() => onGenerateCharacters(node)}
                 />
                 <DirectorAction
                     icon={<ListChecks className="size-4" />}
                     title={storyboardMode === "grid9" ? "生成9宫格" : "生成分镜图"}
-                    description={storyboardMode === "grid9" ? "每9镜一张，5并发" : "按镜头提交"}
+                    description={storyboardMode === "grid9" ? "每 9 镜一张图" : "按镜头各生成一张图"}
                     disabled={!shots.length || isAnalyzing || isGenerating}
                     onClick={() => onGenerateShots(node)}
                 />
+                </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
-                    角色图配置节点
+                    旁边加一块角色图设置
                 </Button>
                 <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
-                    分镜图配置节点
+                    旁边加一块分镜图设置
                 </Button>
             </div>
 
@@ -285,7 +310,8 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
-                    <LabeledControl label="质量">
+                    {qualityOptions.length ? (
+                    <LabeledControl label="清晰度">
                         <Select
                             className="!w-full"
                             value={imageQuality || undefined}
@@ -300,6 +326,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </LabeledControl>
+                    ) : null}
                 </div>
                 {isCustomStyle ? (
                     <div className="mt-2" data-canvas-no-drag>
@@ -376,7 +403,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     className="mt-2 text-[10px] leading-4 opacity-70"
                     data-canvas-no-drag
                 >
-                    图片模型在本面板选择。角色图/分镜图优先用这里选的 provider/model；连了 Config 节点时仍用 Config。生成还是编辑由模型能力决定，不用先选手动 operation。
+                    图片模型就在这页选。角色图和分镜图都用它。如果你在旁边另挂了一块设置，以那块为准。有参考图就按图改，没有就按文字出。
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
@@ -461,22 +488,20 @@ function StoryDirectorTextModelSelect({
             placeholder={placeholder}
             title={title}
             optionLabelProp="label"
+            notFoundContent={<span className="text-xs">没有可用模型。去「设置」启用中转并填密钥。</span>}
             popupMatchSelectWidth={false}
             styles={{ popup: { root: { minWidth: 280 } } }}
             optionRender={(ori) => {
                 const data = ori.data as unknown as StoryDirectorTextModelOption | undefined;
-                if (!data?.model || !data.value) return ori.label;
-                const providerName = String(data.providerName || "").trim();
-                const inherit = isStoryDirectorInheritValue(data.value);
-                if (providerName && !inherit) {
-                    return (
-                        <span className="flex min-w-0 items-center gap-2">
-                            <ModelIcon model={data.model} />
-                            <span className="min-w-0 break-all">{data.model}</span>
-                        </span>
-                    );
-                }
-                return ori.label;
+                if (!data?.value) return ori.label;
+                return (
+                    <StoryDirectorModelOptionLabel
+                        model={data.model}
+                        providerName={data.providerName}
+                        label={data.label || data.model || String(ori.label ?? "")}
+                        inherit={isStoryDirectorInheritValue(data.value)}
+                    />
+                );
             }}
             {...selectProps}
             onChange={onChange}
@@ -524,8 +549,8 @@ function groupStoryDirectorModelOptions(options: StoryDirectorTextModelOption[])
                 label: (
                     <StoryDirectorModelOptionLabel
                         model={option.model}
-                        providerName={option.providerName}
-                        label={option.label}
+                        providerName=""
+                        label={option.model || option.label}
                     />
                 ),
             })),
@@ -551,7 +576,7 @@ function StoryDirectorModelOptionLabel({
             <span className="flex min-w-0 items-center gap-1.5">
                 {model ? <ModelIcon model={model} className="size-3.5" /> : null}
                 <span className="min-w-0 break-all text-[12px] font-medium">
-                    {inherit ? `继承：${name}` : name}
+                    {name}
                 </span>
             </span>
             {vendor ? <span className="w-full break-words text-[11px] opacity-70">{vendor}</span> : null}
@@ -572,9 +597,9 @@ function nearestGrid9ShotCount(value: number) {
     return Math.max(9, Math.min(99, Math.round((Number(value) || 9) / 9) * 9));
 }
 
-function DirectorAction({ icon, title, description, disabled, onClick }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void }) {
+function DirectorAction({ icon, title, description, disabled, onClick, primary = false }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void; primary?: boolean }) {
     return (
-        <Button type="default" className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
+        <Button type={primary ? "primary" : "default"} className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
             <span className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0">{icon}</span>
                 <span className="min-w-0">

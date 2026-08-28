@@ -34,10 +34,11 @@ export function BoundlessCanvasWorkspace() {
       if (cancelled) return;
       const store = useCanvasStore.getState();
       if (id && store.openProject(id)) return;
+      const bannedSeed = /清凉写真|qingliang|nwsf/i;
       const fallback =
         store.projects.find((item) => item.title === "无限画布 1") ||
         store.projects.find((item) => item.title.includes("无限画布")) ||
-        store.projects.find((item) => item.title.includes("清凉写真")) ||
+        store.projects.find((item) => !bannedSeed.test(item.title || "") && !bannedSeed.test(item.id || "")) ||
         store.projects[0];
       if (fallback) {
         if (!id || id !== fallback.id) {

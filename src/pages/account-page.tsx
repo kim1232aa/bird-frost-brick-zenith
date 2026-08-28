@@ -43,7 +43,7 @@ export function AccountPage() {
   const label = accountLabel({ session, isGuest, hydrated });
   const payload = {
     success: true,
-    request_id: "local-preview",
+    request_id: session?.id || (isGuest ? "guest" : "anonymous"),
     data: {
       web_credits: webCredits,
       api_credits: apiCredits,
@@ -64,7 +64,7 @@ export function AccountPage() {
 
   const pickPlan = (id: StudioPlanId) => {
     upgrade(id);
-    setSaved(`已切换到${planById(id).name}。额度按本地演示账本加减。`);
+    setSaved(`已切换到${planById(id).name}。额度差额已记入本账号账本。`);
   };
 
   return (
@@ -75,7 +75,7 @@ export function AccountPage() {
         <p className="studio-lead">
           当前身份：{label}
           {session?.role === "admin" ? " · 可以进运营后台。" : " · 不能进后台改接线。"}
-          {MEMBERSHIP_IS_LOCAL_MOCK ? " 会员和额度是本地演示，不请求服务器、也不真实扣费。" : ""}
+          {MEMBERSHIP_IS_LOCAL_MOCK ? " 会员和额度还没接到远端结算。" : " 生成成功会从本账号额度账本扣点，失败不扣。"}
         </p>
       </header>
 
@@ -170,7 +170,7 @@ export function AccountPage() {
             <p className="studio-kicker">MEMBERSHIP</p>
             <h2>方案</h2>
           </div>
-          <p className="studio-hint">本地加额演示，点一下立刻到账。</p>
+          <p className="studio-hint">点升级会把差额补进本账号额度。不会发起第三方支付。</p>
         </div>
         <div className="acct-plans">
           {STUDIO_PLANS.map((item) => (
@@ -197,7 +197,7 @@ export function AccountPage() {
         </div>
         <div className="acct-plans" style={{ marginTop: 16 }}>
           {STUDIO_CREDIT_PACKS.map((pack) => (
-            <button key={pack.id} type="button" className="studio-ghost" onClick={() => { buyPack(pack.id); setSaved(`已加 ${pack.label}（本地演示）。`); }}>
+            <button key={pack.id} type="button" className="studio-ghost" onClick={() => { buyPack(pack.id); setSaved(`已加 ${pack.label}。`); }}>
               {pack.label}
             </button>
           ))}
@@ -279,7 +279,7 @@ export function AccountPage() {
         <div className="acct-card-head">
           <div>
             <h2>使用明细</h2>
-            <p className="studio-hint">最近 12 条本地扣减 / 补发。</p>
+            <p className="studio-hint">最近 12 条本账号扣减 / 补发。</p>
           </div>
           <div className="acct-alt">
             {admin ? (
@@ -299,7 +299,7 @@ export function AccountPage() {
           </div>
         </div>
         {ledger.length === 0 ? (
-          <p className="studio-hint">还没有本地扣减记录。去生图或生视频后会出现在这里。</p>
+          <p className="studio-hint">还没有扣减记录。去生图或生视频成功后会出现在这里。</p>
         ) : (
           <ul className="acct-ledger">
             {ledger.slice(0, 12).map((row) => (
@@ -323,7 +323,7 @@ export function AccountPage() {
         <div className="acct-card-head">
           <div>
             <h2>生成任务</h2>
-            <p className="studio-hint">BananaPro 风格本地任务账本。出图/出片会记在这里，失败会退额度。</p>
+            <p className="studio-hint">出图 / 出片会记在这里。失败不扣点。</p>
           </div>
         </div>
         {jobs.length === 0 ? (
@@ -349,7 +349,7 @@ export function AccountPage() {
       <section className="acct-card">
         <h2>GET /api/v1/account/balances</h2>
         <pre className="acct-json">{JSON.stringify(payload, null, 2)}</pre>
-        <p className="studio-hint">字段对齐 BananaPro 账单接口。这是本地演示账本，不请求服务器、也不真实扣费。密钥不要写进仓库。</p>
+        <p className="studio-hint">本账号额度接口。数字跟账本走，生成成功会变。密钥只写在设置页，不要写进仓库。</p>
       </section>
     </div>
   );

@@ -60,6 +60,7 @@ export function applyExplicitCanvasGenerationModel(
  * Resolve the selection shown by a global Canvas picker without guessing a
  * provider for legacy duplicate model IDs. An unavailable/ambiguous legacy
  * model remains visible through `legacyModel` until the user chooses a pair.
+ * Do not remap the user's provider — 选哪个就是哪个.
  */
 export function resolveCanvasGenerationModelSelection(
   config: AiConfig,

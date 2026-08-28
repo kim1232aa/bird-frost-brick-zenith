@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog, catalogKey } from "@/studio/catalog";
+import { findCatalog, catalogKey, groupCatalogByRegion } from "@/studio/catalog";
 import { defaultEditKey, isEditModel, isEditOnlyModel } from "@/studio/edit-models";
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioJobs } from "@/studio/generate/jobs";
@@ -12,12 +12,11 @@ import { useMediaDraft } from "@/studio/media-draft";
 import { filesToDataUrls } from "@/studio/image-refs";
 import { useMembershipStore } from "@/studio/membership";
 import { liveCatalog, liveCard, useOpsStore } from "@/studio/ops";
-import { preferredTextKey, StudioModelField } from "@/studio/model-select";
+import { preferredImageKey, preferredTextKey, StudioModelField } from "@/studio/model-select";
 import { IMAGE_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
-import { STUDIO_ROUTES } from "@/studio/wiring";
 import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
 import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
 
@@ -36,6 +35,8 @@ function engineFamily(selection: string) {
   if (selection.includes("civitai") || /krea2|flux2|sdxl|anima|z-image-turbo|qwen-3\.0/i.test(selection)) return "civitai" as const;
   if (/gpt-image/i.test(selection)) return "gpt" as const;
   if (/grok-imagine-image/i.test(selection)) return "grok" as const;
+  if (/agnes-image/i.test(selection)) return "agnes" as const;
+  if (/sensenova/i.test(selection)) return "sensenova" as const;
   return "generic" as const;
 }
 
@@ -65,7 +66,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const allModels = liveCatalog("image", false);
   const [prompt, setPrompt] = useState(IMAGE_TEMPLATES[0].prompt);
   const [negative, setNegative] = useState("");
-  const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
+  const [selection, setSelection] = useState(preferredImageKey());
   const [textModel, setTextModel] = useState(preferredTextKey());
   const [mode, setMode] = useState<ImageMode>(initialMode);
   const [quality, setQuality] = useState<"eco" | "std" | "hq">("std");
@@ -96,15 +97,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     return allModels.filter((card) => !isEditOnlyModel(card.model));
   }, [allModels, mode]);
 
-  const groups = useMemo(() => {
-    const map = new Map<string, typeof models>();
-    for (const card of models) {
-      const list = map.get(card.provider) || [];
-      list.push(card);
-      map.set(card.provider, list);
-    }
-    return [...map.entries()];
-  }, [models]);
+  const groups = useMemo(() => groupCatalogByRegion(models), [models]);
 
   useEffect(() => {
     if (!models.length) return;
@@ -175,7 +168,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         prompt,
         providerId,
         model,
-        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : undefined,
+        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : family === "agnes" || family === "sensenova" ? aspect : undefined,
         width: family === "civitai" || family === "grok" ? dims.width : undefined,
         height: family === "civitai" || family === "grok" ? dims.height : undefined,
         seed: family === "civitai" && seed ? Number(seed) : undefined,
@@ -240,10 +233,10 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
 
   const hero =
     mode === "edit"
-      ? { kicker: "EDIT", title: "图片编辑", copy: "Qwen-Image-Edit / FLUX.2-dev。上传 1–3 张参考，按提示改图。积分只是本地演示。" }
+      ? { kicker: "改图", title: "改图", copy: "上传 1 到 3 张要改的图，写下改哪里、留下什么。生成成功会从本账号额度扣点，失败不扣。" }
       : mode === "i2i"
-        ? { kicker: "IMAGE", title: "图生图", copy: "最多 3 张参考图会全部提交，不再只传第一张。" }
-        : { kicker: "IMAGE", title: "文生图", copy: "选模型、写提示、一次可出 1 / 2 / 4 张。Civitai 可挂 LoRA。" };
+        ? { kicker: "生图", title: "按图出图", copy: "参考图最多 3 张，都会送给模型，不会只传第一张。" }
+        : { kicker: "生图", title: "文生图", copy: "选模型、写想法，一次可出 1 / 2 / 4 张。" };
 
   return (
     <div className="bp-page">
@@ -262,15 +255,15 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             文生图
           </button>
           <button type="button" className={mode === "i2i" ? "is-active" : undefined} onClick={() => goMode("i2i")}>
-            图生图
+            按图出图
           </button>
           <button type="button" className={mode === "edit" ? "is-active" : undefined} onClick={() => goMode("edit")}>
-            编辑
+            改图
           </button>
         </div>
         <div className="bp-model-fields">
           <StudioModelField kind="image" value={selection} onChange={setSelection} label={mode === "edit" ? "编辑模型" : "生图模型"} cards={models} />
-          <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="润色文本模型" />
+          <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="把句子写顺的模型" />
         </div>
         <label>
           描述你的想法
@@ -279,7 +272,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         <div className="prompt-tools">
           <span className="bp-count">必填 · {prompt.length} / 20000</span>
           <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
-            提示词模板 / 润色
+            把提示词写顺
           </button>
         </div>
         {mode !== "t2i" ? (
@@ -360,9 +353,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                   <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
                     <b>{item.model}</b>
                     <span>
-                      {item.wired ? "已接线" : "待接线"}
-                      {item.nsfw ? " · NSFW" : ""}
-                      {isEditModel(item.model) ? " · 可编辑" : ""} · {item.cost || "1 点"}
+                      {item.wired ? "能用" : "还没填密钥"}
+                      {item.nsfw ? " · 可出成人向" : ""}
+                      {isEditModel(item.model) ? " · 能改图" : ""} · {item.cost || "1 点"}
                     </span>
                   </button>
                 );
@@ -370,14 +363,14 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             </div>
           ))}
         </div>
-        <p className="studio-kicker">参数 · 能力档</p>
+        <p className="studio-kicker">出图设置</p>
         <p className="cap-strip">
-          {mode === "t2i" ? "文生图" : mode === "edit" ? "编辑 · 参考 1–3" : "图生图 · 参考 1–3"}
+          {mode === "t2i" ? "文生图" : mode === "edit" ? "改图 · 参考 1–3 张" : "按图出图 · 参考 1–3 张"}
           {" · "}
           一次 {count} 张
-          {showLora ? " · LoRA" : ""}
-          {family === "civitai" ? " · 种子" : ""}
-          {family === "ark" ? ` · ${size}` : ` · ${quality}`}
+          {showLora ? " · 可加风格插件" : ""}
+          {family === "civitai" ? " · 可填种子" : ""}
+          {family === "ark" ? ` · ${size}` : ` · ${quality === "eco" ? "省一点" : quality === "hq" ? "更清楚" : "普通"}`}
         </p>
         <div className="bp-params-col">
           {family === "ark" ? (
@@ -404,7 +397,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
               <div className="studio-seg">
                 {(["eco", "std", "hq"] as const).map((item) => (
                   <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
-                    {item === "eco" ? "经济 · 1 点" : item === "hq" ? "稳定 · 2 点" : "标准 · 1 点"}
+                    {item === "eco" ? "省一点 · 1 点" : item === "hq" ? "更清楚 · 2 点" : "普通 · 1 点"}
                   </button>
                 ))}
               </div>

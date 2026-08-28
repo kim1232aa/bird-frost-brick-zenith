@@ -21,7 +21,7 @@ import {
     modelMatchesCapability,
     normalizeModelList,
     resolveCapabilityRoute,
-    enabledRelayModelOptionsForCapability,
+    listedRelayModelOptionsForCapability,
     type ApiBoardModelRouting,
     type ApiPlatformBoardModelRouting,
     type ApiCapability,
@@ -32,7 +32,9 @@ import {
     type ProviderModelSelection,
 } from "@/stores/api-relay-config";
 import { hasProviderCredential, normalizeProviderCredentials } from "@/stores/provider-credentials";
+import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
 import { shouldReplaceManagedRelays, studioRelays, studioRouting } from "@/studio/wiring";
+import { useStudioSession } from "@/studio/session";
 import {
     migrateLegacyImageGenerationSettings,
     normalizeImageAdvancedSettingsByScope,
@@ -401,7 +403,8 @@ export function selectableModelsByCapability(config: AiConfig, capability?: Mode
  */
 export function selectableProviderModelsByCapability(config: AiConfig, capability: ModelCapability): ProviderModelOption[] {
     const normalized = ensureApiRelaySettings({ ...config, channelMode: "local" });
-    return enabledRelayModelOptionsForCapability(normalized.apiRelays, capability);
+    const relays = normalized.apiRelays?.length ? normalized.apiRelays : studioRelays();
+    return listedRelayModelOptionsForCapability(relays, capability);
 }
 
 function modelListKey(capability: ModelCapability) {
@@ -487,7 +490,7 @@ export const useConfigStore = create<ConfigStore>()(
                 const config = { ...defaultConfig, ...persistedConfig };
                 const persistedRelays = hasOwn(persistedConfig, "apiRelays") ? persistedConfig.apiRelays : undefined;
                 const replaceManaged = shouldReplaceManagedRelays(persistedRelays as ApiRelayProvider[] | undefined);
-                const apiRelays = replaceManaged ? defaultConfig.apiRelays : persistedRelays;
+                const apiRelays = mergePersistedRelays(persistedRelays as ApiRelayProvider[] | undefined);
                 const { apiRelays: _defaultApiRelays, ...configWithoutRelays } = config;
                 const normalizedConfig = ensureApiRelaySettings({
                     ...configWithoutRelays,
@@ -548,7 +551,12 @@ export const useConfigStore = create<ConfigStore>()(
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
-    return useMemo(() => resolveEffectiveConfig(config, modelChannel), [config, modelChannel]);
+    const studioRelaysState = useStudioSession((state) => state.relays);
+    return useMemo(() => {
+        const resolved = resolveEffectiveConfig(config, modelChannel);
+        const apiRelays = mergeRelaySources(resolved.apiRelays, studioRelaysState);
+        return { ...resolved, apiRelays };
+    }, [config, modelChannel, studioRelaysState]);
 }
 let configRehydrateTimer: number | null = null;
 

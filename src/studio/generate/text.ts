@@ -1,7 +1,7 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { adapterForProvider } from "@/studio/adapters";
 import { modelPoints, useOpsStore } from "@/studio/ops";
-import { STUDIO_PROVIDERS, STUDIO_ROUTES } from "@/studio/wiring";
+import { STUDIO_PROVIDERS } from "@/studio/wiring";
 import { providerById } from "./proxy";
 
 export async function generateStudioText(input: {
@@ -13,8 +13,9 @@ export async function generateStudioText(input: {
   json?: boolean;
   imageUrl?: string;
 }) {
-  const providerId = input.providerId || STUDIO_ROUTES.text.providerId;
-  const model = input.model || STUDIO_ROUTES.text.model;
+  const providerId = String(input.providerId || "").trim();
+  const model = String(input.model || "").trim();
+  if (!providerId || !model) throw new Error("请先选择供应商和模型。选哪个就走哪个，不会自动改线路。");
   const ticket = useOpsStore.getState().spend("text", model, modelPoints(`${providerId}::${model}`));
   try {
     const provider = providerById(providerId, input.relays);

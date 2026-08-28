@@ -47,7 +47,6 @@ export type CanvasData = {
 };
 
 export const STYLE_PRESETS = [
-  "清凉写真",
   "电影感写实",
   "国风仙侠",
   "暗黑奇幻",
@@ -58,6 +57,7 @@ export const STYLE_PRESETS = [
   "黏土动画",
   "像素游戏",
   "黑白分镜",
+  "清凉写真",
 ];
 
 export const GRAPH_KEY = "boundless-studio:canvas-graph-v7";

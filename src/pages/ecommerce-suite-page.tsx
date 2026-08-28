@@ -7,8 +7,8 @@ import { composeEcommercePrompt, ECOMMERCE_PACKS, ECOMMERCE_SCENES } from "@/stu
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioHistory } from "@/studio/history";
 import { useMembershipStore } from "@/studio/membership";
-import { StudioModelField } from "@/studio/model-select";
-import { STUDIO_ROUTES } from "@/studio/wiring";
+import { preferredImageKey, StudioModelField } from "@/studio/model-select";
+import { useOpsStore } from "@/studio/ops";
 import { WorkbenchStatus } from "@/studio/workbench-status";
 
 type ShotState = { status: "idle" | "running" | "done" | "error"; url?: string; error?: string; note: string };
@@ -18,11 +18,12 @@ export function EcommerceSuitePage() {
   const items = useStudioHistory((state) => state.items);
   const addHistory = useStudioHistory((state) => state.add);
   const record = useMembershipStore((state) => state.record);
+  const remaining = useOpsStore((state) => state.credits.image);
   const [packId, setPackId] = useState("amazon");
   const [sceneId, setSceneId] = useState<(typeof ECOMMERCE_SCENES)[number]["id"]>("solid");
-  const [product, setProduct] = useState("matte ceramic coffee mug");
+  const [product, setProduct] = useState("");
   const [reference, setReference] = useState("");
-  const [selection, setSelection] = useState(`${STUDIO_ROUTES.image.providerId}::${STUDIO_ROUTES.image.model}`);
+  const [selection, setSelection] = useState(preferredImageKey());
   const pack = useMemo(() => ECOMMERCE_PACKS.find((item) => item.id === packId) || ECOMMERCE_PACKS[0], [packId]);
   const [shots, setShots] = useState<Record<string, ShotState>>({});
   const [progress, setProgress] = useState("");
@@ -41,6 +42,10 @@ export function EcommerceSuitePage() {
   const generateOne = async (shotId: string) => {
     const shot = pack.shots.find((item) => item.id === shotId);
     if (!shot) return;
+    if (!product.trim()) {
+      setError("先写产品描述，或上传一张商品参考图。");
+      return;
+    }
     patch(shot.id, { status: "running", error: "" });
     setError("");
     try {
@@ -65,6 +70,10 @@ export function EcommerceSuitePage() {
   };
 
   const generatePack = async () => {
+    if (!product.trim()) {
+      setError("先写产品描述，或上传一张商品参考图。");
+      return;
+    }
     setError("");
     for (let i = 0; i < pack.shots.length; i += 1) {
       setProgress(`${i}/${pack.shots.length} 生成中 · ${pack.shots[i].label}`);
@@ -101,7 +110,7 @@ export function EcommerceSuitePage() {
         <h1>电商套图</h1>
         <p>上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
       </header>
-      <p className="alert-banner">商品参考图越清楚，套图越稳。没有图也可以先用文字描述试布局。</p>
+      <p className="alert-banner">商品参考图越清楚，套图越稳。没有图也可以先用文字描述试布局。走你选的生图模型，每张成功扣 1 点。</p>
       <div className="bench">
       <aside className="bench-side">
         <p className="studio-kicker">ECOMMERCE</p>
@@ -124,7 +133,7 @@ export function EcommerceSuitePage() {
         </label>
         <label>
           产品描述
-          <textarea rows={3} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="材质、颜色、卖点" />
+          <textarea rows={3} value={product} onChange={(event) => setProduct(event.target.value)} placeholder="材质、颜色、卖点，例如：哑光陶瓷马克杯，米白色，无logo" />
         </label>
         <p className="studio-kicker">② 场景模板</p>
         <div className="chip-row">
@@ -161,13 +170,13 @@ export function EcommerceSuitePage() {
           onClick={() => void generatePack()}
         >
           <span>{progress.includes("生成中") ? progress : `生成整套 ${pack.shots.length}`}</span>
-          <small>{!product.trim() ? "请先填写产品描述" : progress.includes("生成中") ? progress : `${pack.shots.length} 张 · 本地演示积分`}</small>
+          <small>{!product.trim() ? "请先填写产品描述" : progress.includes("生成中") ? progress : `${pack.shots.length} 张 · 成功各扣 1 点 · 剩余 ${remaining}`}</small>
         </button>
         <button type="button" className="studio-ghost" disabled={!doneCount} onClick={() => void downloadZip()}>
           打包 ZIP（{doneCount}/{pack.shots.length}）
         </button>
         {progress ? <p className="studio-hint">{progress}</p> : null}
-        {error ? <p className="studio-error">{error}</p> : null}
+        {error ? <p className="studio-error" role="alert">{error}</p> : null}
       </aside>
       <section className="bench-main story-board">
         <header className="story-logline">
