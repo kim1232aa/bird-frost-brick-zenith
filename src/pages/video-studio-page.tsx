@@ -164,6 +164,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         taskId: created.id,
         model: created.model,
         ticketId: created.ticketId,
+        prompt,
+        workTitle: prompt.slice(0, 40),
         onTick: (n) => setBusy(`生成中 · 轮询 ${n}`),
       });
       setUrl(videoUrl);
@@ -206,6 +208,15 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       const times = evenFrameTimes(durationSec, frameCount);
       const next = await extractVideoFrames(clipUrl, times);
       setFrames(next);
+      if (next[0]) {
+        addHistory({
+          kind: "image",
+          title: `抽帧 ${next.length} 张`,
+          prompt: prompt || "视频抽帧",
+          model: "extract",
+          urls: next,
+        });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "抽帧失败");
     } finally {

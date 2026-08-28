@@ -89,6 +89,8 @@ export function CanvasWorkspaceLite() {
           model: imageSel.model,
           prompt: `character bible portrait, locked identity, studio, adult 24+, ${person.look}, name ${person.name}${style ? `, ${style}` : ""}`,
           size: "1024x1024",
+          workTitle: `故事角色 · ${person.name}`,
+          workKind: "story",
         });
         plan.cast[i] = { ...person, url: result.url, status: "ready" };
       }
@@ -105,6 +107,8 @@ export function CanvasWorkspaceLite() {
           imageUrl: refs[0],
           imageUrls: refs,
           size: stillSizeForQuality("2K", ratio),
+          workTitle: `故事分镜 · ${shot.title}`,
+          workKind: "story",
         });
         plan.shots[i] = { ...shot, url: result.url, status: "done", error: "" };
       }
@@ -130,6 +134,8 @@ export function CanvasWorkspaceLite() {
         providerId: created.providerId,
         taskId: created.id,
         model: created.model,
+        prompt: plan.shots[0]?.prompt || idea,
+        workTitle: `故事视频 · ${(plan.shots[0]?.title || idea).slice(0, 24)}`,
       });
       plan.shots[0] = { ...plan.shots[0], videoUrl: url, status: "video" };
       const id = pushStoryToCanvasWorkspace({

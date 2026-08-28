@@ -58,6 +58,8 @@ export function EcommerceSuitePage() {
         providerId,
         model,
         size: selection.includes("volcengine") ? "2K" : undefined,
+        workTitle: `${pack.label} · ${shot.label}`,
+        workKind: "ecommerce",
       });
       patch(shot.id, { status: "done", url: result.url });
       record("image");

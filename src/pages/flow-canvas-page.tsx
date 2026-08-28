@@ -329,7 +329,6 @@ function CanvasInner() {
         shots: plan.shots,
         status: "已分析",
       });
-      addHistory({ kind: "story", title: idea.slice(0, 40), prompt: idea, model: splitModel(node.data.textModel || "").model, urls: [] });
       return plan;
     } catch (err) {
       const message = err instanceof Error ? err.message : "分析失败";

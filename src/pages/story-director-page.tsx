@@ -65,7 +65,6 @@ export function StoryDirectorPage() {
       setScenes(plan.scenes);
       setCast(plan.cast);
       setShots(plan.shots);
-      addHistory({ kind: "story", title: idea.slice(0, 40), prompt: idea, model: splitModel(textModel).model, urls: [] });
     } catch (err) {
       setError(err instanceof Error ? err.message : "分析失败");
     } finally {
@@ -88,6 +87,8 @@ export function StoryDirectorPage() {
         model: imageSel.model,
         prompt: `character bible portrait, locked identity, studio, adult 24+, ${person.look}, name ${person.name}, ${style}`,
         size: "1024x1024",
+        workTitle: `故事角色 · ${person.name}`,
+        workKind: "story",
       });
       setCast((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "ready" } : item)));
       people[index] = { ...people[index], url: result.url, status: "ready" };
@@ -119,6 +120,8 @@ export function StoryDirectorPage() {
         imageUrl: refs[0],
         imageUrls: refs,
         size: stillSizeForQuality(quality, ratio),
+        workTitle: `故事分镜 · ${shot.title}`,
+        workKind: "story",
       });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done", error: "" } : item)));
       addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, urls: [result.url] });
@@ -158,7 +161,7 @@ export function StoryDirectorPage() {
         model: videoSel.model,
         generateAudio: true,
       });
-      const url = await waitStudioVideo({ relays, providerId: created.providerId, taskId: created.id, model: created.model });
+      const url = await waitStudioVideo({ relays, providerId: created.providerId, taskId: created.id, model: created.model, prompt: shot.prompt, workTitle: `故事视频 · ${shot.title}` });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, videoUrl: url, status: "video" } : item)));
       addHistory({ kind: "video", title: shot.title, prompt: shot.prompt, model: created.model, urls: [url] });
     } catch (err) {
@@ -196,6 +199,16 @@ export function StoryDirectorPage() {
       if (url) next[i] = { ...next[i], url, status: "done" };
       done += 1;
       setProgress(`${done}/${missing.length || 1} 分镜完成`);
+    }
+    const urls = [...people.map((item) => item.url || ""), ...next.map((item) => item.url || "")].filter(Boolean);
+    if (urls[0]) {
+      addHistory({
+        kind: "story",
+        title: `故事 · ${(idea || logline || "分镜").slice(0, 28)}`,
+        prompt: idea,
+        model: imageSel.model,
+        urls,
+      });
     }
     return next;
   };

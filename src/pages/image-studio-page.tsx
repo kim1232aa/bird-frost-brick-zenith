@@ -180,6 +180,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         n: count,
         operation: mode === "edit" ? "edit" : "generate",
         loras: loraMap && Object.keys(loraMap).length ? loraMap : undefined,
+        workTitle: `${mode === "edit" ? "改图 · " : mode === "i2i" ? "图生图 · " : ""}${prompt}`.slice(0, 40),
       });
       setBusy("正在写入结果…");
       setUrls(result.urls);

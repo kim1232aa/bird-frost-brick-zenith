@@ -1291,38 +1291,63 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
             loras: context.advanced.loras,
             negativePrompt: context.advanced.negativePrompt,
             seed: typeof context.advanced.seed === "number" ? context.advanced.seed : undefined,
+            workTitle: `画布 · ${context.prompt.slice(0, 32)}`,
         });
         return parseImagePayload({ data: (result.urls.length ? result.urls : [result.url]).map((url) => ({ url })) });
     }
     const { capability } = context;
+    let images: GeneratedImageResult[];
     switch (capability.serialization.kind) {
         case "openai-images-generate":
-            return requestOpenAIGenerationBatch(context);
+            images = await requestOpenAIGenerationBatch(context);
+            break;
         case "openai-images-edit":
-            return requestOpenAIEditBatch(context);
+            images = await requestOpenAIEditBatch(context);
+            break;
         case "openai-images-variation":
-            return requestOpenAIVariationBatch(context);
+            images = await requestOpenAIVariationBatch(context);
+            break;
         case "openai-responses-image-tool":
-            return requestOpenAIResponsesImageBatch(context);
+            images = await requestOpenAIResponsesImageBatch(context);
+            break;
         case "openai-chat-image-message":
-            return requestOpenAIChatImageBatch(context);
+            images = await requestOpenAIChatImageBatch(context);
+            break;
         case "xai-imagine-edit":
-            return requestXaiImagineEditBatch(context);
+            images = await requestXaiImagineEditBatch(context);
+            break;
         case "agnes-images-generate":
-            return requestAgnesImageBatch(context);
+            images = await requestAgnesImageBatch(context);
+            break;
         case "dashscope-multimodal-image":
-            return requestDashscopeImageBatch(context);
+            images = await requestDashscopeImageBatch(context);
+            break;
         case "ark-images-generate":
-            return requestArkImageBatch(context);
+            images = await requestArkImageBatch(context);
+            break;
         case "sensenova-images-generate":
-            return requestSenseNovaImageBatch(context);
+            images = await requestSenseNovaImageBatch(context);
+            break;
         case "sensenova-miaohua-image":
-            return requestMiaohuaImageBatch(context);
+            images = await requestMiaohuaImageBatch(context);
+            break;
         case "civitai-workflow":
-            return requestCivitaiImageBatch(context);
-        case "custom-profile":
+            images = await requestCivitaiImageBatch(context);
+            break;
+        default:
             throw new Error("未知自定义图片 Endpoint 没有已验证的 wire contract；请显式配置 imageCapabilityProfiles");
     }
+    if (typeof window !== "undefined" && images.length) {
+        const { recordGeneratedWork } = await import("@/studio/history");
+        recordGeneratedWork({
+            kind: "image",
+            title: `画布 · ${context.prompt.slice(0, 32)}`,
+            prompt: context.prompt,
+            model: context.route.model,
+            urls: images.map((item) => item.backendUrl || item.dataUrl).filter(Boolean),
+        });
+    }
+    return images;
 }
 
 async function requestOpenAIGenerationBatch(context: ImageBatchContext) {

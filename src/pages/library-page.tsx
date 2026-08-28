@@ -155,13 +155,13 @@ export function LibraryPage() {
         {hydrated && !mine.length ? (
           <div className="library-empty">
             <h2>还没有本机作品</h2>
-            <p>生图、改图、生视频或电商套图成功后会出现在这里。参考样张不算你的作品。</p>
+            <p>生图、故事导演分镜、无限画布出片成功后会出现在这里。参考样张不算你的作品。</p>
             <div className="shot-actions">
               <Link className="studio-primary" to="/image">
                 去生图
               </Link>
-              <Link className="studio-ghost" to="/video">
-                去生视频
+              <Link className="studio-ghost" to="/story">
+                去故事导演
               </Link>
             </div>
           </div>
