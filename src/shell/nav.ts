@@ -1,6 +1,6 @@
 export const STUDIO_NAV = [
   { href: "/image", label: "生图", id: "image" },
-  { href: "/edit", label: "编辑", id: "edit" },
+  { href: "/edit", label: "改图", id: "edit" },
   { href: "/video", label: "生视频", id: "video" },
   { href: "/i2v", label: "图生视频", id: "i2v" },
   { href: "/ecommerce", label: "电商套图", id: "ecommerce" },
