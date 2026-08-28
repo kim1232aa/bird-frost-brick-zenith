@@ -201,6 +201,8 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
 .bp-left {
   overflow: auto;
   padding: 20px 18px 28px;
+  position: relative;
+  z-index: 2;
 }
 
 .bp-right {

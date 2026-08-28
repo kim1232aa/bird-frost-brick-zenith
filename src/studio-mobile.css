@@ -180,11 +180,18 @@
   }
 
   .bp-right {
-    min-height: 280px;
+    min-height: 220px;
+    max-height: none;
   }
 
   .bp-stage {
-    min-height: 220px;
+    min-height: 180px;
+    max-height: 42vh;
+  }
+
+  .bp-stage img,
+  .bp-stage video {
+    max-height: 38vh;
   }
 
   .bp-examples {
