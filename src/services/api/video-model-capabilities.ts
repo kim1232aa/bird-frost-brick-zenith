@@ -36,6 +36,7 @@ export type VideoCapabilityProfileId =
     | "dashscope-happyhorse-r2v"
     | "dashscope-wan27-video-edit"
     | "dashscope-happyhorse-video-edit"
+    | "dashscope-wan30-video"
     | "dashscope-t2v"
     | "dashscope-unknown"
     | "ark-seedance-2"
@@ -71,6 +72,7 @@ export const VIDEO_CAPABILITY_PROFILE_IDS: readonly VideoCapabilityProfileId[] =
     "dashscope-happyhorse-r2v",
     "dashscope-wan27-video-edit",
     "dashscope-happyhorse-video-edit",
+    "dashscope-wan30-video",
     "dashscope-t2v",
     "dashscope-unknown",
     "ark-seedance-2",
@@ -398,6 +400,21 @@ const VIDEO_CAPABILITY_PROFILES = defineVideoCapabilityProfiles({
         supportsReferenceSetWithFirst: false,
         intentPolicy: "reference-set",
         supportedOperations: ["video-edit"],
+    },
+    "dashscope-wan30-video": {
+        id: "dashscope-wan30-video",
+        provider: "dashscope",
+        label: "DashScope Wan 3.0 Video",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: true, min: 0, max: 10 },
+        videoInputPolicy: { supported: true, min: 0, max: 5, uses: ["reference_video"] },
+        legacyUndefinedVideoUseAs: "reference_video",
+        autoCharacterDerivedViewPolicy: "multi-view",
+        storyAutoReferencePolicy: "semantic-references",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
+        intentPolicy: "frames-or-reference-set",
     },
     "dashscope-t2v": {
         id: "dashscope-t2v",
@@ -782,6 +799,9 @@ const DASHSCOPE_WAN27_VIDEO_EDIT_EVIDENCE = [
 const DASHSCOPE_HAPPYHORSE_VIDEO_EDIT_EVIDENCE = [
     "https://help.aliyun.com/en/model-studio/happyhorse-video-edit-api-reference (verified 2026-08-04)",
 ] as const;
+const DASHSCOPE_WAN30_VIDEO_EVIDENCE = [
+    "https://help.aliyun.com/zh/model-studio/wan3-video-generation-api-reference (verified 2026-08-28; wan3.0-video / wan3.0-video-prime all-in-one: t2v, first/last frame i2v, reference_image≤10, reference_video≤5, reference_audio≤5; frames XOR reference_*/file/link; duration 2..30 or -1; resolution 480P/720P/1080P default 1080P; ratio adaptive default)",
+] as const;
 const ARK_VIDEO_EVIDENCE = [
     "https://api.volcengine.com/api-docs/view?action=CreateContentsGenerationsTasks&serviceCode=ark&version=2024-01-01 (verified 2026-08-03; public model-level parameter schema incomplete)",
 ] as const;
@@ -888,6 +908,28 @@ function dashscopeWan27GenerationParameters(kind: "i2v" | "r2v" | "t2v") {
 const DASHSCOPE_WAN27_I2V_PARAMETERS = dashscopeWan27GenerationParameters("i2v");
 const DASHSCOPE_WAN27_R2V_PARAMETERS = dashscopeWan27GenerationParameters("r2v");
 const DASHSCOPE_WAN27_T2V_PARAMETERS = dashscopeWan27GenerationParameters("t2v");
+const DASHSCOPE_WAN30_RATIOS = ["adaptive", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
+const DASHSCOPE_WAN30_DURATIONS = [-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30] as const;
+const DASHSCOPE_WAN30_VIDEO_PARAMETERS = makeVideoGenerationParameterContract(
+    "dashscope:wan3.0-video",
+    DASHSCOPE_WAN30_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: supportedParameter(
+            "integer",
+            "parameters.duration",
+            "-1 表示智能时长；无参考视频时整数 2..30；有参考视频时输入总时长 + 输出时长不超过 30 秒",
+            { enumValues: DASHSCOPE_WAN30_DURATIONS, integer: true, defaultValue: 5 },
+        ),
+        fps: DASHSCOPE_FIXED_30_FPS,
+        resolution: supportedParameter("string", "parameters.resolution", "分辨率档位，默认 1080P", { enumValues: ["480P", "720P", "1080P"], defaultValue: "1080P" }),
+        aspectRatio: supportedParameter("string", "parameters.ratio", "输出画面比例；默认 adaptive，按输入媒体和意图自动匹配", { enumValues: DASHSCOPE_WAN30_RATIOS, defaultValue: "adaptive" }),
+        audio: supportedParameter("boolean", "parameters.audio", "输出视频是否包含音轨；参考音频走 input.media[type=reference_audio]", { defaultValue: true }),
+        watermark: DASHSCOPE_WATERMARK,
+        seed: DASHSCOPE_SEED,
+        promptExpansion: DASHSCOPE_PROMPT_EXPANSION,
+    },
+);
 
 function dashscopeWan26I2vGenerationParameters(id: string, audioGenerationSupported: boolean) {
     return makeVideoGenerationParameterContract(id, DASHSCOPE_WAN26_I2V_EVIDENCE, "unsupported", {
@@ -1858,6 +1900,9 @@ export function serializeDashscopeVideoInput(
 ) {
     const input: Record<string, unknown> = { prompt };
     const videos = (references.videos || []).map((video) => typeof video === "string" ? { url: video } : { ...video });
+    if (capability.id === "dashscope-wan30-video") {
+        return serializeDashscopeWan30VideoInput(input, prompt, intent, videos, references.voices || []);
+    }
     if (intent.kind === "none" && !["dashscope-wan27-r2v", "dashscope-wan27-i2v", "dashscope-wan27-video-edit", "dashscope-happyhorse-video-edit"].includes(capability.id)) return input;
     if (capability.id === "dashscope-wan27-i2v") {
         const firstClips = videos.filter((video) => video.useAs === "first_clip");
@@ -1953,6 +1998,52 @@ export function serializeDashscopeVideoInput(
     throw new Error(`${capability.providerLabel} / ${capability.model || "未命名模型"}：当前 DashScope profile 不接受参考图`);
 }
 
+function serializeDashscopeWan30VideoInput(
+    input: Record<string, unknown>,
+    prompt: string,
+    intent: VideoReferenceIntent<string>,
+    videos: Array<{ url: string; useAs?: VideoInputUseAs }>,
+    voices: readonly string[],
+) {
+    const frameIntent = intent.kind === "first_frame" || intent.kind === "first_last_frame";
+    if (intent.kind === "last_frame") throw new Error("Wan 3.0 不接受缺少首帧的单独尾帧；官方 first_frame / last_frame 只用于图生视频");
+    if (intent.kind === "keyframes") throw new Error("Wan 3.0 官方合同没有独立关键帧数组；请改用首帧、首尾帧或参考图");
+    if (intent.kind === "reference_set_with_first" || intent.kind === "reference_set_with_frames") {
+        throw new Error("Wan 3.0 的 first_frame / last_frame 与 reference_image / reference_video / reference_audio 互斥，不能组合提交");
+    }
+    if (frameIntent) {
+        if (videos.length) throw new Error("Wan 3.0 图生视频不能同时提交 reference_video；帧与参考集必须二选一");
+        if (voices.length) throw new Error("Wan 3.0 图生视频不能同时提交 reference_audio；帧与参考集必须二选一");
+        input.media = intent.kind === "first_last_frame"
+            ? [{ type: "first_frame", url: intent.firstFrame }, { type: "last_frame", url: intent.lastFrame }]
+            : [{ type: "first_frame", url: intent.firstFrame }];
+        return input;
+    }
+    if (intent.kind !== "none" && intent.kind !== "reference_set") {
+        throw new Error("Wan 3.0 只接受文生视频、首帧/首尾帧图生视频，或 reference_image / reference_video / reference_audio 参考集");
+    }
+    const images = intent.kind === "reference_set" ? intent.references : [];
+    if (images.length > 10) throw new Error(`Wan 3.0 参考图最多 10 张，当前为 ${images.length} 张`);
+    const referenceVideos = videos.map((video) => {
+        if (video.useAs !== undefined && video.useAs !== "reference_video") {
+            throw new Error("Wan 3.0 只接受普通 reference_video，不能接受 first_clip 或 source_video");
+        }
+        return video.url;
+    });
+    if (referenceVideos.length > 5) throw new Error(`Wan 3.0 参考视频最多 5 段，当前为 ${referenceVideos.length} 段`);
+    if (voices.length > 5) throw new Error(`Wan 3.0 参考音频最多 5 段，当前为 ${voices.length} 段`);
+    const media = [
+        ...images.map((url) => ({ type: "reference_image" as const, url })),
+        ...referenceVideos.map((url) => ({ type: "reference_video" as const, url })),
+        ...voices.map((url) => ({ type: "reference_audio" as const, url })),
+    ];
+    if (!String(prompt || "").trim() && !media.length) {
+        throw new Error("Wan 3.0 的 prompt 与 media 必填其一");
+    }
+    if (media.length) input.media = media;
+    return input;
+}
+
 export function serializeSeedanceImageContent(
     intent: VideoReferenceIntent<string>,
     references: { videos?: readonly (string | { url: string; useAs?: VideoInputUseAs })[] } = {},
@@ -2032,6 +2123,7 @@ function configuredVideoProfile(profiles: VideoCapabilityProvider["videoCapabili
 
 function dashscopeProfileForModel(model: string): VideoCapabilityProfileId {
     const value = normalizeModelKey(model);
+    if (value === "wan3-0-video" || value === "wan3-0-video-prime") return "dashscope-wan30-video";
     if (value === "happyhorse-1-0-video-edit") return "dashscope-happyhorse-video-edit";
     if (value === "happyhorse-1-0-i2v" || value === "happyhorse-1-1-i2v") return "dashscope-happyhorse-i2v";
     if (value === "happyhorse-1-0-r2v" || value === "happyhorse-1-1-r2v") return "dashscope-happyhorse-r2v";
@@ -2134,6 +2226,7 @@ function videoGenerationParametersForModel(provider: VideoCapabilityProfile["pro
             || unknownGenerationParameters("civitai", model);
     }
     if (provider === "dashscope") {
+        if (normalized === "wan3-0-video" || normalized === "wan3-0-video-prime") return DASHSCOPE_WAN30_VIDEO_PARAMETERS;
         if (normalized === "wan2-7-videoedit") return DASHSCOPE_WAN27_VIDEO_EDIT_PARAMETERS;
         if (normalized === "happyhorse-1-0-video-edit") return DASHSCOPE_HAPPYHORSE_VIDEO_EDIT_PARAMETERS;
         if (normalized === "wan2-7-i2v" || normalized === "wan2-7-i2v-2026-04-25") return DASHSCOPE_WAN27_I2V_PARAMETERS;

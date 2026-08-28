@@ -45,6 +45,8 @@ const META: Record<string, Partial<ModelCard>> = {
   "flux-dev": { tags: ["NSFW", "Flux", "待接线"], nsfw: true, cost: "Fal", blurb: "Fal Flux Dev。填 Fal Key 后可用。" },
   "flux-schnell": { tags: ["NSFW", "快", "待接线"], nsfw: true, cost: "Fal", blurb: "Fal Flux Schnell。" },
   "flux-pro": { tags: ["NSFW", "Pro", "待接线"], nsfw: true, cost: "Fal", blurb: "Fal Flux Pro。" },
+  "wan3.0-video": { tags: ["万相3.0", "全能", "推荐"], cost: "百炼", size: "1080P", blurb: "万相 3.0 全能视频：文生、首帧/首尾帧、最多 10 张参考图 / 5 段参考视频。最长 30 秒。" },
+  "wan3.0-video-prime": { tags: ["万相3.0", "高速", "推荐"], cost: "百炼", size: "1080P", blurb: "万相 3.0 高速版，能力和标准版对齐，出片更快。" },
 };
 
 for (const engine of CIVITAI_ENGINES) {

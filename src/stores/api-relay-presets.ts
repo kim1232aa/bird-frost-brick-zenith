@@ -108,6 +108,8 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
             "happyhorse-1.1-t2v",
             "happyhorse-1.1-i2v",
             "happyhorse-1.1-r2v",
+            "wan3.0-video",
+            "wan3.0-video-prime",
             "wan2.7-t2v",
             "wan2.7-t2v-2026-06-12",
             "wan2.7-t2v-2026-04-25",
@@ -125,7 +127,7 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
         ],
         textModels: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen3.7-plus", "qwen3.7-max", "qwen3.6-flash"],
         imageModels: ["qwen-image-3.0-pro", "qwen-image-2.0-pro", "qwen-image-2.0", "qwen-image-max", "qwen-image-plus", "qwen-image", "wan2.7-image-pro", "wan2.7-image", "wan2.6-t2i", "wan2.6-image", "z-image-turbo"],
-        videoModels: ["happyhorse-1.0-video-edit", "happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v", "happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v", "wan2.7-videoedit", "wan2.7-t2v", "wan2.7-t2v-2026-06-12", "wan2.7-t2v-2026-04-25", "wan2.7-i2v", "wan2.7-i2v-2026-04-25", "wan2.7-r2v-2026-06-12", "wan2.6-t2v", "wan2.6-i2v", "wan2.6-i2v-flash", "wan2.6-r2v", "wan2.6-r2v-flash", "wan2.2-kf2v-flash"],
+        videoModels: ["wan3.0-video", "wan3.0-video-prime", "happyhorse-1.0-video-edit", "happyhorse-1.0-t2v", "happyhorse-1.0-i2v", "happyhorse-1.0-r2v", "happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v", "wan2.7-videoedit", "wan2.7-t2v", "wan2.7-t2v-2026-06-12", "wan2.7-t2v-2026-04-25", "wan2.7-i2v", "wan2.7-i2v-2026-04-25", "wan2.7-r2v-2026-06-12", "wan2.6-t2v", "wan2.6-i2v", "wan2.6-i2v-flash", "wan2.6-r2v", "wan2.6-r2v-flash", "wan2.2-kf2v-flash"],
         audioModels: [],
     },
     {

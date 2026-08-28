@@ -240,7 +240,7 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (isDashscopeRoute(route)) {
         validateVideoInputs(capability, videoReferences);
         const supportsVideoInput = capability.videoInputPolicy.supported;
-        const supportsAudioInput = capability.id === "dashscope-wan27-r2v" || (capability.id === "dashscope-wan27-i2v" && firstClipCount === 0);
+        const supportsAudioInput = capability.id === "dashscope-wan27-r2v" || capability.id === "dashscope-wan30-video" || (capability.id === "dashscope-wan27-i2v" && firstClipCount === 0);
         if ((!supportsVideoInput && videoReferences.length) || (!supportsAudioInput && audioReferences.length)) {
             throw new Error(`${capability.providerLabel} / ${model}：不支持参考视频或参考音频，请只使用参考图片`);
         }
