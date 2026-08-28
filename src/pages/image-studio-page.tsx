@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog, catalogKey, groupCatalogByRegion } from "@/studio/catalog";
+import { findCatalog, catalogKey } from "@/studio/catalog";
 import { defaultEditKey, isEditModel, isEditOnlyModel } from "@/studio/edit-models";
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioJobs } from "@/studio/generate/jobs";
@@ -98,8 +98,6 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     if (mode === "edit") return allModels.filter((card) => isEditModel(card.model));
     return allModels.filter((card) => !isEditOnlyModel(card.model));
   }, [allModels, mode]);
-
-  const groups = useMemo(() => groupCatalogByRegion(models), [models]);
 
   useEffect(() => {
     if (!models.length) return;
@@ -342,32 +340,6 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
           </label>
         )}
-        <p className="studio-kicker">选择模型 · {models.length} 个可切换</p>
-        <div className="bp-pick" data-testid="image-models">
-          {models.length === 0 ? (
-            <p className="studio-hint">
-              {mode === "edit" ? "编辑模型还没接线。去设置启用 ModelScope 的 Qwen-Image-Edit 或 Hugging Face / Civitai 的 FLUX.2-dev。" : "后台还没有上架生图模型。"}
-            </p>
-          ) : null}
-          {groups.map(([provider, list]) => (
-            <div key={provider}>
-              <small>{provider}</small>
-              {list.map((item) => {
-                const key = catalogKey(item);
-                return (
-                  <button key={key} type="button" className={key === selection ? "is-on" : undefined} onClick={() => setSelection(key)}>
-                    <b>{item.model}</b>
-                    <span>
-                      {item.wired ? "能用" : "还没填密钥"}
-                      {item.nsfw ? " · 可出成人向" : ""}
-                      {isEditModel(item.model) ? " · 能改图" : ""} · {item.cost || "1 点"}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
         <p className="studio-kicker">出图设置</p>
         <p className="cap-strip">
           {mode === "t2i" ? "文生图" : mode === "edit" ? "改图 · 参考 1–3 张" : "按图出图 · 参考 1–3 张"}
