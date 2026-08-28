@@ -592,6 +592,14 @@ const OPENAI_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
     aspectRatio: unavailableParameter("unsupported", "OpenAI Videos 没有 aspect_ratio 字段；应从 size 枚举选择方向"),
     resolution: unavailableParameter("unsupported", "OpenAI Videos 没有独立 resolution 档位字段；应使用 size"),
 });
+const XAI_IMAGINE_VIDEO_EVIDENCE = [
+    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-28; duration 1–15, aspect_ratio, resolution 480p/720p/1080p)",
+];
+const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract("xai:imagine-video", XAI_IMAGINE_VIDEO_EVIDENCE, "unsupported", {
+    duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", { enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], defaultValue: 8, integer: true, minimum: 1, maximum: 15 }),
+    resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", { enumValues: ["480p", "720p", "1080p"], defaultValue: "720p" }),
+    aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", { enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], defaultValue: "16:9" }),
+});
 const DASHSCOPE_SEED = supportedParameter("integer", "seed", "随机种子 0..2147483647", { minimum: 0, maximum: 2_147_483_647, integer: true });
 const DASHSCOPE_WATERMARK = supportedParameter("boolean", "watermark", "是否添加 provider 水印");
 const DASHSCOPE_NEGATIVE_PROMPT = supportedParameter("string", "negative_prompt", "负面提示词，最长 500 字符", { maxLength: 500 });
@@ -1708,6 +1716,9 @@ function videoGenerationParametersForModel(provider, model) {
         return normalized === "agnes-video-v2-0" ? AGNES_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("agnes", model);
     }
     if (provider === "openai") {
+        if (/grok-imagine-video/i.test(model) || normalized.includes("grok-imagine-video")) {
+            return XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
+        }
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);
     }
     if (provider === "ark") {

@@ -53,6 +53,7 @@ import {
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { resolveCanvasGenerationModelSelection } from "../utils/canvas-generation-model";
 import { resolveCanvasVideoModelCapability } from "../utils/canvas-video-capability";
+import { isCanvasOverlayTarget } from "../utils/canvas-overlay-popup";
 import { isVideoTaskSnapshotLocked } from "../utils/canvas-video-task-edit-lock";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import type { ReferenceVideo } from "@/types/media";
@@ -536,8 +537,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                     boxShadow: activeShadow,
                 }}
                 onMouseDown={(event) => {
-                    const target = event.target instanceof Element ? event.target : null;
-                    if (target?.closest("[data-canvas-no-drag]")) return;
+                    const target = event.target instanceof Element ? event.target : event.target instanceof Node ? event.target.parentElement : null;
+                    if (isCanvasOverlayTarget(target)) return;
                     onMouseDown(event, data.id);
                 }}
                 onDoubleClick={(event) => {

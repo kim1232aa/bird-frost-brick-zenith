@@ -61,6 +61,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const [mode, setMode] = useState<VideoMode>(initialMode);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [polishBusy, setPolishBusy] = useState(false);
+  const [polishError, setPolishError] = useState("");
   const [url, setUrl] = useState("");
   const [frameCount, setFrameCount] = useState(6);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -90,7 +92,15 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const isArk = /volcengine|seedance/i.test(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;
   const mine = useMemo(() => items.filter((item) => item.kind === "video" && item.urls[0]), [items]);
-  const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "video"), []);
+  const seeds = useMemo(() => {
+    const all = GALLERY_SEED.filter((item) => item.kind === "video");
+    const model = (card?.model || splitModel(selection).model || "").toLowerCase();
+    if (!model) return [];
+    return all.filter((item) => {
+      const seedModel = String(item.model || "").toLowerCase();
+      return seedModel && (seedModel === model || model.includes(seedModel) || seedModel.includes(model));
+    });
+  }, [card, selection]);
   const creditCost = duration >= 8 ? 2 : 1;
 
   const goMode = (next: VideoMode) => {
@@ -367,9 +377,6 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           <button type="button" className={mode === "flf" ? "is-active" : undefined} onClick={() => goMode("flf")}>
             首尾帧
           </button>
-          <button type="button" onClick={() => goMode("extract")}>
-            抽帧
-          </button>
         </div>
         <div className="bp-model-fields">
           <StudioModelField kind="video" value={selection} onChange={setSelection} label="视频模型" />
@@ -381,15 +388,23 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         </label>
         <div className="prompt-tools">
           <span className="bp-count">必填 · {prompt.length} / 20000</span>
-          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() =>
+          <button
+            type="button"
+            className="studio-ghost"
+            disabled={Boolean(busy) || polishBusy}
+            onClick={() => {
+              setPolishBusy(true);
+              setPolishError("");
               void enhancePrompt({ relays, prompt, textModel, kind: "video" })
                 .then(setPrompt)
-                .catch((err) => setError(err instanceof Error ? err.message : "润色失败"))
-            }
+                .catch((err) => setPolishError(err instanceof Error ? err.message : "润色失败"))
+                .finally(() => setPolishBusy(false));
+            }}
           >
-            提示词模板 / 润色
+            {polishBusy ? "正在润色…" : "提示词模板 / 润色"}
           </button>
         </div>
+        {polishError ? <p className="studio-hint" role="alert">{polishError}</p> : null}
         {mode !== "t2v" ? (
           <div className="ref-grid">
             <label className="dropzone dropzone-mini">
@@ -552,9 +567,9 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             </div>
           </>
         ) : null}
-        <p className="bp-examples-title">参考样片（点一下只带提示词）</p>
+        <p className="bp-examples-title">参考样片（点一下只带提示词，不是当前模型成片）</p>
         <div className="bp-examples">
-          {seeds.map((item) => (
+          {seeds.length ? seeds.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -569,7 +584,9 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                 参考 · {item.model}
               </span>
             </button>
-          ))}
+          )) : (
+            <p className="studio-hint">当前模型没有匹配的参考样片。点生成才会出你选的模型的成片。</p>
+          )}
         </div>
       </section>
       </div>

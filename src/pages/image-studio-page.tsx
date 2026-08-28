@@ -64,7 +64,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const failJob = useStudioJobs((state) => state.fail);
   const access = useGenerateAccess();
   const allModels = liveCatalog("image", false);
-  const [prompt, setPrompt] = useState(IMAGE_TEMPLATES[0].prompt);
+  const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [selection, setSelection] = useState(preferredImageKey());
   const [textModel, setTextModel] = useState(preferredTextKey());
@@ -79,6 +79,8 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [polishBusy, setPolishBusy] = useState(false);
+  const [polishError, setPolishError] = useState("");
   const [urls, setUrls] = useState<string[]>([]);
 
   useEffect(() => {
@@ -109,10 +111,11 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection) || models[0];
   const family = engineFamily(selection);
   const selectedLive = card ? liveCard(card) : undefined;
-  const recent = useMemo(
-    () => [...items.filter((item) => item.kind === "image" && item.urls[0]), ...GALLERY_SEED.filter((item) => item.kind === "image")].slice(0, 12),
+  const mine = useMemo(
+    () => items.filter((item) => item.kind === "image" && item.urls[0]),
     [items],
   );
+  const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "image"), []);
   const showLora = supportsLora(family, card?.model || "");
 
   useEffect(() => {
@@ -194,15 +197,15 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   };
 
   const polish = async () => {
-    setBusy("润色提示词…");
-    setError("");
+    setPolishBusy(true);
+    setPolishError("");
     try {
       const next = await enhancePrompt({ relays, prompt, textModel, kind: "image" });
       setPrompt(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "润色失败");
+      setPolishError(err instanceof Error ? err.message : "润色失败");
     } finally {
-      setBusy("");
+      setPolishBusy(false);
     }
   };
 
@@ -271,10 +274,11 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         </label>
         <div className="prompt-tools">
           <span className="bp-count">必填 · {prompt.length} / 20000</span>
-          <button type="button" className="studio-ghost" disabled={Boolean(busy)} onClick={() => void polish()}>
-            把提示词写顺
+          <button type="button" className="studio-ghost" disabled={Boolean(busy) || polishBusy} onClick={() => void polish()}>
+            {polishBusy ? "正在写顺…" : "把提示词写顺"}
           </button>
         </div>
+        {polishError ? <p className="studio-hint" role="alert">{polishError}</p> : null}
         {mode !== "t2i" ? (
           <div className="ref-stack">
             <div className="ref-grid">
@@ -481,7 +485,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
           busy={busy}
           error={error}
           done={urls[0] ? `${card?.model || "模型"} 已出图 ×${urls.length}` : ""}
-          idle="右侧先看示例。生成后结果会盖在上面。"
+          idle="生成后图片会出现在上面。下面参考样片只带提示词，不会冒充当前模型的成图。"
         />
         {urls[0] || busy ? (
           <>
@@ -515,21 +519,52 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
               </div>
             ) : null}
           </>
+        ) : (
+          <div className="bp-stage">
+            <p className="studio-hint">还没有成图。写想法，点绿色按钮即可。</p>
+          </div>
+        )}
+        {mine.length ? (
+          <>
+            <p className="bp-examples-title">我的出图</p>
+            <div className="bp-examples">
+              {mine.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={urls[0] === item.urls[0] ? "is-active" : undefined}
+                  onClick={() => {
+                    if (item.urls[0]) setUrls(item.urls);
+                    if (item.prompt) setPrompt(item.prompt);
+                  }}
+                >
+                  <img src={item.urls[0]} alt={item.title} />
+                  <span>
+                    {item.title}
+                    <br />
+                    {item.model}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
         ) : null}
-        <p className="bp-examples-title">示例效果 · 点一张可带入提示词</p>
+        <p className="bp-examples-title">参考样片（点一下只带提示词）</p>
         <div className="bp-examples">
-          {recent.map((item) => (
+          {seeds.map((item) => (
             <button
               key={item.id}
               type="button"
-              className={urls[0] === item.urls[0] ? "is-active" : undefined}
               onClick={() => {
-                if (item.urls[0]) setUrls(item.urls);
                 if (item.prompt) setPrompt(item.prompt);
               }}
             >
               <img src={item.urls[0]} alt={item.title} />
-              <span>{item.title}</span>
+              <span>
+                {item.title}
+                <br />
+                参考 · {item.model}
+              </span>
             </button>
           ))}
         </div>

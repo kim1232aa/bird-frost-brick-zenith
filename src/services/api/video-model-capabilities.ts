@@ -733,6 +733,9 @@ const AGNES_VIDEO_EVIDENCE = [
 const OPENAI_VIDEO_EVIDENCE = [
     "https://developers.openai.com/api/reference/resources/videos/methods/create (verified 2026-08-03)",
 ] as const;
+const XAI_IMAGINE_VIDEO_EVIDENCE = [
+    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-28; duration 1–15, aspect_ratio, resolution 480p/720p/1080p)",
+] as const;
 const DASHSCOPE_WAN27_I2V_EVIDENCE = [
     "https://help.aliyun.com/en/model-studio/image-to-video-general-api-reference (verified 2026-08-03)",
 ] as const;
@@ -819,6 +822,29 @@ const OPENAI_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
         dimensions: supportedParameter("dimensions", "size", "官方 size 枚举", { enumValues: ["720x1280", "1280x720", "1024x1792", "1792x1024"], defaultValue: "720x1280" }),
         aspectRatio: unavailableParameter("unsupported", "OpenAI Videos 没有 aspect_ratio 字段；应从 size 枚举选择方向"),
         resolution: unavailableParameter("unsupported", "OpenAI Videos 没有独立 resolution 档位字段；应使用 size"),
+    },
+);
+
+const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
+    "xai:imagine-video",
+    XAI_IMAGINE_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", {
+            enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            defaultValue: 8,
+            integer: true,
+            minimum: 1,
+            maximum: 15,
+        }),
+        resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", {
+            enumValues: ["480p", "720p", "1080p"],
+            defaultValue: "720p",
+        }),
+        aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", {
+            enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+            defaultValue: "16:9",
+        }),
     },
 );
 
@@ -2023,7 +2049,8 @@ function dashscopeProfileForModel(model: string): VideoCapabilityProfileId {
 }
 
 function isExactAgnesVideoModel(model: string) {
-    return normalizeModelKey(model) === "agnes-video-v2-0";
+    const key = normalizeModelKey(model);
+    return key === "agnes-video-v2-0" || key === "agnes-video-2-5-flash" || key === "agnes-video-2-5";
 }
 
 function isExactOpenAiVideoModel(model: string) {
@@ -2086,9 +2113,14 @@ function resolvedProfile(id: VideoCapabilityProfileId, model: string, provider: 
 function videoGenerationParametersForModel(provider: VideoCapabilityProfile["provider"], model: string): VideoGenerationParameterContract {
     const normalized = normalizeModelKey(model);
     if (provider === "agnes") {
-        return normalized === "agnes-video-v2-0" ? AGNES_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("agnes", model);
+        return normalized === "agnes-video-v2-0" || normalized === "agnes-video-2-5-flash" || normalized === "agnes-video-2-5"
+            ? AGNES_VIDEO_GENERATION_PARAMETERS
+            : unknownGenerationParameters("agnes", model);
     }
     if (provider === "openai") {
+        if (/grok-imagine-video/i.test(model) || normalized.includes("grok-imagine-video")) {
+            return XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
+        }
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);
     }
     if (provider === "ark") {

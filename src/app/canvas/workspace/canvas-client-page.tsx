@@ -415,6 +415,7 @@ import {
   type CanvasResourceReference,
 } from "../utils/canvas-resource-references";
 import { canvasViewportRuntime } from "../utils/canvas-viewport-runtime";
+import { isCanvasOverlayTarget } from "../utils/canvas-overlay-popup";
 import { formatCanvasGenerationError, withCanvasErrorMessageKey } from "../utils/canvas-errors";
 import {
   canvasImageOperationCapabilityError,
@@ -772,7 +773,7 @@ function canvasPreviewableSrc(node?: CanvasNodeData | null) {
 
 function canvasPreviewPrompt(node?: CanvasNodeData | null) {
   if (!node) return "";
-  return String(node.metadata?.prompt || node.metadata?.storyText || node.title || "").trim();
+  return String(node.metadata?.prompt || node.metadata?.storyText || "").trim();
 }
 
 function createCanvasNode(
@@ -3281,6 +3282,7 @@ function InfiniteCanvasPage() {
 
   useEffect(() => {
     if (!hydrated || !projectId) return;
+    if (loadedProjectId === projectId) return;
     const stored = currentProject?.nodes;
     if (!stored?.length || nodes.length >= stored.length) return;
     const next = withImageSequenceNumbers(sanitizeCanvasNodes(stored));
@@ -6542,10 +6544,7 @@ function InfiniteCanvasPage() {
     const selectedIds = selectedNodeIdsRef.current;
     if (selectedIds.size) return requestDeleteNodes(new Set(selectedIds));
 
-    const activeNodeId =
-      dialogNodeIdRef.current ||
-      toolbarNodeIdRef.current ||
-      hoveredNodeIdRef.current;
+    const activeNodeId = dialogNodeIdRef.current || toolbarNodeIdRef.current;
     if (
       activeNodeId &&
       nodesRef.current.some((node) => node.id === activeNodeId)
@@ -6884,6 +6883,18 @@ function InfiniteCanvasPage() {
       if (!sameIdSet(currentSelected, nextSelected)) {
         setSelectedNodeIds(nextSelected);
       }
+      const target =
+        event.target instanceof Element
+          ? event.target
+          : event.target instanceof Node
+            ? event.target.parentElement
+            : null;
+      const skipDrag = Boolean(
+        target?.closest(
+          "input,textarea,select,button,a,[contenteditable='true'],[data-canvas-no-drag]",
+        ),
+      );
+      if (skipDrag) return;
       const dragIds = new Set(nextSelected);
       currentNodes.forEach((node) => {
         if (
@@ -7560,7 +7571,9 @@ function InfiniteCanvasPage() {
         event.target instanceof HTMLInputElement ||
         event.target instanceof HTMLTextAreaElement ||
         event.target instanceof HTMLSelectElement ||
-        Boolean(target?.closest("[contenteditable='true']"));
+        Boolean(target?.closest("[contenteditable='true']")) ||
+        isCanvasOverlayTarget(target) ||
+        Boolean(document.querySelector(".ant-select-dropdown:not(.ant-select-dropdown-hidden), [data-radix-select-content], [data-radix-popper-content-wrapper]"));
       if (isEditableTarget) return;
 
       if (event.key === "Delete" || event.key === "Backspace") {
@@ -7681,7 +7694,7 @@ function InfiniteCanvasPage() {
           : null;
         if (
           selectedNode?.type === CanvasNodeType.Image &&
-          (canvasPreviewableSrc(selectedNode) || canvasPreviewPrompt(selectedNode))
+          canvasPreviewableSrc(selectedNode)
         ) {
           event.preventDefault();
           setPreviewNodeId(selectedNode.id);
@@ -8386,8 +8399,7 @@ function InfiniteCanvasPage() {
   const previewNodeImage = useCallback(
     (node: CanvasNodeData) => {
       const src = canvasPreviewableSrc(node);
-      const prompt = canvasPreviewPrompt(node);
-      if (!src && !prompt) return;
+      if (!src) return;
       touchNodeImage(node);
       setPreviewNodeId(node.id);
     },
@@ -17137,7 +17149,7 @@ function InfiniteCanvasPage() {
 
         <Modal
           title="图片详情"
-          open={Boolean(previewNode && (canvasPreviewableSrc(previewNode) || canvasPreviewPrompt(previewNode)))}
+          open={Boolean(previewNode && canvasPreviewableSrc(previewNode))}
           centered
           onCancel={() => setPreviewNodeId(null)}
           footer={null}

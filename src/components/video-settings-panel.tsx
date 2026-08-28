@@ -98,16 +98,23 @@ export function VideoSettingsPanel({
                 <CapabilityBanner capability={capability} scope={scope} theme={theme} />
                 {validationError ? <Hint text={validationError} danger /> : null}
                 <SettingGroup title="基础参数" color={theme.node.muted}>
-                    {BASE_PARAMETER_NAMES.map((name) => (
-                        <VideoParameterEditor
-                            key={name}
-                            field={descriptor(name)}
-                            value={settings[name]}
-                            settings={settings}
-                            theme={theme}
-                            onChange={(value) => patch(name, value)}
-                        />
-                    ))}
+                    {BASE_PARAMETER_NAMES.map((name) => {
+                        const field = descriptor(name);
+                        if (field.status !== "supported" && !isSettingProvided(settings[name])) return null;
+                        return (
+                            <VideoParameterEditor
+                                key={name}
+                                field={field}
+                                value={settings[name]}
+                                settings={settings}
+                                theme={theme}
+                                onChange={(value) => patch(name, value)}
+                            />
+                        );
+                    })}
+                    {!BASE_PARAMETER_NAMES.some((name) => descriptor(name).status === "supported") ? (
+                        <Hint text="这个模型不让改时长和分辨率，按默认出片。" />
+                    ) : null}
                 </SettingGroup>
                 <SettingGroup title="高级参数" color={theme.node.muted}>
                     {ADVANCED_PARAMETER_NAMES.map((name) => {
@@ -277,7 +284,7 @@ function ParameterShell({ field, theme, children }: { field: VideoGenerationPara
 }
 
 function UnavailableParameter({ field, value, onClear, theme }: { field: VideoGenerationParameterDescriptor; value?: VideoGenerationSettings[VideoGenerationParameterName]; onClear?: () => void; theme: CanvasTheme }) {
-    const label = field.status === "conflict" ? "官方合同冲突，已禁用" : field.status === "unpublished" ? "未验证，不显示伪造控件" : "不支持，使用 provider 默认";
+    const label = field.status === "conflict" ? "官方字段冲突，这项先不能改" : field.status === "unpublished" ? "这个模型不让改这一项，按默认出片" : "这项用不了，按默认出片";
     return (
         <div className="rounded-xl border px-3 py-2 text-[11px] leading-4" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
             <span className="font-semibold" style={{ color: theme.node.text }}>{field.label} · {label}</span>
