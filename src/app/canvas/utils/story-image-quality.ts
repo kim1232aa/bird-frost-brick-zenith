@@ -22,3 +22,23 @@ export function storyImageQualityPatch(
     storyImageQualityExplicit: Boolean(normalized),
   };
 }
+
+const STORY_QUALITY_LABELS: Record<"low" | "medium" | "high", string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+
+export function storyDirectorQualityOptions(
+  capability: { quality?: { state?: string; values?: readonly string[] } } | null | undefined,
+): Array<{ value: "low" | "medium" | "high"; label: string }> {
+  if (!capability?.quality || capability.quality.state !== "supported") return [];
+  const options: Array<{ value: "low" | "medium" | "high"; label: string }> = [];
+  for (const raw of capability.quality.values || []) {
+    const normalized = normalizeStoryImageQuality(raw, true);
+    if (!normalized || options.some((item) => item.value === normalized)) continue;
+    options.push({ value: normalized, label: STORY_QUALITY_LABELS[normalized] });
+  }
+  return options;
+}
+

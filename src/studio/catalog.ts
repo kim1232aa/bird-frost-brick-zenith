@@ -119,3 +119,14 @@ export function findCatalog(value: string, kind?: ModelCard["kind"]) {
   const match = (item: ModelCard) => catalogKey(item) === value && (!kind || item.kind === kind);
   return STUDIO_CATALOG.find(match);
 }
+
+export function groupCatalogByRegion(cards: readonly ModelCard[]): Array<[string, ModelCard[]]> {
+  const map = new Map<string, ModelCard[]>();
+  for (const item of cards) {
+    const list = map.get(item.provider) || [];
+    list.push(item);
+    map.set(item.provider, list);
+  }
+  return [...map.entries()];
+}
+
