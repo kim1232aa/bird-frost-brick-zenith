@@ -2,32 +2,32 @@ export const IMAGE_TEMPLATES = [
   {
     group: "电商",
     label: "商品静物",
-    prompt: "studio product photo of a matte ceramic mug on seamless white, catalog lighting, 85mm, no watermark",
+    prompt: "亚光陶瓷马克杯工作室商品照，纯白无缝背景，目录式布光，85mm，无水印",
   },
   {
     group: "人像",
     label: "电影肖像",
-    prompt: "cinematic portrait, rainy neon dock, wet black trench, photoreal, 35mm, shallow depth of field",
+    prompt: "电影感人像，雨夜霓虹码头，湿黑风衣，写实，35mm，浅景深",
   },
   {
     group: "人像",
     label: "室内自然光",
-    prompt: "a photograph of a woman, solo, sitting on tatami, warm sunlight, natural skin texture, film grain",
+    prompt: "一位女性独自坐在榻榻米上，暖阳自然光，真实皮肤质感，轻微胶片颗粒",
   },
   {
     group: "风格",
     label: "国风仙侠",
-    prompt: "xianxia heroine on a cliff at dawn, silk robe, ink-wash atmosphere, cinematic still, photoreal face",
+    prompt: "黎明悬崖上的仙侠女侠，丝绸袍，水墨气韵，电影静帧，写实面容",
   },
   {
     group: "风格",
     label: "赛博夜景",
-    prompt: "cyberpunk alley, rain, neon signs, reflective puddles, cinematic wide shot, photoreal",
+    prompt: "赛博朋克小巷，雨夜霓虹招牌，积水倒影，电影宽镜头，写实",
   },
   {
     group: "角色",
     label: "角色定妆",
-    prompt: "character bible portrait, locked identity, three-quarter view, studio key light, wardrobe lock, photoreal",
+    prompt: "角色定妆肖像，锁定身份，四分之三侧面，棚拍主光，服装锁定，写实",
   },
 ];
 
@@ -35,31 +35,31 @@ export const VIDEO_TEMPLATES = [
   {
     group: "电商运镜",
     label: "商品转盘",
-    prompt: "a ceramic mug rotating slowly on a white studio turntable, catalog lighting, smooth camera, 5 seconds",
+    prompt: "陶瓷马克杯在纯白工作室转盘上缓慢旋转，目录式布光，镜头平稳，5 秒",
   },
   {
     group: "电商运镜",
     label: "货架特写",
-    prompt: "slow push in on a product sitting on a retail shelf, soft store lighting, price tag out of focus, 5 seconds",
+    prompt: "镜头缓慢推近货架上的商品，柜台柔光，价格签虚化，5 秒",
   },
   {
     group: "电商运镜",
     label: "开箱手持",
-    prompt: "first-person unboxing of a product on a wooden table, hands only, natural window light, 6 seconds",
+    prompt: "第一人称在木桌上开箱，只见双手，窗边自然光，6 秒",
   },
   {
     group: "电影运镜",
     label: "缓推近景",
-    prompt: "slow push in on the subject, rainy neon dock, cinematic, photoreal, subtle camera breathing",
+    prompt: "镜头缓慢推近主体，雨夜霓虹码头，电影感，写实，轻微呼吸式摇动",
   },
   {
     group: "电影运镜",
     label: "环绕运镜",
-    prompt: "slow orbit around the subject, studio lighting, 5 seconds, hero shot",
+    prompt: "镜头缓慢环绕主体，棚拍布光，5 秒，英雄定装",
   },
   {
     group: "电影运镜",
     label: "夜巷跟拍",
-    prompt: "handheld follow through a rainy cyberpunk alley, neon reflections, cinematic",
+    prompt: "手持跟拍穿过雨夜赛博朋克小巷，霓虹倒影，电影感",
   },
 ];
