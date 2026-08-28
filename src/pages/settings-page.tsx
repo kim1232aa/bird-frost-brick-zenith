@@ -48,6 +48,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const enableWiredRelays = useStudioSession((state) => state.enableWiredRelays);
   const enableAllRelays = useStudioSession((state) => state.enableAllRelays);
   const resetRelays = useStudioSession((state) => state.resetRelays);
+  const vaultStatus = useStudioSession((state) => state.vaultStatus);
+  const vaultMessage = useStudioSession((state) => state.vaultMessage);
   const [active, setActive] = useState(() => relays.find((item) => item.enabled && item.apiKey)?.id || relays[0]?.id || "");
   const [mode, setMode] = useState<DeskMode>("edit");
   const [tests, setTests] = useState<Record<string, string>>({});
@@ -98,7 +100,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
     const ok = window.confirm(
       preset
         ? `从接线表去掉「${name}」？内置模板不会从代码里消失，以后可点「恢复内置模板」加回来。`
-        : `删除自定义供应商「${name}」？此操作只影响本机，不可撤销。`,
+        : `删除自定义供应商「${name}」？接线表会更新到数据库，此操作不可撤销。`,
     );
     if (!ok) return;
     const leftover = relays.filter((item) => item.id !== id);
@@ -268,7 +270,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
         <button type="button" className="studio-ghost" onClick={resetRelays}>
           恢复内置模板并全部启用
         </button>
-        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥只存在本机。</p>
+        <p className="studio-hint">「恢复内置模板」会把隐藏的预置加回来，不会清掉你新增的自定义中转。密钥保存在账号数据库，换设备登录后仍可用。</p>
       </aside>
       <section className="wire-editor">
         {mode === "create" ? (
@@ -355,7 +357,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
               </div>
             </div>
             <p className="studio-hint">
-              {isManagedRelayId(current.id) ? "内置模板。删除只是从本机列表隐藏。" : "这是你新增的自定义供应商，删除后不会自动回来。"}
+              {isManagedRelayId(current.id) ? "内置模板。删除只是从列表隐藏，数据库里的密钥还在。" : "这是你新增的自定义供应商，删除后不会自动回来。"}
               <br />
               {protocolById(current.protocol || current.adapterType || "").blurb}
               <br />
@@ -414,15 +416,15 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
               API Key
               <input
                 type={showKey ? "text" : "password"}
-                value={current.apiKey || ""}
+                value={showKey ? current.apiKey || "" : ""}
                 onChange={(event) => setRelayKey(current.id, event.target.value)}
-                autoComplete="off"
-                placeholder="粘贴密钥，只保存在这台浏览器"
+                autoComplete="new-password"
+                placeholder={current.apiKey ? "已保存在数据库 · 点显示密钥可查看，或直接粘贴新密钥覆盖" : "粘贴密钥，保存到账号数据库"}
               />
             </label>
             <div className="result-actions">
               <button type="button" className="studio-ghost" onClick={() => setShowKey((value) => !value)}>
-                {showKey ? "隐藏密钥" : "显示密钥"}
+                {showKey ? "隐藏密钥" : current.apiKey ? "显示密钥" : "显示输入"}
               </button>
               <button type="button" className="studio-ghost" onClick={() => setRelayEnabled(current.id, !current.enabled)}>
                 {current.enabled ? "停用" : "启用"}
@@ -435,7 +437,8 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
             {notice ? <p className="studio-ok">{notice}</p> : null}
-            {tests[current.id] ? <p className={tests[current.id].startsWith("通过") ? "studio-ok" : "studio-hint"}>{tests[current.id]}</p> : <p className="studio-hint">填好 Key 后点测试。通过即可去生图 / 生视频使用。</p>}
+            {vaultMessage ? <p className={vaultStatus === "error" ? "studio-hint" : "studio-ok"}>{vaultMessage}</p> : null}
+            {tests[current.id] ? <p className={tests[current.id].startsWith("通过") ? "studio-ok" : "studio-hint"}>{tests[current.id]}</p> : <p className="studio-hint">填好 Key 后点测试。通过即可去生图 / 生视频使用。密钥写入数据库后换设备也能用。</p>}
             <RelayModelBoard relay={current} />
             <details className="wire-advanced">
               <summary>高级：改接口路径（一般不用动）</summary>

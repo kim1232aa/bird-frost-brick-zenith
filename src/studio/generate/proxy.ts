@@ -24,7 +24,7 @@ async function inflateIfNeeded(buffer: ArrayBuffer) {
 }
 
 export async function studioProxyJson<T = unknown>(input: {
-  provider: Pick<ApiRelayProvider, "baseUrl" | "apiKey" | "apiKeys">;
+  provider: Pick<ApiRelayProvider, "baseUrl" | "apiKey" | "apiKeys"> & { id?: string };
   path: string;
   method?: "GET" | "POST" | "DELETE";
   body?: unknown;
@@ -58,6 +58,7 @@ export async function studioProxyJson<T = unknown>(input: {
           ? { "x-api-key": apiKey || "" }
           : { Authorization: apiKey ? `${scheme} ${apiKey}` : "" }),
         "x-local-relay-base-url": baseUrl,
+        ...(input.provider.id ? { "x-boundless-relay-id": input.provider.id } : {}),
         "Accept-Encoding": "identity",
         ...builtinHeader,
         ...(input.extraHeaders || {}),

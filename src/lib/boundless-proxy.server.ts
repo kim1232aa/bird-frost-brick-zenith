@@ -26,6 +26,7 @@ const CONTROL_HEADERS = [
   "x-local-relay-base-url",
   "x-local-relay-proxy-url",
   "x-boundless-builtin",
+  "x-boundless-relay-id",
   "x-image-host-base-url",
   "x-image-host-key",
 ];
@@ -109,10 +110,37 @@ export function buildRelayTarget(baseUrl: string, relayPath: string, search: str
   return parsed;
 }
 
+function hasUsableAuth(headers: Headers) {
+  const apiKey = (headers.get("x-api-key") || "").trim();
+  if (apiKey) return true;
+  const auth = (headers.get("Authorization") || "").trim();
+  if (!auth) return false;
+  return Boolean(auth.replace(/^(Bearer|Key)\s+/i, "").trim());
+}
+
+async function attachVaultKey(headers: Headers, relayId: string, fallbackBaseUrl: string) {
+  if (!relayId || hasUsableAuth(headers)) return fallbackBaseUrl;
+  try {
+    const { readRelayVaultKey } = await import("@/studio/server/relay-vault");
+    const secret = await readRelayVaultKey(relayId);
+    if (!secret?.apiKey) return fallbackBaseUrl;
+    if (secret.authScheme === "x-api-key") headers.set("x-api-key", secret.apiKey);
+    else headers.set("Authorization", `${secret.authScheme} ${secret.apiKey}`);
+    return fallbackBaseUrl || secret.baseUrl;
+  } catch {
+    return fallbackBaseUrl;
+  }
+}
+
 export async function proxyLocalRelay(request: Request, splat: string) {
   try {
-    const baseUrl = request.headers.get("x-local-relay-base-url") || "";
+    let baseUrl = request.headers.get("x-local-relay-base-url") || "";
     const builtin = (request.headers.get("x-boundless-builtin") || "").trim().toLowerCase();
+    const relayId = (request.headers.get("x-boundless-relay-id") || "").trim();
+    const headers = stripHeaders(request.headers);
+    if (builtin !== "xai") {
+      baseUrl = await attachVaultKey(headers, relayId, baseUrl);
+    }
     let target: URL;
     try {
       target = buildRelayTarget(baseUrl, splat, new URL(request.url).search);
@@ -120,7 +148,6 @@ export async function proxyLocalRelay(request: Request, splat: string) {
       return jsonError(400, error instanceof Error ? error.message : "自定义 API Base URL 无效");
     }
 
-    const headers = stripHeaders(request.headers);
     if (builtin === "xai") {
       if (target.hostname.toLowerCase() !== "api.x.ai") {
         return jsonError(400, "内置 xAI 通道只能转发到 api.x.ai");
