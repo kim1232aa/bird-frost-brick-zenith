@@ -9,7 +9,6 @@ const TOOLS = [
   { href: "/edit", title: "编辑", copy: "Qwen-Image-Edit / FLUX.2-dev，1–3 张参考图全部提交。" },
   { href: "/video", title: "生视频", copy: "文生视频。首尾帧走独立入口。" },
   { href: "/i2v", title: "图生视频", copy: "必填首帧，尾帧可选，火山 last_frame 已接通。" },
-  { href: "/frames", title: "抽帧", copy: "本地视频抽当前帧或均匀取样，不耗额度。" },
   { href: "/ecommerce", title: "电商套图", copy: "上传商品图，按平台一次出 4–9 张。" },
   { href: "/story", title: "故事导演", copy: "分析故事、定妆、分镜，再推进画布。" },
   { href: "/canvas", title: "无限画布", copy: "节点工作流：文本、角色、生图、Seedance。" },
