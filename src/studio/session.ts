@@ -199,6 +199,7 @@ export const useStudioSession = create<StudioSession>()(
     {
       name: "boundless-studio:session",
       version: 13,
+      skipHydration: typeof window === "undefined",
       partialize: (state) => ({
         relays: state.relays,
         hiddenPresetIds: state.hiddenPresetIds,

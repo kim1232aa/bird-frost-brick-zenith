@@ -110,11 +110,11 @@ export async function studioProxyJson<T = unknown>(input: {
     if (!response.ok) {
       const err = data?.error;
       let message =
-        (typeof err === "string" ? err : err?.message) ||
+        (typeof err === "string" ? err : err && typeof err === "object" ? err.message : "") ||
         data?.message ||
         (typeof data === "string" ? data : "") ||
         "";
-      if (!message.trim()) {
+      if (!message.trim() || (data as { unhandled?: boolean }).unhandled) {
         message =
           response.status >= 500
             ? `中转返回 ${response.status}。请再试一次，或换 grok-imagine-image-quality 再出一张。`

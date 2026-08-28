@@ -494,29 +494,33 @@ export const STUDIO_ROUTES: StudioRouteMap = {
 };
 
 export function studioRelays(): ApiRelayProvider[] {
-  const providers = Array.isArray(STUDIO_PROVIDERS) ? STUDIO_PROVIDERS : [];
-  return providers.map((item) =>
-    createApiRelayProvider({
-      id: item.id,
-      name: item.name,
-      baseUrl: item.baseUrl,
-      apiKey: item.apiKey,
-      adapterType: item.adapter,
-      protocol: item.adapter,
-      enabled: item.enabled,
-      capabilities: item.capabilities,
-      remark: item.remark,
-      allowMatureContent: item.nsfw === true || item.adapter === "civitai" || item.adapter === "fal",
-      models: item.models,
-      textModels: item.textModels,
-      imageModels: item.imageModels,
-      videoModels: item.videoModels,
-      audioModels: item.audioModels,
-      endpoints: item.endpoints,
-      videoCapabilityProfiles: item.videoCapabilityProfiles,
-      imageCapabilityProfiles: item.imageCapabilityProfiles,
-    }),
-  );
+  try {
+    const providers = Array.isArray(STUDIO_PROVIDERS) ? STUDIO_PROVIDERS : [];
+    return providers.map((item) =>
+      createApiRelayProvider({
+        id: item.id,
+        name: item.name,
+        baseUrl: item.baseUrl,
+        apiKey: item.apiKey,
+        adapterType: item.adapter,
+        protocol: item.adapter,
+        enabled: item.enabled,
+        capabilities: item.capabilities,
+        remark: item.remark,
+        allowMatureContent: item.nsfw === true || item.adapter === "civitai" || item.adapter === "fal",
+        models: item.models || [],
+        textModels: item.textModels || [],
+        imageModels: item.imageModels || [],
+        videoModels: item.videoModels || [],
+        audioModels: item.audioModels || [],
+        endpoints: item.endpoints,
+        videoCapabilityProfiles: item.videoCapabilityProfiles,
+        imageCapabilityProfiles: item.imageCapabilityProfiles,
+      }),
+    );
+  } catch {
+    return [];
+  }
 }
 
 export function studioRouting(): ApiRelayRouting {

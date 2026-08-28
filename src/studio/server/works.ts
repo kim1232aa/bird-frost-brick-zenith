@@ -1,5 +1,3 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { createServerFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 
@@ -14,8 +12,6 @@ export type StoredWork = {
 };
 
 const OWNER = "studio";
-const WORKS_DIR = join(process.cwd(), "public", "works");
-const MANIFEST = join(WORKS_DIR, "manifest.json");
 
 function asKind(value: string): StoredWork["kind"] {
   if (value === "video" || value === "story" || value === "ecommerce") return value;
@@ -33,9 +29,17 @@ function parseUrls(value: unknown): string[] {
   }
 }
 
+async function fs() {
+  const [{ mkdir, readFile, writeFile }, { join }] = await Promise.all([import("node:fs/promises"), import("node:path")]);
+  const dir = join(process.cwd(), "public", "works");
+  const manifest = join(dir, "manifest.json");
+  return { mkdir, readFile, writeFile, join, dir, manifest };
+}
+
 async function readManifest(): Promise<StoredWork[]> {
   try {
-    const raw = JSON.parse(await readFile(MANIFEST, "utf8")) as { items?: StoredWork[] };
+    const io = await fs();
+    const raw = JSON.parse(await io.readFile(io.manifest, "utf8")) as { items?: StoredWork[] };
     return Array.isArray(raw.items) ? raw.items.filter((item) => item?.id && item.urls?.[0]) : [];
   } catch {
     return [];
@@ -43,8 +47,13 @@ async function readManifest(): Promise<StoredWork[]> {
 }
 
 async function writeManifest(items: StoredWork[]) {
-  await mkdir(WORKS_DIR, { recursive: true });
-  await writeFile(MANIFEST, JSON.stringify({ items: items.slice(0, 80) }, null, 2));
+  try {
+    const io = await fs();
+    await io.mkdir(io.dir, { recursive: true });
+    await io.writeFile(io.manifest, JSON.stringify({ items: items.slice(0, 80) }, null, 2));
+  } catch {
+    /* preview disk is enough; serverless may be read-only */
+  }
 }
 
 function extOf(kind: string, mime: string, url: string) {
@@ -75,11 +84,16 @@ async function materialize(id: string, index: number, kind: string, url: string)
     return url;
   }
   if (!bytes?.length) return url;
-  const ext = extOf(kind, mime, url);
-  const name = `${id}-${index}.${ext}`;
-  await mkdir(WORKS_DIR, { recursive: true });
-  await writeFile(join(WORKS_DIR, name), bytes);
-  return `/works/${name}`;
+  try {
+    const io = await fs();
+    const ext = extOf(kind, mime, url);
+    const name = `${id}-${index}.${ext}`;
+    await io.mkdir(io.dir, { recursive: true });
+    await io.writeFile(io.join(io.dir, name), bytes);
+    return `/works/${name}`;
+  } catch {
+    return url;
+  }
 }
 
 async function upsertDb(item: StoredWork) {
@@ -130,14 +144,18 @@ async function listDb(): Promise<StoredWork[]> {
 }
 
 export const listStudioWorks = createServerFn({ method: "GET" }).handler(async () => {
-  const seen = new Set<string>();
-  const out: StoredWork[] = [];
-  for (const item of [...(await listDb()), ...(await readManifest())]) {
-    if (!item.id || seen.has(item.id) || !item.urls[0]) continue;
-    seen.add(item.id);
-    out.push(item);
+  try {
+    const seen = new Set<string>();
+    const out: StoredWork[] = [];
+    for (const item of [...(await listDb()), ...(await readManifest())]) {
+      if (!item.id || seen.has(item.id) || !item.urls?.[0]) continue;
+      seen.add(item.id);
+      out.push(item);
+    }
+    return out.sort((a, b) => b.createdAt - a.createdAt).slice(0, 80);
+  } catch {
+    return [];
   }
-  return out.sort((a, b) => b.createdAt - a.createdAt).slice(0, 80);
 });
 
 export const saveStudioWork = createServerFn({ method: "POST" })
@@ -151,26 +169,30 @@ export const saveStudioWork = createServerFn({ method: "POST" })
     createdAt: typeof value?.createdAt === "number" ? value.createdAt : Date.now(),
   }))
   .handler(async ({ data }) => {
-    if (!data.id || !data.urls[0]) return { ok: false as const, item: null };
-    const urls = [];
-    for (const [index, url] of data.urls.entries()) {
-      urls.push(await materialize(data.id, index, data.kind, url));
+    try {
+      if (!data.id || !data.urls[0]) return { ok: false as const, item: null };
+      const urls = [];
+      for (const [index, url] of data.urls.entries()) {
+        urls.push(await materialize(data.id, index, data.kind, url));
+      }
+      const item: StoredWork = { ...data, urls: urls.filter(Boolean) };
+      if (!item.urls[0]) return { ok: false as const, item: null };
+      const current = await readManifest();
+      await writeManifest([item, ...current.filter((row) => row.id !== item.id)]);
+      await upsertDb(item);
+      return { ok: true as const, item };
+    } catch {
+      return { ok: false as const, item: null };
     }
-    const item: StoredWork = { ...data, urls: urls.filter(Boolean) };
-    if (!item.urls[0]) return { ok: false as const, item: null };
-    const current = await readManifest();
-    await writeManifest([item, ...current.filter((row) => row.id !== item.id)]);
-    await upsertDb(item);
-    return { ok: true as const, item };
   });
 
 export const deleteStudioWork = createServerFn({ method: "POST" })
   .validator((value: { id: string }) => ({ id: String(value?.id || "").trim() }))
   .handler(async ({ data }) => {
-    if (!data.id) return { ok: false as const };
-    const current = await readManifest();
-    await writeManifest(current.filter((row) => row.id !== data.id));
     try {
+      if (!data.id) return { ok: false as const };
+      const current = await readManifest();
+      await writeManifest(current.filter((row) => row.id !== data.id));
       const sql = await getSql();
       await sql.query("delete from studio_works where id = $1 and user_id = $2", [data.id, OWNER]);
     } catch {

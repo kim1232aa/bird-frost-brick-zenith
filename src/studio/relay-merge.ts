@@ -118,7 +118,10 @@ export function mergePersistedRelays(
   saved: ApiRelayProvider[] | undefined,
   hiddenPresetIds: string[] = [],
 ): ApiRelayProvider[] {
-  const base = studioRelays();
+  const base = studioRelays() || [];
+  if (!Array.isArray(base) || base.length === 0) {
+    return Array.isArray(saved) ? saved.filter((row) => row?.id) : [];
+  }
   const hidden = new Set(hiddenPresetIds.filter(isManagedRelayId));
   if (!Array.isArray(saved) || saved.length === 0) {
     return base.filter((item) => !hidden.has(item.id)).map((item) => mergeOne(item));

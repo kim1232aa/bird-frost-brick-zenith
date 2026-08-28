@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { deleteStudioWork, listStudioWorks, saveStudioWork } from "@/studio/server/works";
 
 export type StudioHistoryKind = "image" | "video" | "story" | "ecommerce";
 
@@ -44,6 +43,7 @@ async function persistItem(item: StudioHistoryItem) {
   const next = { ...item, urls };
   if (!urls[0]) return next;
   try {
+    const { saveStudioWork } = await import("@/studio/server/works");
     const saved = await saveStudioWork({ data: next });
     if (saved?.item?.urls?.[0]) return saved.item;
   } catch {
@@ -67,22 +67,25 @@ export const useStudioHistory = create<HistoryState>()(
       },
       remove: (id) => {
         set({ items: get().items.filter((item) => item.id !== id) });
-        void deleteStudioWork({ data: { id } }).catch(() => undefined);
+        void import("@/studio/server/works")
+          .then(({ deleteStudioWork }) => deleteStudioWork({ data: { id } }))
+          .catch(() => undefined);
       },
       clear: () => {
         const ids = get().items.map((item) => item.id);
         set({ items: [] });
-        ids.forEach((id) => {
-          void deleteStudioWork({ data: { id } }).catch(() => undefined);
-        });
+        void import("@/studio/server/works")
+          .then(({ deleteStudioWork }) => Promise.all(ids.map((id) => deleteStudioWork({ data: { id } }))))
+          .catch(() => undefined);
       },
       hydrate: async () => {
         try {
+          const { listStudioWorks } = await import("@/studio/server/works");
           const remote = await listStudioWorks();
           const local = get().items;
           const seen = new Set<string>();
           const merged: StudioHistoryItem[] = [];
-          for (const item of [...remote, ...local]) {
+          for (const item of [...(remote || []), ...local]) {
             if (!item.id || seen.has(item.id) || !item.urls[0]) continue;
             seen.add(item.id);
             merged.push(item);
@@ -94,6 +97,10 @@ export const useStudioHistory = create<HistoryState>()(
         }
       },
     }),
-    { name: "boundless-studio:history", partialize: (state) => ({ items: state.items }) },
+    {
+      name: "boundless-studio:history",
+      skipHydration: typeof window === "undefined",
+      partialize: (state) => ({ items: state.items }),
+    },
   ),
 );
