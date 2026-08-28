@@ -6,7 +6,8 @@ export function isEditModel(model: string) {
     value.includes("flux.2") ||
     value.includes("flux2-") ||
     value.includes("qwen-3.0-pro") ||
-    value.includes("civitai-grok")
+    value.includes("civitai-grok") ||
+    value.includes("gpt-image")
   );
 }
 
@@ -16,6 +17,10 @@ export function isEditOnlyModel(model: string) {
 }
 
 export function defaultEditKey(keys: string[]) {
-  const preferred = keys.find((key) => /qwen-image-edit/i.test(key)) || keys.find((key) => /flux\.2-dev|flux2-dev/i.test(key));
+  const preferred =
+    keys.find((key) => /qwen-image-edit/i.test(key)) ||
+    keys.find((key) => /preset-superxihe-image::gpt-image-2/i.test(key)) ||
+    keys.find((key) => /gpt-image-2/i.test(key)) ||
+    keys.find((key) => /flux\.2-dev|flux2-dev/i.test(key));
   return preferred || keys[0] || "";
 }

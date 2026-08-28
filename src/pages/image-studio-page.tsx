@@ -95,7 +95,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   }, []);
 
   const models = useMemo(() => {
-    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model));
+    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model) && card.wired);
     return allModels.filter((card) => !isEditOnlyModel(card.model));
   }, [allModels, mode]);
 

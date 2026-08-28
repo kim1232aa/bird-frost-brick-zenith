@@ -199,12 +199,17 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: SUPERXIHE_IMAGE_KEY,
     enabled: Boolean(SUPERXIHE_IMAGE_KEY),
     capabilities: ["image"],
-    remark: "OpenAI 兼容 Images API：/images/generations",
+    remark: "SuperXihe OpenAI 兼容。生图 /images/generations，改图 /images/edits。",
     models: ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"],
     textModels: [],
     imageModels: ["gpt-image-2", "gpt-image-1.5", "gpt-image-1"],
     videoModels: [],
     audioModels: [],
+    imageCapabilityProfiles: {
+      "gpt-image-2": { generate: "openai-gpt-image-2-generate", edit: "openai-gpt-image-2-edit" },
+      "gpt-image-1.5": { generate: "openai-gpt-image-legacy-generate", edit: "openai-gpt-image-legacy-edit" },
+      "gpt-image-1": { generate: "openai-gpt-image-legacy-generate", edit: "openai-gpt-image-legacy-edit" },
+    },
     endpoints: { images: "/images/generations" },
   },
   {
