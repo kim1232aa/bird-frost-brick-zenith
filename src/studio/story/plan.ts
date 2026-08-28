@@ -97,7 +97,7 @@ export function draftPlan(idea: string, style = "电影感写实", shotCount = 5
   const cast: StoryCast[] = castNames.map((name, index) => {
     const photoshoot = /写真|NWSF|nwsf|泳装|清凉/i.test(text);
     const look = photoshoot
-      ? "24岁成年东亚女性时尚模特，明确成年，不是未成年人，锁骨清晰，高颧骨，锁骨到锁骨，黑色长直发，自信表情，时尚写真妆容"
+      ? "24岁成年东亚女性时尚模特，明确成年，不是未成年人，锁骨清晰，高颤骨，锁骨到锁骨，黑色长直发，自信表情，时尚写真妆容"
       : name === "林晚"
         ? "短发，湿风衣，冷白皮，三十岁上下，锐利下颌"
         : name === "李火旺"
@@ -142,7 +142,7 @@ export function draftPlan(idea: string, style = "电影感写实", shotCount = 5
       appearingCharacterIds: appearing,
       excludedCharacterIds: excluded,
       action: index === 0 ? `${hero}观察现场` : "冲突推进",
-      emotion: index === 0 ? "警觉" : "紧绷",
+      emotion: index === 0 ? "警觉" : "紧继",
       visualContent: visual,
       imagePrompt: visual,
       prompt: visual,
@@ -288,6 +288,12 @@ export async function planStory(input: {
   }
 }
 
+function promptScriptHint(text: string): "zh" | "en" {
+  const cjk = (text.match(/[\u3400-\u9FFF]/g) || []).length;
+  const latin = (text.match(/[A-Za-z]/g) || []).length;
+  return cjk > 0 && cjk >= latin ? "zh" : "en";
+}
+
 export async function enhancePrompt(input: {
   relays: ApiRelayProvider[];
   prompt: string;
@@ -298,14 +304,25 @@ export async function enhancePrompt(input: {
   if (!prompt) throw new Error("先写提示词");
   const selection = splitModel(input.textModel || "");
   const { generateStudioText } = await import("@/studio/generate/text");
+  const lang = promptScriptHint(prompt);
+  const kindLabel = input.kind === "video" ? "视频" : "图像";
+  const kindEn = input.kind === "video" ? "video" : "image";
+  const system =
+    lang === "zh"
+      ? "你负责把用户的图像/视频提示词写顺。只输出润色后的提示词。必须使用用户原文的语言：中文输入就输出中文，禁止翻译成英文。可补充镜头、光线、材质和连续性锁定，但仍用中文。不要引号、不要前言、不要解释。"
+      : "You polish the user's image/video prompt for production models. Return only the polished prompt. Keep the same language as the user input. Do not translate. You may add camera, lighting, materials, and continuity locks in that same language. No quotes, no preamble.";
+  const task =
+    lang === "zh"
+      ? `把下面这段${kindLabel}提示词写顺，补上镜头、光线、材质和连续性锁定。必须保持中文，不要翻译成英文。只输出提示词本身。\n\n${prompt}`
+      : `Polish this ${kindEn} generation prompt. Keep the user's language and intent. Add camera, lighting, materials, and continuity locks. Return the prompt only.\n\n${prompt}`;
   const result = await generateStudioText({
     relays: input.relays,
     providerId: selection.providerId || undefined,
     model: selection.model || undefined,
-    system: "You rewrite user prompts for production image/video models. Return the rewritten prompt only.",
-    prompt: `Rewrite as a ${input.kind || "image"} generation prompt. Keep the user's intent, add camera, lighting, materials, and continuity locks. No quotes.\n\n${prompt}`,
+    system,
+    prompt: task,
   });
-  return result.text.trim();
+  return result.text.trim().replace(/^["'`]+|["'`]+$/g, "");
 }
 
 export function characterLock(cast: StoryCast[]) {
