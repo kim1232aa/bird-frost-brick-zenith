@@ -104,7 +104,7 @@ export async function studioProxyJson<T = unknown>(input: {
       throw new Error(
         response.ok
           ? `上游返回无法解析（HTTP ${response.status}，${bytes.length} 字节）：${trimmed.slice(0, 180)}`
-          : `请求失败 ${response.status}：${trimmed.slice(0, 80) || "非 JSON"}`,
+          : `中转返回 ${response.status}${trimmed ? `：${trimmed.slice(0, 80)}` : "，没有错误详情。请再试一次。"}`,
       );
     }
     if (!response.ok) {
@@ -113,7 +113,13 @@ export async function studioProxyJson<T = unknown>(input: {
         (typeof err === "string" ? err : err?.message) ||
         data?.message ||
         (typeof data === "string" ? data : "") ||
-        `请求失败 ${response.status}`;
+        "";
+      if (!message.trim()) {
+        message =
+          response.status >= 500
+            ? `中转返回 ${response.status}。请再试一次，或换 grok-imagine-image-quality 再出一张。`
+            : `请求失败 ${response.status}`;
+      }
       if (/insufficientBuzz/i.test(message) || /insufficientBuzz/i.test(raw)) {
         message = "Civitai Yellow Buzz 不足。充值后再试，或换 SuperXihe / 火山已接线模型。";
       }

@@ -134,6 +134,11 @@ async function attachVaultKey(headers: Headers, relayId: string, fallbackBaseUrl
 
 export async function proxyLocalRelay(request: Request, splat: string) {
   try {
+    const method = (request.method || "GET").toUpperCase();
+    const body =
+      method === "GET" || method === "HEAD" || method === "OPTIONS"
+        ? null
+        : Buffer.from(await request.arrayBuffer());
     let baseUrl = request.headers.get("x-local-relay-base-url") || "";
     const builtin = (request.headers.get("x-boundless-builtin") || "").trim().toLowerCase();
     const relayId = (request.headers.get("x-boundless-relay-id") || "").trim();
@@ -155,9 +160,16 @@ export async function proxyLocalRelay(request: Request, splat: string) {
       const key = process.env.XAI_API_KEY;
       if (!key) return jsonError(503, "当前环境未接入 xAI，请改用自定义中转并填写 API Key");
       headers.set("Authorization", `Bearer ${key}`);
+    } else if (!hasUsableAuth(headers)) {
+      return jsonError(401, "中转没有密钥。打开接线确认 Key 已保存，或重新粘贴后再试。");
     }
 
-    return await forward(request, target, headers, RELAY_TIMEOUT_MS);
+    let response = await forward(method, target, headers, RELAY_TIMEOUT_MS, body);
+    if (response.status >= 500) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      response = await forward(method, target, headers, RELAY_TIMEOUT_MS, body);
+    }
+    return response;
   } catch (error) {
     return abortOrProxyError(error, "中转转发失败");
   }
@@ -254,7 +266,7 @@ export async function proxyImageHostUpload(request: Request) {
   }
 }
 
-async function forward(request: Request, target: URL, headers: Headers, timeoutMs: number) {
+async function forward(method: string, target: URL, headers: Headers, timeoutMs: number, body?: Buffer | null) {
   if (!headers.has("user-agent")) {
     headers.set(
       "User-Agent",
@@ -263,14 +275,13 @@ async function forward(request: Request, target: URL, headers: Headers, timeoutM
   }
   if (!headers.has("accept")) headers.set("Accept", "application/json, */*");
   const init: RequestInit = {
-    method: request.method,
+    method,
     headers,
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
   };
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    init.body = request.body;
-    (init as RequestInit & { duplex?: string }).duplex = "half";
+  if (body && body.length && method !== "GET" && method !== "HEAD") {
+    init.body = new Uint8Array(body);
   }
   try {
     const upstream = await fetch(target, init);
