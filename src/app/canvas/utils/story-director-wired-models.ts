@@ -6,7 +6,7 @@ import type { StoryDirectorTextModelSourceOption } from "./story-director-text-m
 /** When the canvas parent passes an empty model list, fall back to the wired studio catalog. */
 export function wiredStoryDirectorModels(kind: "text" | "image" | "video"): StoryDirectorTextModelSourceOption[] {
   useStudioSession.getState();
-  const cards = liveCatalog(kind, false);
+  const cards = liveCatalog(kind, true);
   return cards.map((card) => {
     const live = liveCard(card);
     return {
