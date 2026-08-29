@@ -85,9 +85,6 @@ export async function studioProxyJson<T = unknown>(input: {
       return { url, status: "done", video: { url } } as T;
     }
     const raw = new TextDecoder("utf-8").decode(buffer);
-    if (/cloudflare|attention required|access denied/i.test(raw) && !raw.trim().startsWith("{")) {
-      throw new Error("中转被 Cloudflare 拦截（403）。换浏览器网络或换 Provider 再试。");
-    }
     const trimmed = raw.trim();
     let data = {} as T & { error?: { message?: string; code?: string } | string; message?: string };
     try {
@@ -101,29 +98,10 @@ export async function studioProxyJson<T = unknown>(input: {
         const url = URL.createObjectURL(blob);
         return { url, status: "done", video: { url } } as T;
       }
-      throw new Error(
-        response.ok
-          ? `上游返回无法解析（HTTP ${response.status}，${bytes.length} 字节）：${trimmed.slice(0, 180)}`
-          : `中转返回 ${response.status}${trimmed ? `：${trimmed.slice(0, 80)}` : "，没有错误详情。请再试一次。"}`,
-      );
+      throw new Error(upstreamErrorText(response.status, trimmed));
     }
     if (!response.ok) {
-      const err = data?.error;
-      let message =
-        (typeof err === "string" ? err : err && typeof err === "object" ? err.message : "") ||
-        data?.message ||
-        (typeof data === "string" ? data : "") ||
-        "";
-      if (!message.trim() || (data as { unhandled?: boolean }).unhandled) {
-        message =
-          response.status >= 500
-            ? `中转返回 ${response.status}。请再试一次，或换 grok-imagine-image-quality 再出一张。`
-            : `请求失败 ${response.status}`;
-      }
-      if (/insufficientBuzz/i.test(message) || /insufficientBuzz/i.test(raw)) {
-        message = "Civitai Yellow Buzz 不足。充值后再试，或换 SuperXihe / 火山已接线模型。";
-      }
-      throw new Error(message);
+      throw new Error(upstreamErrorText(response.status, trimmed));
     }
     return data;
   } catch (err) {
@@ -140,6 +118,19 @@ export function providerById(id: string, relays: ApiRelayProvider[]) {
   const found = relays.find((item) => item.id === id && (item.enabled || Boolean(item.apiKey)));
   if (!found) throw new Error(`没有启用的中转：${id}。到接线页填密钥并打开开关。`);
   return found;
+}
+
+function upstreamErrorText(status: number, raw: string) {
+  const text = String(raw || "").trim();
+  if (!text) return `HTTP ${status}`;
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      return JSON.stringify(JSON.parse(text));
+    } catch {
+      return text.slice(0, 2000);
+    }
+  }
+  return text.slice(0, 2000);
 }
 
 function sniffMedia(bytes: Uint8Array): string {
