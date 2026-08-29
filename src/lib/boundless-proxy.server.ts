@@ -127,8 +127,8 @@ async function attachVaultKey(headers: Headers, relayId: string, fallbackBaseUrl
     if (secret.authScheme === "x-api-key") headers.set("x-api-key", secret.apiKey);
     else headers.set("Authorization", `${secret.authScheme} ${secret.apiKey}`);
     return fallbackBaseUrl || secret.baseUrl;
-  } catch {
-    return fallbackBaseUrl;
+  } catch (error) {
+    throw new Error(`密钥库读取失败：${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

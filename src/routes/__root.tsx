@@ -27,9 +27,9 @@ export const Route = createRootRoute({
     <html lang="zh-CN">
       <body style={{ margin: 0, background: "#f7f5f1", color: "#1c1917", fontFamily: "sans-serif" }}>
         <div style={{ maxWidth: 520, margin: "12vh auto", padding: 24 }}>
-          <h1 style={{ fontSize: 28, margin: "0 0 12px" }}>页面暂时打不开</h1>
-          <p style={{ color: "#57534e", lineHeight: 1.6 }}>刷新再试一次。如果还是这样，回到生图页继续用。</p>
-          <p style={{ color: "#a8a29e", fontSize: 13 }}>{error instanceof Error ? error.message : "内部错误"}</p>
+          <h1 style={{ fontSize: 28, margin: "0 0 12px" }}>本站页面崩了</h1>
+          <p style={{ color: "#57534e", lineHeight: 1.6 }}>这是站点自己的异常，不是上游模型返回。把下面原文留下来。</p>
+          <pre style={{ color: "#1c1917", fontSize: 13, whiteSpace: "pre-wrap" }}>{error instanceof Error ? error.message : String(error)}</pre>
           <p>
             <a href="/image" style={{ color: "#00c758" }}>
               去生图

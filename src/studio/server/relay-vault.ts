@@ -1,5 +1,4 @@
 import { createServerFn } from "@tanstack/react-start";
-import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
 
@@ -67,17 +66,14 @@ export async function readRelayVaultKey(relayId: string) {
   };
 }
 
-export const loadRelayVault = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async () => readRelayVault());
+export const loadRelayVault = createServerFn({ method: "GET" }).handler(async () => readRelayVault());
 
 export const saveRelayVault = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
   .validator((value: { relays: ApiRelayProvider[]; hiddenPresetIds?: string[] }) => ({
     relays: Array.isArray(value?.relays) ? value.relays : [],
     hiddenPresetIds: Array.isArray(value?.hiddenPresetIds) ? value.hiddenPresetIds.filter((id) => typeof id === "string") : [],
   }))
-  .handler(async ({ context, data }) => {
+  .handler(async ({ data }) => {
     const sql = await getSql();
     await sql.query(
       `insert into studio_relay_vault (id, relays_json, hidden_json, updated_by)
@@ -87,7 +83,7 @@ export const saveRelayVault = createServerFn({ method: "POST" })
          hidden_json = excluded.hidden_json,
          updated_at = now(),
          updated_by = excluded.updated_by`,
-      [VAULT_ID, JSON.stringify(data.relays), JSON.stringify(data.hiddenPresetIds), context.userId],
+      [VAULT_ID, JSON.stringify(data.relays), JSON.stringify(data.hiddenPresetIds), VAULT_ID],
     );
     return { ok: true as const };
   });

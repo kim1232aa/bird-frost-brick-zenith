@@ -518,8 +518,10 @@ export function studioRelays(): ApiRelayProvider[] {
         imageCapabilityProfiles: item.imageCapabilityProfiles,
       }),
     );
-  } catch {
-    return [];
+  } catch (err) {
+    const message = `接线表加载失败：${err instanceof Error ? err.message : String(err)}`;
+    if (typeof window === "undefined") return [];
+    throw new Error(message);
   }
 }
 
@@ -532,7 +534,7 @@ export function studioRouting(): ApiRelayRouting {
   };
 }
 
-const MANAGED_IDS = new Set(STUDIO_PROVIDERS.map((item) => item.id).concat("legacy-default-relay"));
+const MANAGED_IDS = new Set((Array.isArray(STUDIO_PROVIDERS) ? STUDIO_PROVIDERS : []).map((item) => item.id).concat("legacy-default-relay"));
 
 export function shouldReplaceManagedRelays(relays: ApiRelayProvider[] | undefined) {
   if (!Array.isArray(relays) || relays.length === 0) return true;

@@ -176,8 +176,11 @@ export const useStudioSession = create<StudioSession>()(
           lastPushed = "";
           hydrating = false;
           await get().flushVault();
-        } catch {
-          set({ vaultStatus: "error", vaultMessage: "数据库暂不同步，先用本机已保存的密钥" });
+        } catch (err) {
+          set({
+            vaultStatus: "error",
+            vaultMessage: `密钥库同步失败（本站）：${err instanceof Error ? err.message : String(err)}`,
+          });
         } finally {
           hydrating = false;
         }
@@ -191,8 +194,11 @@ export const useStudioSession = create<StudioSession>()(
           await saveRelayVault({ data: { relays: state.relays, hiddenPresetIds: state.hiddenPresetIds } });
           lastPushed = snap;
           set({ vaultStatus: "ok", vaultMessage: "密钥已保存到数据库" });
-        } catch {
-          set({ vaultStatus: "error", vaultMessage: "写入数据库失败，密钥仍留在本机，稍后会再试" });
+        } catch (err) {
+          set({
+            vaultStatus: "error",
+            vaultMessage: `密钥库写入失败（本站）：${err instanceof Error ? err.message : String(err)}`,
+          });
         }
       },
     }),
