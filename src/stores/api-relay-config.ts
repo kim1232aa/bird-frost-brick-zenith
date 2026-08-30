@@ -1,3 +1,3 @@
-export * from "./api-relay-config-models";
-export * from "./api-relay-config-provider";
-export * from "./api-relay-config-routing";
+export * from "./api-relay-config-models.ts";
+export * from "./api-relay-config-provider.ts";
+export * from "./api-relay-config-routing.ts";

@@ -1,6 +1,7 @@
 export type ProviderCredentials = {
     readonly apiKey: string;
     readonly apiKeys?: readonly string[];
+    readonly hasApiKey?: boolean;
 };
 
 export type ProviderCredentialPoolSource = ProviderCredentials & {
@@ -109,7 +110,7 @@ export function normalizeProviderCredentials(apiKey: string, apiKeys?: readonly 
 }
 
 export function hasProviderCredential(credentials: ProviderCredentials) {
-    return Boolean(credentials.apiKey || credentials.apiKeys?.length);
+    return Boolean(credentials.apiKey || credentials.apiKeys?.length || credentials.hasApiKey);
 }
 
 function deduplicateKeys(values: readonly string[]) {

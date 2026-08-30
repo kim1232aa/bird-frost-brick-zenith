@@ -65,7 +65,7 @@ export const huggingfaceAdapter: StudioAdapter = {
     throw lastError || new Error("Hugging Face 没有返回图片。确认模型在 Inference Router 可用，例如 black-forest-labs/FLUX.1-schnell 或 FLUX.2-dev。");
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Hugging Face Token" };
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 Hugging Face Token" };
     try {
       await studioProxyJson({
         provider: ctx.provider,

@@ -13,7 +13,7 @@ export type StudioAdapterId =
   | "huggingface";
 
 export type AdapterContext = {
-  provider: Pick<ApiRelayProvider, "id" | "baseUrl" | "apiKey" | "apiKeys" | "adapterType" | "endpoints" | "authScheme">;
+  provider: Pick<ApiRelayProvider, "id" | "baseUrl" | "apiKey" | "apiKeys" | "hasApiKey" | "adapterType" | "endpoints" | "authScheme" | "protocol" | "allowMatureContent">;
 };
 
 export type ImageGenInput = {
@@ -28,10 +28,16 @@ export type ImageGenInput = {
   /** Up to 5 reference images. Adapters must submit the whole list, not only the first. */
   imageUrls?: string[];
   negativePrompt?: string;
+  quality?: string;
+  maskUrl?: string;
+  /** Canonical Civitai batch count; image adapters may also consume n. */
+  quantity?: number;
   n?: number;
   operation?: "generate" | "edit";
   loras?: Record<string, number> | Readonly<Record<string, number>>;
   strength?: number;
+  /** Civitai Flux1 / SDXL checkpoint AIR. Never invent one. */
+  checkpointAir?: string;
 };
 
 export type ImageGenResult = {
@@ -49,8 +55,14 @@ export type VideoCreateInput = {
   lastFrameUrl?: string;
   /** Extra stills beyond first/last. Submit up to the model's reference capacity (Grok Imagine: 5). */
   imageUrls?: string[];
+  /** Verified pixel dimensions for adapters whose wire contract requires them. */
+  width?: number;
+  height?: number;
   generateAudio?: boolean;
+  fps?: number;
   negativePrompt?: string;
+  /** Civitai LTX 2.3 (map) / Hunyuan (array). Other models must not send this. */
+  loras?: Record<string, number> | Readonly<Record<string, number>>;
 };
 
 export type VideoPollResult = {
@@ -71,6 +83,8 @@ export type AudioGenInput = {
   model: string;
   prompt: string;
   voice?: string;
+  format?: string;
+  speed?: number;
 };
 
 export type StudioAdapter = {

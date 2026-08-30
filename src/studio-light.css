@@ -180,6 +180,19 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   flex-direction: column;
 }
 
+.studio-page:not(.studio-flush) {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.studio-page:not(.studio-flush) > .wire-desk {
+  flex: 1 1 auto;
+  margin: -28px -20px -80px;
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+}
+
 .canvas-workspace-shell,
 .canvas-workspace-board,
 .canvas-ant-app,

@@ -1,8 +1,10 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
+import type { ImageGenInput } from "@/studio/adapters/types";
 import { adapterForProvider } from "@/studio/adapters";
 import { STUDIO_PROVIDERS } from "@/studio/wiring";
 import { modelPoints, useOpsStore } from "@/studio/ops";
 import { collectImageRefs } from "@/studio/image-refs";
+import { studioImageAdapterFields } from "@/studio/civitai-ui-options";
 import { providerById } from "./proxy";
 
 export type StudioImageResult = {
@@ -25,10 +27,14 @@ export async function generateStudioImage(input: {
   height?: number;
   seed?: number;
   negativePrompt?: string;
+  quantity?: number;
   n?: number;
   operation?: "generate" | "edit";
+  quality?: string;
+  maskUrl?: string;
   loras?: Record<string, number> | Readonly<Record<string, number>>;
   strength?: number;
+  checkpointAir?: string;
   workTitle?: string;
   workKind?: "image" | "story" | "ecommerce";
 }): Promise<StudioImageResult> {
@@ -38,37 +44,45 @@ export async function generateStudioImage(input: {
   const model = String(input.model || "").trim();
   if (!providerId || !model) throw new Error("请先选择供应商和模型。选哪个就走哪个，不会自动改线路。");
   const key = `${providerId}::${model}`;
-  const count = Math.max(1, Math.min(4, input.n || 1));
+  const provider = providerById(providerId, input.relays);
+  const blueprint = STUDIO_PROVIDERS.find((item) => item.id === providerId);
+  const adapter = adapterForProvider(
+    { adapterType: blueprint?.adapter || provider.adapterType, baseUrl: provider.baseUrl },
+    model,
+  );
+  if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
+  const civitai = studioImageAdapterFields(adapter.id, model, {
+    n: input.n,
+    quantity: input.quantity,
+    checkpointAir: input.checkpointAir,
+    loras: input.loras,
+  });
+  const count = civitai.n;
+  const refs = collectImageRefs(input);
+  const imageInput: ImageGenInput = {
+    model,
+    prompt,
+    size: input.size,
+    aspectRatio: input.aspectRatio,
+    imageUrl: refs[0],
+    imageUrls: refs,
+    width: input.width,
+    height: input.height,
+    seed: input.seed,
+    negativePrompt: input.negativePrompt,
+    quantity: count,
+    n: count,
+    operation: input.operation,
+    quality: input.quality,
+    maskUrl: input.maskUrl,
+    loras: civitai.loras,
+    strength: input.strength,
+    checkpointAir: civitai.checkpointAir,
+  };
   const ticket = useOpsStore.getState().spend("image", model, modelPoints(key) * count);
   try {
-    const provider = providerById(providerId, input.relays);
-    const blueprint = STUDIO_PROVIDERS.find((item) => item.id === providerId);
-    const adapter = adapterForProvider(
-      { adapterType: blueprint?.adapter || provider.adapterType, baseUrl: provider.baseUrl },
-      model,
-    );
-    if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
-    const refs = collectImageRefs(input);
     const result = await Promise.race([
-      adapter.generateImage(
-        { provider },
-        {
-          model,
-          prompt,
-          size: input.size,
-          aspectRatio: input.aspectRatio,
-          imageUrl: refs[0],
-          imageUrls: refs,
-          width: input.width,
-          height: input.height,
-          seed: input.seed,
-          negativePrompt: input.negativePrompt,
-          n: count,
-          operation: input.operation,
-          loras: input.loras,
-          strength: input.strength,
-        },
-      ),
+      adapter.generateImage({ provider }, imageInput),
       new Promise<never>((_, reject) => {
         window.setTimeout(() => reject(new Error("生图超时，请换模型或稍后重试")), 180_000);
       }),

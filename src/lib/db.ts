@@ -221,7 +221,14 @@ export async function getPglite(): Promise<import("@electric-sql/pglite").PGlite
  */
 export function ensureDbReady(): Promise<void> {
   if (dbSource !== "pglite") return Promise.resolve();
-  return getSql().then(() => undefined);
+  return getSql().then(async () => {
+    try {
+      const { seedRelayVaultFromEnv } = await import("@/studio/server/relay-vault");
+      await seedRelayVaultFromEnv();
+    } catch (error) {
+      console.error("[db] relay vault env seed failed:", error);
+    }
+  });
 }
 
 // Server-only eager start: kick PGLite bootstrap as soon as this module loads in

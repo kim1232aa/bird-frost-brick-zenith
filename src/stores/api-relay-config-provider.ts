@@ -34,6 +34,7 @@ import {
     filterModelsByCapability,
     inferCapabilitiesFromModels,
     normalizeCapabilities,
+    providerCapabilityIsRunnable,
     providerModelsForCapability,
     modelBelongsToProvider,
     isHappyHorseVideoModelName,
@@ -76,12 +77,16 @@ export function createApiRelayProvider(input: Partial<ApiRelayProvider> = {}): A
         name: input.name || "中转 API",
         baseUrl: input.baseUrl || "",
         apiKey: credentials.apiKey,
+        ...(typeof input.hasApiKey === "boolean" || credentials.apiKey || credentials.apiKeys?.length
+          ? { hasApiKey: Boolean(input.hasApiKey || credentials.apiKey || credentials.apiKeys?.length) }
+          : {}),
         ...(credentials.apiKey ? { apiKeyId: input.apiKeyId?.trim() || createProviderCredentialId() } : {}),
         ...(credentials.apiKeys ? { apiKeys: [...credentials.apiKeys] } : {}),
         ...(apiKeyIds ? { apiKeyIds } : {}),
         ...(input.adapterType ? { adapterType: input.adapterType } : {}),
         proxyMode: input.proxyMode === "custom" ? "custom" : "direct",
         proxyUrl: String(input.proxyUrl || "").trim(),
+        ...(Array.isArray(input.runnableCapabilities) ? { runnableCapabilities: normalizeCapabilities(input.runnableCapabilities) } : {}),
         ...(input.videoCapabilityProfiles ? { videoCapabilityProfiles: normalizeVideoCapabilityProfiles(input.videoCapabilityProfiles) } : {}),
         ...(input.audioCapabilityProfiles ? { audioCapabilityProfiles: normalizeAudioCapabilityProfiles(input.audioCapabilityProfiles) } : {}),
         ...(input.imageCapabilityProfiles ? { imageCapabilityProfiles: normalizeImageCapabilityProfiles(input.imageCapabilityProfiles) } : {}),
@@ -143,6 +148,9 @@ export function normalizeApiRelayProvider(provider: ApiRelayProvider): ApiRelayP
     );
     const audioModels = pickAssigned(provider.audioModels, "audio");
     const persistedCapabilities = Array.isArray(provider.capabilities) ? provider.capabilities : [];
+    const runnableCapabilities = Array.isArray(provider.runnableCapabilities)
+        ? normalizeCapabilities(provider.runnableCapabilities)
+        : undefined;
     const persistedApiKeys = Array.isArray(provider.apiKeys) ? provider.apiKeys : undefined;
     const persistedApiKeyIds = Array.isArray(provider.apiKeyIds) ? provider.apiKeyIds : undefined;
     const providerName = typeof provider.name === "string" ? provider.name.trim() : "";
@@ -167,11 +175,13 @@ export function normalizeApiRelayProvider(provider: ApiRelayProvider): ApiRelayP
         name: providerName || "中转 API",
         baseUrl: providerBaseUrl,
         apiKey: credentials.apiKey,
+        ...(typeof provider.hasApiKey === "boolean" ? { hasApiKey: provider.hasApiKey || Boolean(credentials.apiKey || credentials.apiKeys?.length) } : {}),
         apiKeyId: credentials.apiKey ? providerApiKeyId || createProviderCredentialId() : undefined,
         apiKeys: credentials.apiKeys ? [...credentials.apiKeys] : undefined,
         apiKeyIds,
         proxyMode: provider.proxyMode === "custom" ? "custom" : "direct",
         proxyUrl: String(provider.proxyUrl || "").trim(),
+        ...(runnableCapabilities !== undefined ? { runnableCapabilities } : {}),
         videoCapabilityProfiles: normalizeVideoCapabilityProfiles(provider.videoCapabilityProfiles),
         audioCapabilityProfiles: normalizeAudioCapabilityProfiles(provider.audioCapabilityProfiles),
         imageCapabilityProfiles: normalizeImageCapabilityProfiles(provider.imageCapabilityProfiles),
@@ -270,7 +280,6 @@ export function ensureApiRelaySettings<T extends RelayCompatibleConfig>(config: 
         apiRelayAdvanced: {
             ...defaultApiRelayAdvanced,
             ...(config.apiRelayAdvanced || {}),
-            allowCustomModel: false,
         },
     };
 }
@@ -361,13 +370,17 @@ function containsConfiguredCredential(label: string, credential: unknown) {
     return label.includes(configuredValue);
 }
 
-export function providerHasUsableCredential(provider: Pick<ApiRelayProvider, "apiKey" | "apiKeys" | "baseUrl">) {
-    return hasProviderCredential(normalizeProviderCredentials(provider.apiKey, provider.apiKeys));
+export function providerHasUsableCredential(provider: Pick<ApiRelayProvider, "apiKey" | "apiKeys" | "hasApiKey" | "baseUrl">) {
+    return hasProviderCredential({
+        ...normalizeProviderCredentials(provider.apiKey, provider.apiKeys),
+        hasApiKey: provider.hasApiKey,
+    });
 }
 
 export function providerCanRunCapability(provider: ApiRelayProvider, capability: ApiCapability) {
     return provider.enabled
         && provider.capabilities.includes(capability)
+        && providerCapabilityIsRunnable(provider, capability)
         && Boolean(provider.baseUrl.trim())
         && providerHasUsableCredential(provider);
 }
@@ -415,12 +428,7 @@ function ensureRouting(config: RelayCompatibleConfig, providers: ApiRelayProvide
         if (savedProviderId && !savedProvider) {
             const matchingProviders = savedModel
                 ? providers.filter(
-                      (item) =>
-                          item.enabled &&
-                          Boolean(item.baseUrl.trim()) &&
-                          hasProviderCredential(item) &&
-                          item.capabilities.includes(capability) &&
-                          modelBelongsToProvider(item, capability, savedModel),
+                      (item) => providerCanRunCapability(item, capability) && modelBelongsToProvider(item, capability, savedModel),
                   )
                 : [];
             const reboundProvider = matchingProviders[0];

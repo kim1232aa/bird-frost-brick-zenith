@@ -1,0 +1,37 @@
+# Local loopback test of the SSR+static image.
+# Secrets stay in gitignored .env.test.local and are injected at container start.
+# Host 127.0.0.1:18081 was unused at write time (ss -tln).
+# Image is a test container (vite preview is not used; Nitro vercel + srvx).
+# Not a Vercel production deployment claim.
+name: boundless-studio-test
+
+services:
+  boundless-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: boundless-studio:test
+    container_name: boundless-studio-test
+    init: true
+    restart: unless-stopped
+    env_file:
+      - .env.test.local
+    ports:
+      - "127.0.0.1:18081:8080"
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      HOST: "0.0.0.0"
+      VITE_AUTH_ENABLED: "false"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8080/client-api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s

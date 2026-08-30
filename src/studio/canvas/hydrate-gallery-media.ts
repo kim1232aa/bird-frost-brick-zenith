@@ -2,7 +2,7 @@
 
 import { setImageBlob } from "@/services/image-storage";
 import { setMediaBlob } from "@/services/file-storage";
-import type { CanvasNodeData } from "@/app/canvas/types";
+import type { CanvasNodeData, CanvasNodeStatus } from "@/app/canvas/types";
 
 const GALLERY_KEY_PREFIX = {
   image: "image:qingliang",
@@ -31,7 +31,8 @@ export async function hydrateGalleryMedia(nodes: CanvasNodeData[]): Promise<Canv
   const next = await Promise.all(
     nodes.map(async (node) => {
       const url = node.metadata?.backendUrl || node.metadata?.content;
-      if (!isGalleryPath(url)) return node;
+      if (!url || !isGalleryPath(url)) return node;
+      const status: CanvasNodeStatus = "success";
       try {
         if (node.type === "image") {
           const storageKey = node.metadata?.storageKey || galleryStorageKey(url, "image");
@@ -46,7 +47,7 @@ export async function hydrateGalleryMedia(nodes: CanvasNodeData[]): Promise<Canv
               backendRel: url.slice(1),
               content: url,
               retained: true,
-              status: "success",
+              status,
             },
           };
         }
@@ -63,7 +64,7 @@ export async function hydrateGalleryMedia(nodes: CanvasNodeData[]): Promise<Canv
               backendRel: url.slice(1),
               content: url,
               retained: true,
-              status: "success",
+              status,
             },
           };
         }

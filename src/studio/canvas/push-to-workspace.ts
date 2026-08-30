@@ -3,6 +3,7 @@ import { useCanvasStore } from "@/app/canvas/stores/use-canvas-store";
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/app/canvas/constants";
 import { CanvasNodeType, type CanvasNodeData, type StoryCharacter, type StoryShot } from "@/app/canvas/types";
 import type { StoryCast, StoryShot as DirectorShot } from "@/studio/story/plan";
+import { buildMediaCanvasProject, type MediaCanvasPayload } from "./media-workspace-project";
 
 function mapCast(cast: StoryCast[]): StoryCharacter[] {
   return cast.map((person, index) => ({
@@ -191,5 +192,32 @@ export function pushStoryToCanvasWorkspace(payload: {
     title: `故事 ${payload.text.slice(0, 12) || "导演"}`,
     nodes: [node, ...extraNodes],
     viewport: { x: 0, y: 0, k: 0.85 },
+  });
+}
+
+function mediaCanvasType(type: "image" | "video" | "text") {
+  if (type === "video") return CanvasNodeType.Video;
+  if (type === "text") return CanvasNodeType.Text;
+  return CanvasNodeType.Image;
+}
+
+function mediaNodesToCanvas(nodes: ReturnType<typeof buildMediaCanvasProject>["nodes"]): CanvasNodeData[] {
+  return nodes.map((node) => ({
+    id: node.id,
+    type: mediaCanvasType(node.type),
+    title: node.title,
+    position: node.position,
+    width: node.width,
+    height: node.height,
+    metadata: node.metadata,
+  }));
+}
+
+export function pushMediaToCanvasWorkspace(payload: MediaCanvasPayload) {
+  const project = buildMediaCanvasProject(payload);
+  return useCanvasStore.getState().importProject({
+    title: project.title,
+    nodes: mediaNodesToCanvas(project.nodes),
+    viewport: project.viewport,
   });
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   API_CAPABILITIES,
   API_CAPABILITY_LABELS,
+  providerHasUsableCredential,
   classifyProviderModels,
   normalizeModelList,
   type ApiCapability,
@@ -107,7 +108,7 @@ export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
   };
 
   const pull = async () => {
-    if (!relay.apiKey) {
+    if (!providerHasUsableCredential(relay)) {
       setNote("先填 API Key，再读取模型。");
       return;
     }

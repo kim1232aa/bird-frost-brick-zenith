@@ -21,7 +21,9 @@ import {
     modelMatchesCapability,
     normalizeModelList,
     resolveCapabilityRoute,
-    listedRelayModelOptionsForCapability,
+    enabledRelayModelOptionsForCapability,
+    providerCanRunCapability,
+    resolveConfiguredModel,
     type ApiBoardModelRouting,
     type ApiPlatformBoardModelRouting,
     type ApiCapability,
@@ -31,7 +33,6 @@ import {
     type ProviderModelOption,
     type ProviderModelSelection,
 } from "@/stores/api-relay-config";
-import { hasProviderCredential, normalizeProviderCredentials } from "@/stores/provider-credentials";
 import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
 import { shouldReplaceManagedRelays, studioRelays, studioRouting } from "@/studio/wiring";
 import { useStudioSession } from "@/studio/session";
@@ -362,12 +363,7 @@ function mergeLocalRelayModels(input: AiConfig) {
 
 export function enabledRelayModelsForCapability(relays: ApiRelayProvider[], capability: ApiCapability) {
     return relays
-        .filter(
-            (provider) =>
-                provider.enabled &&
-                provider.capabilities.includes(capability) &&
-                hasProviderCredential(normalizeProviderCredentials(provider.apiKey, provider.apiKeys)),
-        )
+        .filter((provider) => providerCanRunCapability(provider, capability))
         .flatMap((provider) =>
             capability === "text"
                 ? provider.textModels
@@ -380,7 +376,7 @@ export function enabledRelayModelsForCapability(relays: ApiRelayProvider[], capa
 }
 
 function validRouteModel(model: string, models: string[]) {
-    return models.includes(model) ? model : "";
+    return resolveConfiguredModel(model, models);
 }
 
 function normalizePersistedImageQuality(value: string) {
@@ -404,7 +400,7 @@ export function selectableModelsByCapability(config: AiConfig, capability?: Mode
 export function selectableProviderModelsByCapability(config: AiConfig, capability: ModelCapability): ProviderModelOption[] {
     const normalized = ensureApiRelaySettings({ ...config, channelMode: "local" });
     const relays = normalized.apiRelays?.length ? normalized.apiRelays : studioRelays();
-    return listedRelayModelOptionsForCapability(relays, capability);
+    return enabledRelayModelOptionsForCapability(relays, capability);
 }
 
 function modelListKey(capability: ModelCapability) {

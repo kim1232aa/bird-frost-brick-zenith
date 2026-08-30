@@ -1,4 +1,4 @@
-import type { ApiRelayProvider } from "@/stores/api-relay-config";
+import { providerCapabilityIsRunnable, providerHasUsableCredential, type ApiRelayProvider } from "@/stores/api-relay-config";
 import { CIVITAI_ENGINES } from "./adapters/civitai";
 import { STUDIO_PROVIDERS } from "./wiring";
 
@@ -67,20 +67,23 @@ function kindOf(provider: { videoModels: string[]; audioModels: string[]; imageM
   return "text";
 }
 
-function cardFrom(provider: { id: string; name: string; remark: string; apiKey?: string; enabled?: boolean; nsfw?: boolean; allowMatureContent?: boolean }, model: string, kind: ModelCard["kind"]): ModelCard {
+function cardFrom(provider: { id: string; name: string; remark: string; apiKey: string; apiKeys?: string[]; hasApiKey?: boolean; baseUrl: string; enabled?: boolean; nsfw?: boolean; allowMatureContent?: boolean; runnableCapabilities?: ApiRelayProvider["runnableCapabilities"] }, model: string, kind: ModelCard["kind"]): ModelCard {
   const extra = META[model] || {};
+  const hasCredential = providerHasUsableCredential(provider);
+  const capabilityRunnable = providerCapabilityIsRunnable(provider, kind);
+  const tags = extra.tags || [kind];
   return {
     providerId: provider.id,
     provider: provider.name,
     model,
     kind,
-    tags: extra.tags || [kind],
+    tags: capabilityRunnable ? tags : Array.from(new Set([...tags, "未接线"])),
     nsfw: extra.nsfw ?? provider.nsfw ?? Boolean(provider.allowMatureContent),
-    cost: extra.cost || (provider.apiKey ? "已接线" : "待接线"),
+    cost: extra.cost || (capabilityRunnable && hasCredential ? "已接线" : capabilityRunnable ? "待接线" : "未接线"),
     size: extra.size || "官方",
     docs: provider.remark,
     blurb: extra.blurb || provider.remark,
-    wired: Boolean(provider.enabled && provider.apiKey),
+    wired: Boolean(provider.enabled && hasCredential && capabilityRunnable),
     verified: extra.verified ?? false,
   };
 }

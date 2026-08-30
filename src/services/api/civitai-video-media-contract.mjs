@@ -8,6 +8,7 @@ const VIDU_Q3_REFERENCE_EVIDENCE = `${FIXED_OPENAPI_EVIDENCE}; Vidu official Ref
 const MINIMAX_H3_EVIDENCE = `${FIXED_OPENAPI_EVIDENCE}; MiniMax official video-generation docs (platform.minimax.io, verified 2026-08-15): reference images \u2264 9, reference videos \u2264 3, combined \u2264 12`;
 const WAN22_FAL_I2V_EVIDENCE = `${FIXED_OPENAPI_EVIDENCE}; fal.ai official Wan v2.2 image-to-video schema (verified 2026-08-15): single image_url, no end_image field`;
 const WAN26_REFERENCE_EVIDENCE = `${FIXED_OPENAPI_EVIDENCE}; Wan26FalReferenceToVideoInput: referenceVideoUrls 1–3, no image/audio field`;
+const WAN21_CIVITAI_I2V_EVIDENCE = `${FIXED_OPENAPI_EVIDENCE}; Wan21CivitaiVideoGenInput publishes images[] (URL/DataURL/Base64), width, and height; official WAN recipe (developer.civitai.com/orchestration/recipes/wan.md) lists Civitai v2.1 image-to-video`;
 
 function contract(serviceId, profileId, transport, referenceKinds, imageMaximum, options = {}) {
     return {
@@ -40,7 +41,7 @@ const DEFINITIONS = [
     contract("video/sora/image-to-video", "civitai-source-images", "generic-reference-images", ["none", "first_frame", "reference_set"], null, { storyAutoReferencePolicy: "semantic-references" }),
     contract("video/vidu-q3", "civitai-untyped-images", "generic-reference-images", ["none", "reference_set"], 7, { storyAutoReferencePolicy: "semantic-references", evidence: VIDU_Q3_REFERENCE_EVIDENCE }),
     contract("video/vidu", "civitai-frames-or-references", "vidu-frames-or-references", ["none", "first_frame", "first_last_frame", "reference_set"], 7, { storyAutoReferencePolicy: "semantic-references", evidence: VIDU_REFERENCE_EVIDENCE }),
-    contract("video/wan/v2.1/civitai", "civitai-text-video", "text-only", ["none"], 0),
+    contract("video/wan/v2.1/civitai", "civitai-i2v", "generic-reference-images", ["first_frame"], 1, { evidence: WAN21_CIVITAI_I2V_EVIDENCE }),
     contract("video/wan/v2.2-5b/fal/image-to-video", "civitai-source-images", "generic-reference-images", ["none", "first_frame", "reference_set"], 1, { storyAutoReferencePolicy: "semantic-references", evidence: WAN22_FAL_I2V_EVIDENCE }),
     contract("video/wan/v2.2/fal/image-to-video", "civitai-untyped-images", "generic-reference-images", ["none", "reference_set"], 1, { storyAutoReferencePolicy: "semantic-references", evidence: WAN22_FAL_I2V_EVIDENCE }),
     contract("video/wan/v2.5/fal/image-to-video", "civitai-untyped-images", "generic-reference-images", ["none", "reference_set"], null, { storyAutoReferencePolicy: "semantic-references" }),

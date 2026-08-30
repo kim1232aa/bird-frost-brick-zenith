@@ -111,7 +111,6 @@ import {
   type VideoReferenceImage,
 } from "@/services/api/video-model-capabilities";
 import {
-  blockUnverifiedVideoMediaContract,
   resolveVideoReferenceSlotContract,
 } from "@/services/api/video-reference-slot-contract";
 import {
@@ -122,7 +121,13 @@ import {
   type ApiRequestRoute,
 } from "@/services/api/ai-routing";
 import { rotateRelayApiKey } from "@/services/api/relay-proxy";
-import { resolveVideoAdapter, toStudioVideoWire, videoCreatePath, videoPollPath } from "@/studio/registry";
+import { resolveVideoAdapter, videoPollPath } from "@/studio/registry";
+import {
+  attachOfficialOpenAiVideoContent,
+  buildCustomerVideoStudioRequest,
+  planCustomerVideoContentFetch,
+} from "@/studio/customer-video-wire";
+import { sniffMedia } from "@/studio/adapters/contracts";
 import { draftPlan } from "@/studio/story/plan";
 import {
   requestNativeRelayVideo,
@@ -884,11 +889,15 @@ type Seedance2CustomerVideoPayload = SharedSeedance2CustomerVideoPayload & {
 type CustomerVideoTaskResponse = CustomerVideoTask & {
   success?: boolean;
   task_id?: string;
+  video_id?: string;
   id?: string;
   message?: string;
   code?: string;
-  task?: CustomerVideoTask;
+  task?: CustomerVideoTask & { video_id?: string };
   tasks?: CustomerVideoTask[];
+  url?: string;
+  video_url?: string;
+  video?: { url?: string };
 };
 
 type Seedance2ResultInsertOptions = {
@@ -1174,10 +1183,268 @@ function normalizeCustomerVideoApiBase(value?: string) {
   return (
     raw
       .replace(/\/+$/, "")
-      .replace(/\/v1\/videos\/generations$/i, "")
-      .replace(/\/v1$/i, "") || DEFAULT_CUSTOMER_VIDEO_API_BASE
+      .replace(/\/v1\/videos\/generations$/i, "") || DEFAULT_CUSTOMER_VIDEO_API_BASE
   );
 }
+
+// canvas-customer-video-contract:start
+function firstCustomerVideoString(...values: unknown[]) {
+  for (const value of values) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (text) return text;
+  }
+  return "";
+}
+
+export function splitCustomerVideoPath(path: string) {
+  const raw = String(path || "");
+  const queryIndex = raw.indexOf("?");
+  if (queryIndex < 0) return { pathname: raw, query: "" };
+  return { pathname: raw.slice(0, queryIndex), query: raw.slice(queryIndex + 1) };
+}
+
+export function joinCustomerVideoRequestUrl(input: {
+  path: string;
+  baseUrl?: string;
+  localProxyUrl?: string;
+}) {
+  const { pathname, query } = splitCustomerVideoPath(input.path);
+  const querySuffix = query ? `?${query}` : "";
+  if (input.localProxyUrl !== undefined) {
+    const proxy = String(input.localProxyUrl || "").replace(/\/+$/, "") || "/";
+    return `${proxy}${querySuffix}`;
+  }
+  const rawBase = String(input.baseUrl || "").trim();
+  if (!rawBase) throw new Error("未配置视频中转，请到设置中选择视频模型");
+  const host = hostnameOfCustomerVideoBase(rawBase);
+  const pathName = pathname.replace(/^\/+/, "");
+  const officialAgnesRoot =
+    pathName.toLowerCase() === "agnesapi" &&
+    (host === "apihub.agnes-ai.com" || host === "agnes-ai.com" || host.endsWith(".agnes-ai.com"));
+  if (officialAgnesRoot) {
+    const origin = originOfCustomerVideoBase(rawBase);
+    if (!origin) throw new Error("未配置视频中转，请到设置中选择视频模型");
+    return `${origin}/agnesapi${querySuffix}`;
+  }
+  const apiBase = ensureCustomerVideoV1Base(rawBase, host);
+  if (!apiBase) throw new Error("未配置视频中转，请到设置中选择视频模型");
+  const suffix = `/${pathName}${querySuffix}`;
+  return `${apiBase}${suffix}`;
+}
+
+function ensureCustomerVideoV1Base(baseUrl: string, host: string) {
+  const trimmed = String(baseUrl || "").replace(/\/+$/, "");
+  const officialHost = host === "api.openai.com" || host === "apihub.agnes-ai.com";
+  if (!officialHost) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    const current = url.pathname.replace(/\/+$/, "");
+    if (!current || current === "/") url.pathname = "/v1";
+    return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return trimmed;
+  }
+}
+
+function hostnameOfCustomerVideoBase(baseUrl: string) {
+  try {
+    return new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function originOfCustomerVideoBase(baseUrl: string) {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return String(baseUrl || "").replace(/\/+$/, "");
+  }
+}
+
+export function parseCustomerVideoHttpBody(input: {
+  ok: boolean;
+  status: number;
+  contentType: string;
+  bytes: Uint8Array;
+  sniffMedia: (bytes: Uint8Array) => string;
+  createObjectUrl: (blob: Blob) => string;
+}) {
+  const bytes = input.bytes;
+  let i = 0;
+  while (i < bytes.length && bytes[i] <= 32) i += 1;
+  const start = bytes[i];
+  const looksJson = start === 0x7b || start === 0x5b || start === 0x22;
+  const contentType = String(input.contentType || "").toLowerCase();
+  const sniffed = input.sniffMedia(bytes);
+  const isVideo = sniffed.startsWith("video/") || contentType.includes("video/");
+  if (input.ok && !looksJson && isVideo && bytes.length > 32) {
+    const type = sniffed.startsWith("video/")
+      ? sniffed
+      : contentType.includes("video/")
+        ? contentType.split(";")[0]!.trim() || "video/mp4"
+        : "video/mp4";
+    const blobUrl = input.createObjectUrl(new Blob([bytes.slice()], { type }));
+    return {
+      ok: true,
+      status: input.status,
+      data: {
+        success: true,
+        url: blobUrl,
+        video_url: blobUrl,
+        video: { url: blobUrl },
+        content: { video_url: blobUrl },
+      },
+    };
+  }
+  const rawText = new TextDecoder("utf-8").decode(bytes);
+  let raw = {} as Record<string, unknown>;
+  try {
+    if (rawText.trim()) raw = JSON.parse(rawText) as Record<string, unknown>;
+  } catch {
+    return {
+      ok: false,
+      status: input.status,
+      data: { success: false, message: rawText.slice(0, 240) || "视频响应不是 JSON" },
+    };
+  }
+  const nestedVideo = raw.video && typeof raw.video === "object" ? (raw.video as { url?: string }) : undefined;
+  const nestedContent = raw.content && typeof raw.content === "object" ? (raw.content as { video_url?: string }) : undefined;
+  const nestedMetadata = raw.metadata && typeof raw.metadata === "object" ? (raw.metadata as { url?: string }) : undefined;
+  const requestId = firstCustomerVideoString(raw.video_id, raw.task_id, raw.request_id, raw.id);
+  const videoUrl = firstCustomerVideoString(
+    nestedMetadata?.url,
+    nestedContent?.video_url,
+    nestedVideo?.url,
+    raw.url,
+    raw.video_url,
+  );
+  return {
+    ok: input.ok,
+    status: input.status,
+    data: {
+      ...raw,
+      success: raw.success !== false,
+      task_id: requestId || raw.task_id,
+      id: requestId || raw.id,
+      ...(videoUrl
+        ? {
+            url: videoUrl,
+            video_url: videoUrl,
+            file_urls: [videoUrl],
+            content: { ...(nestedContent || {}), video_url: videoUrl },
+          }
+        : {}),
+    },
+  };
+}
+
+export function customerVideoCreatedTaskId(data: {
+  video_id?: string;
+  task_id?: string;
+  request_id?: string;
+  id?: string;
+  task?: { video_id?: string; task_id?: string; id?: string };
+}) {
+  return firstCustomerVideoString(
+    data.video_id,
+    data.task?.video_id,
+    data.task_id,
+    data.task?.task_id,
+    data.task?.id,
+    data.id,
+    data.request_id,
+  );
+}
+
+function customerVideoHost(value?: string) {
+  try {
+    return new URL(String(value || "")).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+export function canvasCustomerVideoSubmitGuard(input: {
+  hasLocalAdapter: boolean;
+  isLocalRoute: boolean;
+  adapterType?: string;
+  model?: string;
+  baseUrl?: string;
+  operation?: string;
+  prompt: string;
+  references: Array<{ useAs?: string; value?: string }>;
+  videoCount: number;
+}): { kind: "native" | "customer" | "block"; reason?: string } {
+  const host = customerVideoHost(input.baseUrl);
+  const firstFrameCount = input.references.filter((item) => item.useAs === "first_frame").length;
+  const lastFrameCount = input.references.filter((item) => item.useAs === "last_frame").length;
+  const ordinaryReferenceCount = input.references.filter(
+    (item) => !item.useAs || item.useAs === "reference_image",
+  ).length;
+  const isOfficialXai = host === "api.x.ai";
+  if (isOfficialXai && lastFrameCount > 0) {
+    return {
+      kind: "block",
+      reason: "xAI 官方视频不支持首尾帧模式；官方 generation 只支持单首帧 image 或普通 reference_images 二选一，不会发送 last_frame。请改用单首帧、普通参考图，或支持首尾帧的 provider/model",
+    };
+  }
+  if (isOfficialXai && firstFrameCount > 0 && ordinaryReferenceCount > 0) {
+    return {
+      kind: "block",
+      reason: "xAI 官方视频的 I2V image 与 R2V reference_images 互斥；请选择单首帧或普通参考图，不会混合发送",
+    };
+  }
+  const isOfficialOpenAi = host === "api.openai.com";
+  if (isOfficialOpenAi && lastFrameCount > 0) {
+    return {
+      kind: "block",
+      reason: "OpenAI 官方 Videos 不支持尾帧；input_reference 只能作为视频首帧，已阻止提交，不会静默丢弃 last_frame",
+    };
+  }
+  if (input.hasLocalAdapter) return { kind: "native" };
+  const labeledFrames = input.references.filter((item) =>
+    item.useAs === "first_frame" || item.useAs === "last_frame" || item.useAs === "keyframe",
+  );
+  const unlabeledOrGeneric = input.references.filter((item) =>
+    !item.useAs || item.useAs === "reference_image",
+  );
+  if (input.videoCount > 0 || unlabeledOrGeneric.length > 0) {
+    return {
+      kind: "block",
+      reason: `当前 customer 视频端点没有显式验证的参考图片或参考视频 serializer/profile；${input.references.length} 张图片、${input.videoCount} 个视频均未提交`,
+    };
+  }
+  if (input.isLocalRoute && labeledFrames.length === 0 && input.references.length === 0) {
+    return {
+      kind: "block",
+      reason: "当前视频 provider/model 没有已验证的原生视频 capability profile/serializer，已阻止故事占位框提交",
+    };
+  }
+  if (!String(input.prompt || "").trim() && labeledFrames.length === 0) {
+    return {
+      kind: "block",
+      reason: "当前 customer 视频端点只开放已验证的纯文本合同，请先填写视频提示词",
+    };
+  }
+  const i2vLike = input.operation === "image-to-video"
+    || input.operation === "first-last-frame-to-video"
+    || input.operation === "keyframes-to-video";
+  if (i2vLike && labeledFrames.length === 0) {
+    return {
+      kind: "block",
+      reason: `当前 customer 视频 serializer 只验证了 text-to-video，不能按 ${input.operation} 提交`,
+    };
+  }
+  if (input.operation && input.operation !== "text-to-video" && !i2vLike) {
+    return {
+      kind: "block",
+      reason: `当前 customer 视频 serializer 只验证了 text-to-video，不能按 ${input.operation} 提交`,
+    };
+  }
+  return { kind: "customer" };
+}
+// canvas-customer-video-contract:end
 
 function customerVideoApiHeaders(apiConfig: CustomerVideoApiConfig) {
   if (apiConfig.route?.mode === "local") {
@@ -1200,46 +1467,55 @@ function customerVideoPollHeaders(apiConfig: CustomerVideoApiConfig) {
   return headers;
 }
 
-function customerVideoAdapterId(apiConfig: CustomerVideoApiConfig) {
-  return resolveVideoAdapter({
-    adapterType: apiConfig.route?.mode === "local" ? apiConfig.route.provider.adapterType : "",
+function customerVideoWireOptions(apiConfig: CustomerVideoApiConfig) {
+  const provider = apiConfig.route?.mode === "local" ? apiConfig.route.provider : undefined;
+  return {
+    adapterType: provider?.adapterType || "",
     model: apiConfig.model,
+    baseUrl: provider?.baseUrl || apiConfig.baseUrl,
+    protocol: provider?.protocol,
+    endpoints: provider?.endpoints,
+  };
+}
+
+function customerVideoAdapterId(apiConfig: CustomerVideoApiConfig) {
+  return resolveVideoAdapter(customerVideoWireOptions(apiConfig));
+}
+
+function customerVideoPollPathFor(apiConfig: CustomerVideoApiConfig, taskId: string) {
+  const options = customerVideoWireOptions(apiConfig);
+  return videoPollPath(customerVideoAdapterId(apiConfig), taskId, options.endpoints, options);
+}
+
+function customerVideoUrlForPath(apiConfig: CustomerVideoApiConfig, path: string) {
+  const { pathname } = splitCustomerVideoPath(path);
+  if (apiConfig.route?.mode === "local") {
+    return joinCustomerVideoRequestUrl({
+      path,
+      localProxyUrl: routedLocalApiUrl(apiConfig.route, pathname || "/"),
+    });
+  }
+  return joinCustomerVideoRequestUrl({
+    path,
     baseUrl: apiConfig.baseUrl,
   });
 }
 
-function customerVideoCreateUrl(apiConfig: CustomerVideoApiConfig) {
-  if (apiConfig.route?.mode === "local") {
-    return routedLocalApiUrl(apiConfig.route, videoCreatePath(customerVideoAdapterId(apiConfig)));
-  }
-  const apiBase = normalizeCustomerVideoApiBase(apiConfig.baseUrl);
-  if (!apiBase) throw new Error("未配置视频中转，请到设置中选择视频模型");
-  return `${apiBase}${videoCreatePath(customerVideoAdapterId(apiConfig))}`;
+function customerVideoPollUrl(taskId: string, apiConfig: CustomerVideoApiConfig) {
+  return customerVideoUrlForPath(apiConfig, customerVideoPollPathFor(apiConfig, taskId));
 }
 
-function customerVideoPollUrl(taskId: string, apiConfig: CustomerVideoApiConfig) {
-  if (apiConfig.route?.mode === "local") {
-    return routedLocalApiUrl(apiConfig.route, videoPollPath(customerVideoAdapterId(apiConfig), taskId));
-  }
-  const apiBase = normalizeCustomerVideoApiBase(apiConfig.baseUrl);
-  if (!apiBase) throw new Error("未配置视频中转，请到设置中选择视频模型");
-  return `${apiBase}${videoPollPath(customerVideoAdapterId(apiConfig), taskId)}`;
+function customerVideoContentUrl(path: string, apiConfig: CustomerVideoApiConfig) {
+  return customerVideoUrlForPath(apiConfig, path);
 }
 
 function customerVideoTaskListUrl(taskId: string, apiConfig: CustomerVideoApiConfig) {
   void taskId;
-  if (apiConfig.route?.mode === "local") {
-    return routedLocalApiUrl(apiConfig.route, "/tasks");
-  }
-  const apiBase = normalizeCustomerVideoApiBase(apiConfig.baseUrl);
-  return `${apiBase}/v1/tasks`;
+  return customerVideoUrlForPath(apiConfig, "/tasks");
 }
 
 function customerVideoNativePollPath(taskId: string, apiConfig: CustomerVideoApiConfig) {
-  const encodedTaskId = encodeURIComponent(taskId);
-  return apiConfig.route?.mode === "local"
-    ? `videos/generations/tasks/${encodedTaskId}`
-    : `api/tasks/${encodedTaskId}`;
+  return customerVideoPollPathFor(apiConfig, taskId).replace(/^\//, "");
 }
 
 function customerVideoTaskFromResponse(data: CustomerVideoTaskResponse, taskId: string) {
@@ -1256,14 +1532,6 @@ function findCustomerVideoTaskById(data: CustomerVideoTaskResponse, taskId: stri
 function isCustomerVideoTaskEndpointMissing(response: Pick<Response, "status">, data: CustomerVideoTaskResponse) {
   const message = String(data.message || data.code || "").toLowerCase();
   return response.status === 404 || message.includes("not found") || message.includes("page not found");
-}
-
-function firstCustomerVideoString(...values: unknown[]) {
-  for (const value of values) {
-    const text = typeof value === "string" ? value.trim() : "";
-    if (text) return text;
-  }
-  return "";
 }
 
 function objectRecord(value: unknown): Record<string, unknown> {
@@ -1570,20 +1838,19 @@ async function executeCustomerVideoRequest(
     body: options.body,
     signal: options.signal,
   });
-  const raw = (await response.json().catch(() => ({}))) as CustomerVideoTaskResponse & { request_id?: string; video?: { url?: string }; status?: string };
-  const requestId = String(raw.request_id || raw.task_id || raw.id || "").trim();
-  const videoUrl = String(raw.video?.url || "").trim();
-  const data: CustomerVideoTaskResponse = {
-    ...raw,
-    success: raw.success !== false,
-    task_id: requestId || raw.task_id,
-    id: requestId || raw.id,
-    ...(videoUrl ? { url: videoUrl, video_url: videoUrl } : {}),
-  };
-  return {
+  const buffer = await response.arrayBuffer();
+  const parsed = parseCustomerVideoHttpBody({
     ok: response.ok,
     status: response.status,
-    data,
+    contentType: response.headers.get("content-type") || "",
+    bytes: new Uint8Array(buffer),
+    sniffMedia,
+    createObjectUrl: (blob) => URL.createObjectURL(blob),
+  });
+  return {
+    ok: parsed.ok,
+    status: parsed.status,
+    data: parsed.data as CustomerVideoTaskResponse,
   };
 }
 
@@ -1593,23 +1860,24 @@ async function requestCustomerVideoTask(
   signal?: AbortSignal,
 ) {
   try {
-    const response = await dispatchCustomerVideoPayload(payload, (wirePayload) =>
-      executeCustomerVideoRequest(apiConfig, {
+    const response = await dispatchCustomerVideoPayload(payload, (wirePayload) => {
+      const request = buildCustomerVideoStudioRequest({
+        ...customerVideoWireOptions(apiConfig),
+        prompt: String((wirePayload as { prompt?: string }).prompt || payload.prompt || ""),
+        duration: Number((wirePayload as { duration?: number }).duration || payload.duration || 5),
+        ratio: String((wirePayload as { ratio?: string }).ratio || payload.ratio || "16:9"),
+        negative_prompt: payload.negative_prompt,
+        first_frame: payload.first_frame,
+        last_frame: payload.last_frame,
+      });
+      return executeCustomerVideoRequest(apiConfig, {
         method: "POST",
-        nativePath: videoCreatePath(customerVideoAdapterId(apiConfig)).replace(/^\//, ""),
-        browserUrl: customerVideoCreateUrl(apiConfig),
-        body: JSON.stringify(
-          toStudioVideoWire(customerVideoAdapterId(apiConfig), apiConfig.model || "", {
-            prompt: String((wirePayload as { prompt?: string }).prompt || payload.prompt || ""),
-            duration: Number((wirePayload as { duration?: number }).duration || payload.duration || 5),
-            ratio: String((wirePayload as { ratio?: string }).ratio || payload.ratio || "16:9"),
-            negative_prompt: payload.negative_prompt,
-            first_frame: payload.first_frame,
-          }),
-        ),
+        nativePath: request.path.replace(/^\//, ""),
+        browserUrl: customerVideoUrlForPath(apiConfig, request.path),
+        body: JSON.stringify(request.body),
         signal,
-      }),
-    );
+      });
+    });
     const data = response.data;
     if (!response.ok || data.success === false) {
       throw new Error(data.message || data.code || `Video task submit failed (${response.status})`);
@@ -1660,7 +1928,42 @@ async function fetchCustomerVideoTask(
         { status: response.status },
       );
     }
-    return customerVideoTaskFromResponse(data, taskId);
+    const task = customerVideoTaskFromResponse(data, taskId);
+    const contentPlan = planCustomerVideoContentFetch({
+      ...customerVideoWireOptions(apiConfig),
+      taskId,
+      task,
+    });
+    if (!contentPlan) return task;
+    const contentResponse = await executeCustomerVideoRequest(apiConfig, {
+      method: "GET",
+      nativePath: contentPlan.path.replace(/^\//, ""),
+      browserUrl: customerVideoContentUrl(contentPlan.path, apiConfig),
+      signal,
+    });
+    if (!contentResponse.ok || contentResponse.data.success === false) {
+      const message = contentResponse.data.message || contentResponse.data.code || `Video content download failed (${contentResponse.status})`;
+      throw createVideoTaskPollingRequestError(
+        Object.assign(new Error(String(message)), { status: contentResponse.status }),
+        String(message),
+        { status: contentResponse.status },
+      );
+    }
+    const contentUrl = firstCustomerVideoString(
+      contentResponse.data.url,
+      contentResponse.data.video_url,
+      contentResponse.data.content?.video_url,
+      contentResponse.data.video && typeof contentResponse.data.video === "object"
+        ? (contentResponse.data.video as { url?: string }).url
+        : "",
+    );
+    if (!contentUrl) {
+      throw createVideoTaskPollingRequestError(
+        new Error("视频已完成但没有地址"),
+        "视频已完成但没有地址",
+      );
+    }
+    return attachOfficialOpenAiVideoContent(task, { url: contentUrl, video: { url: contentUrl } });
   } catch (error) {
     if (signal?.aborted) throw abortSignalReason(signal, "视频任务查询已取消");
     throw createVideoTaskPollingRequestError(
@@ -13078,7 +13381,6 @@ function InfiniteCanvasPage() {
       );
       const referenceVideos = connectedMediaInputs.flatMap((input) => input.video ? [input.video] : []);
       const referenceAudios = connectedMediaInputs.flatMap((input) => input.audio ? [input.audio] : []);
-      const hasCustomerMediaCandidates = unresolvedReferences.length > 0 || referenceVideos.length > 0;
       const missingRequiredReferences = findMissingSeedance2RequiredReferences(
         latest,
         unresolvedReferences,
@@ -13142,34 +13444,6 @@ function InfiniteCanvasPage() {
           videoGenerationEntryLocksRef.current.delete(latest.id);
         }
       };
-      if (hasCustomerMediaCandidates && (authorityError || !localAdapter)) {
-        const ledgerOperation = operation || latest.metadata?.videoGenerationScope?.operation;
-        let postCheckpointError = authorityError;
-        if (!postCheckpointError && videoApiConfig) {
-          try {
-            if (!prompt) {
-              throw new Error("当前 customer 视频端点只开放已验证的纯文本合同，请先填写视频提示词");
-            }
-            buildSeedance2CustomerVideoPayload(latest, [], videoApiConfig.model);
-            if (ledgerOperation !== "text-to-video") {
-              throw new Error(`当前 customer 视频 serializer 只验证了 text-to-video，不能按 ${ledgerOperation} 提交`);
-            }
-          } catch (error) {
-            postCheckpointError = error;
-          }
-        }
-        releaseEntryLock();
-        if (missingRequiredReferences.length) {
-          message.warning(`缺少必需参考图：${missingRequiredReferences.join("、")}`);
-        } else {
-          message.error(formatCanvasGenerationError(
-            postCheckpointError || new Error("当前 customer 视频 serializer/profile 未验证，参考媒体未提交"),
-            "视频生成配置校验失败",
-          ));
-        }
-        return;
-      }
-
       if (authorityError || !videoApiConfig || !operation) {
         releaseEntryLock();
         message.error(formatCanvasGenerationError(authorityError, "视频生成配置校验失败"));
@@ -13191,7 +13465,6 @@ function InfiniteCanvasPage() {
           }
         | undefined;
       let customerPayload: Seedance2CustomerVideoPayload | undefined;
-      let customerMediaBlockedReason: string | undefined;
       let customerReferences = unresolvedReferences;
       let customerLocalCredential: CustomerVideoLocalCredential | undefined;
       let nativeGenerationConfig: AiConfig | undefined;
@@ -13213,10 +13486,19 @@ function InfiniteCanvasPage() {
         }),
       );
       try {
-        if (videoApiConfig.route?.mode === "local" && !localAdapter && !hasCustomerMediaCandidates) {
-          throw new Error(
-            "当前视频 provider/model 没有已验证的原生视频 capability profile/serializer，已阻止故事占位框提交",
-          );
+        const customerGuard = canvasCustomerVideoSubmitGuard({
+          hasLocalAdapter: Boolean(localAdapter),
+          isLocalRoute: videoApiConfig.route?.mode === "local",
+          adapterType: videoApiConfig.route?.mode === "local" ? videoApiConfig.route.provider.adapterType : "",
+          model: videoApiConfig.model || "",
+          baseUrl: videoApiConfig.route?.mode === "local" ? videoApiConfig.route.provider.baseUrl : videoApiConfig.baseUrl,
+          operation,
+          prompt,
+          references: unresolvedReferences,
+          videoCount: referenceVideos.length,
+        });
+        if (customerGuard.kind === "block") {
+          throw new Error(customerGuard.reason || "当前 customer 视频 serializer/profile 未验证，参考媒体未提交");
         }
         if (localAdapter) {
           const unresolvedReferenceImages = nativeLedgerReferences;
@@ -13279,50 +13561,20 @@ function InfiniteCanvasPage() {
             parameterSnapshot,
           };
         } else {
-          if (!prompt && !hasCustomerMediaCandidates) {
-            throw new Error(
-              "当前 customer 视频端点只开放已验证的纯文本合同，请先填写视频提示词",
-            );
+          const hydratedCustomerReferences = await hydrateSeedance2CustomerReferencesForTransport(
+            unresolvedReferences,
+            imageToDataUrl,
+          );
+          if (unresolvedReferences.length && hydratedCustomerReferences.length !== unresolvedReferences.length) {
+            throw new Error("参考图地址无效；blob: 或空地址不会作为 first_frame / last_frame 提交。");
           }
-          if (operation !== "text-to-video" && !hasCustomerMediaCandidates) {
-            throw new Error(
-              `当前 customer 视频 serializer 只验证了 text-to-video，不能按 ${operation} 提交`,
-            );
-          }
-          customerMediaBlockedReason = hasCustomerMediaCandidates
-            ? `当前 customer 视频端点没有显式验证的参考图片或参考视频 serializer/profile；${unresolvedReferences.length} 张图片、${referenceVideos.length} 个视频均未提交`
-            : undefined;
-          const customerMediaContract = hasCustomerMediaCandidates
-            ? blockUnverifiedVideoMediaContract({
-                references: unresolvedReferences,
-                videos: referenceVideos,
-                operation,
-                reason: customerMediaBlockedReason,
-              })
-            : {
-                state: "known" as const,
-                candidates: [],
-                visibleImageSlotPurposes: [],
-                submitted: [],
-                notSubmitted: [],
-              };
-          if (!hasCustomerMediaCandidates) {
-            customerPayload = buildSeedance2CustomerVideoPayload(
-                latest,
-                unresolvedReferences,
-                videoApiConfig.model,
-            );
-          } else {
-            customerPayload = buildSeedance2CustomerVideoPayload(
-              latest,
-              [],
-              videoApiConfig.model,
-            );
-          }
-          customerReferences = [];
-          customerLocalCredential = hasCustomerMediaCandidates
-            ? undefined
-            : selectCustomerVideoLocalCredential(videoApiConfig);
+          customerPayload = buildSeedance2CustomerVideoPayload(
+            latest,
+            hydratedCustomerReferences,
+            videoApiConfig.model,
+          );
+          customerReferences = hydratedCustomerReferences;
+          customerLocalCredential = selectCustomerVideoLocalCredential(videoApiConfig);
         }
       } catch (error) {
         if (
@@ -13518,7 +13770,6 @@ function InfiniteCanvasPage() {
         setNodes(submissionNodes);
         persistCanvasSnapshot(submissionNodes);
         await flushCanvasPersistence();
-        if (customerMediaBlockedReason) throw new Error(customerMediaBlockedReason);
         const timeoutMs = videoApiConfig.route?.timeoutMs
           ?? CUSTOMER_VIDEO_TASK_POLL_INTERVAL_MS * CUSTOMER_VIDEO_TASK_POLL_RETRY_LIMIT;
         const timeout = createTimedVideoTaskAbortController(
@@ -13531,7 +13782,7 @@ function InfiniteCanvasPage() {
           videoApiConfig,
           timeout.controller.signal,
         ).finally(timeout.cancelTimeout);
-        const taskId = created.task_id || created.task?.task_id || created.task?.id || created.id;
+        const taskId = customerVideoCreatedTaskId(created);
         if (!taskId) throw new Error("视频接口没有返回 task_id");
         currentTaskId = taskId;
         const taskAttempt: CustomerVideoAttempt = {

@@ -1,5 +1,33 @@
 import type { ApiRelayProvider } from "./api-relay-config";
-import { CIVITAI_IMAGE_SERVICE_IDS, CIVITAI_VIDEO_SERVICE_IDS } from "@/services/api/civitai-services";
+import { CIVITAI_IMAGE_SERVICE_IDS, CIVITAI_VIDEO_SERVICE_IDS } from "../services/api/civitai-services.ts";
+
+export const TOKEN_PLAN_PRESET_ID = "preset-aliyun-tokenplan";
+
+type TokenPlanRelayShape = {
+    id?: string;
+    capabilities?: ApiRelayProvider["capabilities"];
+    models?: string[];
+    textModels?: string[];
+    imageModels?: string[];
+    videoModels?: string[];
+    audioModels?: string[];
+    imageCapabilityProfiles?: ApiRelayProvider["imageCapabilityProfiles"];
+    videoCapabilityProfiles?: ApiRelayProvider["videoCapabilityProfiles"];
+    audioCapabilityProfiles?: ApiRelayProvider["audioCapabilityProfiles"];
+};
+
+/**
+ * Compatibility shim for callers that used to clamp Token Plan models.
+ *
+ * Token Plan supports separate multimodal APIs, and persisted model selections
+ * are user data. Never silently replace those selections with a template list.
+ */
+export function clampManagedTokenPlanRelay<T extends TokenPlanRelayShape>(
+    relay: T,
+    _templateTextModels: readonly string[] = [],
+): T {
+    return relay;
+}
 
 const CIVITAI_PRESET_IMAGE_MODELS = [...CIVITAI_IMAGE_SERVICE_IDS];
 const CIVITAI_PRESET_VIDEO_MODELS = [...CIVITAI_VIDEO_SERVICE_IDS];
@@ -138,7 +166,7 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
         adapterType: "dashscope",
         enabled: false,
         capabilities: ["text", "image", "video", "audio"],
-        remark: "阿里云 Token Plan 套餐端点（DashScope 原生协议，多 Key 轮询）",
+        remark: "官方 Token Plan 仅限 Claude Code/Codex 等交互式工具，图像/视频/语音模型需走独立原生 API；图像/视频/音频沿用 DashScope adapter。qwen-audio-3.0-tts-plus 使用官方 SpeechSynthesizer TTS。",
         models: [
             "qwen-image-2.0-pro",
             "qwen-image-2.0",
@@ -154,6 +182,13 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
         imageModels: ["qwen-image-2.0-pro", "qwen-image-2.0", "wan2.7-image-pro", "wan2.7-image"],
         videoModels: ["happyhorse-1.1-t2v", "happyhorse-1.0-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"],
         audioModels: ["qwen-audio-3.0-tts-plus"],
+        endpoints: {
+            chat: "/chat/completions",
+            images: "/api/v1/services/aigc/multimodal-generation/generation",
+            videosCreate: "/api/v1/services/aigc/video-generation/video-synthesis",
+            videosPoll: "/api/v1/tasks/{id}",
+            audio: "/api/v1/services/audio/tts/SpeechSynthesizer",
+        },
     },
     {
         id: "preset-volcengine-ark",

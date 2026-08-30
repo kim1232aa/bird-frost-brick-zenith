@@ -1,6 +1,7 @@
 import type { StudioAdapter } from "./types";
 import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import { collectImageRefs } from "@/studio/image-refs";
+import { buildArkImageGenerationBody, buildArkVideoBody, readArkVideoPoll, studioEndpoint } from "./contracts";
 
 function explainVideoError(message: string) {
   if (/UnsupportedModel|does not support the agent plan/i.test(message)) {
@@ -9,25 +10,27 @@ function explainVideoError(message: string) {
   return message;
 }
 
+function isAgentPlanHost(baseUrl: string) {
+  return String(baseUrl || "").includes("/api/plan/v3");
+}
+
 export const arkPlanAdapter: StudioAdapter = {
   id: "ark-plan",
   label: "火山方舟 Agent Plan",
   docs: "https://www.volcengine.com/docs/82379/2375486",
   async generateImage(ctx, input) {
-    const refs = imageRefs(input);
+    const count = typeof input.n === "number" && input.n > 1 ? input.n : 1;
+    const refs = collectImageRefs(input, Math.max(1, 15 - count));
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: ctx.provider.endpoints?.images || "/images/generations",
-      body: {
+      body: buildArkImageGenerationBody({
         model: input.model,
         prompt: input.prompt,
-        size: input.size || "2K",
-        watermark: false,
-        output_format: "png",
-        response_format: "url",
-        ...(typeof input.n === "number" && input.n > 1 ? { sequential_image_generation: "auto", max_images: input.n } : {}),
-        ...(refs.length ? { image: refs } : {}),
-      },
+        size: input.size,
+        n: input.n,
+        image: refs,
+      }),
       timeoutMs: 120_000,
     });
     const urls = allImageUrls(data);
@@ -35,21 +38,22 @@ export const arkPlanAdapter: StudioAdapter = {
     return { url: urls[0], urls };
   },
   async createVideo(ctx, input) {
-    const content: Array<Record<string, unknown>> = [{ type: "text", text: input.prompt }];
-    if (input.imageUrl) content.push({ type: "image_url", image_url: { url: input.imageUrl } });
-    if (input.lastFrameUrl) content.push({ type: "image_url", image_url: { url: input.lastFrameUrl }, role: "last_frame" });
     try {
       const data = await studioProxyJson<Record<string, unknown>>({
         provider: ctx.provider,
-        path: ctx.provider.endpoints?.videosCreate || "/contents/generations/tasks",
-        body: {
+        path: studioEndpoint(ctx.provider.endpoints, "videosCreate", "/contents/generations/tasks"),
+        body: buildArkVideoBody({
           model: input.model,
-          content,
-          ...(typeof input.duration === "number" ? { duration: input.duration } : {}),
+          prompt: input.prompt,
+          duration: input.duration,
           ratio: input.aspectRatio || "adaptive",
-          generate_audio: input.generateAudio !== false,
+          generateAudio: typeof input.generateAudio === "boolean" ? input.generateAudio : undefined,
           watermark: false,
-        },
+          imageUrl: input.imageUrl,
+          lastFrameUrl: input.lastFrameUrl,
+          imageUrls: input.imageUrls,
+          resolution: input.resolution,
+        }),
         timeoutMs: 60_000,
       });
       const id = String(data.id || "").trim();
@@ -62,40 +66,33 @@ export const arkPlanAdapter: StudioAdapter = {
   async pollVideo(ctx, taskId) {
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
-      path: `/contents/generations/tasks/${encodeURIComponent(taskId)}`,
+      path: studioEndpoint(ctx.provider.endpoints, "videosPoll", "/contents/generations/tasks/{id}", taskId),
       method: "GET",
       timeoutMs: 30_000,
     });
-    const status = String(data.status || "").toLowerCase();
-    const content = data.content && typeof data.content === "object" ? (data.content as Record<string, unknown>) : undefined;
-    const url = String(content?.video_url || data.video_url || data.url || "").trim();
-    if (["succeeded", "success", "completed", "done"].includes(status)) {
-      return url ? { status: "completed", url } : { status: "failed", error: "视频已完成但没有返回地址" };
-    }
-    if (["failed", "expired", "cancelled", "canceled"].includes(status)) {
-      const err = data.error && typeof data.error === "object" ? (data.error as { message?: string }).message : "";
-      return { status: "failed", error: String(err || data.message || status) };
-    }
-    if (url) return { status: "completed", url };
-    return { status: "pending" };
+    return readArkVideoPoll(data);
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Agent Plan API Key" };
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 API Key" };
     const host = String(ctx.provider.baseUrl || "");
-    if (!host.includes("/api/plan/v3")) {
-      return { ok: false, message: "Agent Plan 必须使用 https://ark.cn-beijing.volces.com/api/plan/v3 ，不是 /api/v3" };
+    const agentPlan = isAgentPlanHost(host);
+    if (!agentPlan && !host.includes("/api/v3")) {
+      return { ok: false, message: "火山方舟请使用 /api/plan/v3（Agent Plan）或 /api/v3（标准 Ark）" };
     }
+    const probeModel = agentPlan ? "doubao-seedream-5.0-lite" : "doubao-seedream-5-0-lite-260128";
     try {
       await studioProxyJson({
         provider: ctx.provider,
         path: ctx.provider.endpoints?.images || "/images/generations",
-        body: { model: "doubao-seedream-5.0-lite", prompt: "probe", size: "2K", watermark: false },
+        body: { model: probeModel, prompt: "probe", size: "2K", watermark: false },
         timeoutMs: 20_000,
       });
-      return { ok: true, message: "生图端点 /images/generations 可用（Agent Plan）" };
+      return { ok: true, message: agentPlan ? "生图端点 /images/generations 可用（Agent Plan）" : "生图端点 /images/generations 可用（标准 Ark）" };
     } catch (err) {
       const message = err instanceof Error ? err.message : "失败";
-      if (/404/i.test(message)) return { ok: false, message: `Agent Plan 生图 404。确认 Base URL 是 /api/plan/v3。${message}` };
+      if (/404/i.test(message)) {
+        return { ok: false, message: agentPlan ? `Agent Plan 生图 404。确认 Base URL 是 /api/plan/v3。${message}` : `标准 Ark 生图 404。确认 Base URL 是 /api/v3。${message}` };
+      }
       if (/401|invalid|unauthorized|model|quota|param/i.test(message)) {
         return { ok: true, message: `生图端点在，厂商返回：${message.slice(0, 160)}` };
       }

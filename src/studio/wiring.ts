@@ -19,35 +19,19 @@ const CIVITAI_IMAGE = [
 const CIVITAI_VIDEO = ["ltx2.3", "hunyuan"];
 
 /**
- * Read a provider key from Vite env or process.env.
- * Never commit real keys. Users can also paste keys on /settings.
+ * Shared wiring is imported by browser code. Keep provider credentials out of
+ * this module; users can enter keys in settings and persist them via relay-vault.
  */
-function readEnvKey(...names: string[]): string {
-  for (const name of names) {
-    try {
-      const vite = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[name];
-      if (typeof vite === "string" && vite.trim()) return vite.trim();
-    } catch {
-      /* import.meta.env is unavailable in some test runners */
-    }
-    if (typeof process !== "undefined" && process.env) {
-      const node = process.env[name];
-      if (typeof node === "string" && node.trim()) return node.trim();
-    }
-  }
-  return "";
-}
-
-const SUPERXIHE_IMAGE_KEY = readEnvKey("VITE_SUPERXIHE_IMAGE_KEY", "STUDIO_SUPERXIHE_IMAGE_KEY");
-const SUPERXIHE_GROK_KEY = readEnvKey("VITE_SUPERXIHE_GROK_KEY", "STUDIO_SUPERXIHE_GROK_KEY");
-const VOLCENGINE_ARK_KEY = readEnvKey("VITE_VOLCENGINE_ARK_KEY", "STUDIO_VOLCENGINE_ARK_KEY");
-const CIVITAI_TOKEN = readEnvKey("VITE_CIVITAI_TOKEN", "STUDIO_CIVITAI_TOKEN");
-const MODELSCOPE_TOKEN = readEnvKey("VITE_MODELSCOPE_TOKEN", "STUDIO_MODELSCOPE_TOKEN");
-const HUGGINGFACE_TOKEN = readEnvKey("VITE_HUGGINGFACE_TOKEN", "STUDIO_HUGGINGFACE_TOKEN", "HF_TOKEN");
-const GROK_RELAY_KEY = readEnvKey("VITE_GROK_RELAY_KEY", "STUDIO_GROK_RELAY_KEY");
-const HANSYAI_KEY = readEnvKey("VITE_HANSYAI_KEY", "STUDIO_HANSYAI_KEY");
-const AGNES_KEY = readEnvKey("VITE_AGNES_KEY", "STUDIO_AGNES_KEY");
-const SENSENOVA_KEY = readEnvKey("VITE_SENSENOVA_KEY", "STUDIO_SENSENOVA_KEY");
+const SUPERXIHE_IMAGE_KEY = "";
+const SUPERXIHE_GROK_KEY = "";
+const VOLCENGINE_ARK_KEY = "";
+const CIVITAI_TOKEN = "";
+const MODELSCOPE_TOKEN = "";
+const HUGGINGFACE_TOKEN = "";
+const GROK_RELAY_KEY = "";
+const HANSYAI_KEY = "";
+const AGNES_KEY = "";
+const SENSENOVA_KEY = "";
 
 const GROK_VIDEO_PROFILES = {
   "grok-imagine-video": "xai-imagine-video" as const,
@@ -62,8 +46,9 @@ const GROK_IMAGE_PROFILES = {
 };
 
 /**
- * Single wiring table. Add a provider here and it appears in 接线 / catalog / generation.
- * Keys come from env or the settings page. Templates stay so nothing was deleted.
+ * Single wiring table. Add a provider here and it appears in 接线 / catalog;
+ * only its declared runnable capabilities enter generation.
+ * Credentials are supplied by settings/relay-vault. Templates stay so nothing was deleted.
  */
 export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
   {
@@ -103,7 +88,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["text", "image", "video"],
-    remark: "官方 api.x.ai。Key 由服务端注入，不进浏览器。",
+    remark: "官方 api.x.ai。视频 I2V 只发 image.url，R2V 只发 reference_images，二者互斥；无静帧尾帧字段。",
     models: [
       "grok-4.6",
       "grok-4.5",
@@ -130,7 +115,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["image", "video"],
-    remark: "官方 api.openai.com。生图 gpt-image-2，视频 sora-2。填平台 Key 后启用。",
+    remark: "官方 api.openai.com。生图 /images/generations，改图 JSON images[]；视频 POST /videos 的 seconds/size/input_reference，完成后再 GET /videos/{id}/content。",
     models: ["gpt-image-2", "gpt-image-1.5", "sora-2", "sora-2-pro"],
     textModels: [],
     imageModels: ["gpt-image-2", "gpt-image-1.5"],
@@ -277,7 +262,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     imageModels: CIVITAI_IMAGE,
     videoModels: CIVITAI_VIDEO,
     audioModels: [],
-    endpoints: { images: "/workflows", videosCreate: "/workflows" },
+    endpoints: { images: "/workflows", videosCreate: "/workflows", videosPoll: "/workflows/{id}" },
   },
   {
     id: "preset-aliyun-dashscope",
@@ -287,7 +272,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["text", "image", "video"],
-    remark: "通义千问 / 万相。生图兼容 /images/generations，视频走 DashScope 原生异步。",
+    remark: "通义千问 / 万相。Qwen 与 Wan 2.6/2.7 生图走 DashScope 原生 multimodal-generation，不支持 compatible-mode /images/generations。视频走 video-synthesis 异步。",
     models: [
       "qwen-plus",
       "qwen-max",
@@ -302,12 +287,18 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
       "wan2.7-t2v",
       "wan2.7-i2v",
       "happyhorse-1.1-t2v",
+      "happyhorse-1.1-r2v",
     ],
     textModels: ["qwen-plus", "qwen-max"],
     imageModels: ["qwen-image-2.0-pro", "qwen-image-plus", "wan2.6-t2i", "wan2.7-image"],
-    videoModels: ["wan3.0-video", "wan3.0-video-prime", "wan2.6-t2v", "wan2.6-i2v", "wan2.7-t2v", "wan2.7-i2v", "happyhorse-1.1-t2v"],
+    videoModels: ["wan3.0-video", "wan3.0-video-prime", "wan2.6-t2v", "wan2.6-i2v", "wan2.7-t2v", "wan2.7-i2v", "happyhorse-1.1-t2v", "happyhorse-1.1-r2v"],
     audioModels: [],
-    endpoints: { chat: "/chat/completions", images: "/images/generations" },
+    endpoints: {
+      chat: "/chat/completions",
+      images: "/images/generations",
+      videosCreate: "/api/v1/services/aigc/video-generation/video-synthesis",
+      videosPoll: "/api/v1/tasks/{id}",
+    },
   },
   {
     id: "preset-aliyun-tokenplan",
@@ -317,13 +308,29 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["text", "image", "video", "audio"],
-    remark: "阿里云 Token Plan 套餐端点。",
-    models: ["qwen-image-2.0-pro", "wan2.7-image", "happyhorse-1.1-t2v", "qwen-audio-3.0-tts-plus"],
+    remark: "官方 Token Plan 仅限 Claude Code/Codex 等交互式工具，Key 必须与 Token Plan Base URL 同方案；图像/视频/音频走 DashScope 原生端点。qwen-audio-3.0-tts-plus 使用官方 SpeechSynthesizer TTS。",
+    models: [
+      "qwen-image-2.0-pro",
+      "qwen-image-2.0",
+      "wan2.7-image",
+      "wan2.7-image-pro",
+      "happyhorse-1.1-t2v",
+      "happyhorse-1.0-t2v",
+      "happyhorse-1.1-i2v",
+      "happyhorse-1.1-r2v",
+      "qwen-audio-3.0-tts-plus",
+    ],
     textModels: [],
-    imageModels: ["qwen-image-2.0-pro", "wan2.7-image"],
-    videoModels: ["happyhorse-1.1-t2v"],
+    imageModels: ["qwen-image-2.0-pro", "qwen-image-2.0", "wan2.7-image-pro", "wan2.7-image"],
+    videoModels: ["happyhorse-1.1-t2v", "happyhorse-1.0-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"],
     audioModels: ["qwen-audio-3.0-tts-plus"],
-    endpoints: { images: "/images/generations" },
+    endpoints: {
+      chat: "/chat/completions",
+      images: "/api/v1/services/aigc/multimodal-generation/generation",
+      videosCreate: "/api/v1/services/aigc/video-generation/video-synthesis",
+      videosPoll: "/api/v1/tasks/{id}",
+      audio: "/api/v1/services/audio/tts/SpeechSynthesizer",
+    },
   },
   {
     id: "preset-volcengine-ark",
@@ -339,7 +346,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     imageModels: ["doubao-seedream-5-0-lite-260128"],
     videoModels: ["doubao-seedance-2-0-260128"],
     audioModels: [],
-    endpoints: { images: "/images/generations", videosCreate: "/contents/generations/tasks" },
+    endpoints: { images: "/images/generations", videosCreate: "/contents/generations/tasks", videosPoll: "/contents/generations/tasks/{id}" },
   },
   {
     id: "preset-agnes-ai",
@@ -375,7 +382,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
       "agnes-video-2.5": "agnes-video-v2",
       "agnes-video-v2.0": "agnes-video-v2",
     },
-    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos", videosPoll: "/videos/{id}" },
+    endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos", videosPoll: "/agnesapi?video_id={id}" },
   },
   {
     id: "preset-sensenova",
@@ -412,8 +419,9 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["image", "video"],
+    runnableCapabilities: ["image"],
     nsfw: true,
-    remark: "Flux 2、Nano Banana、可灵、海螺、Veo。Authorization: Key。填 Fal Key 后启用。",
+    remark: "Fal.ai 图片模型。Authorization: Key。视频模型入口保留，但当前 fal adapter 仅实现生图，视频创建/轮询尚未接线，标记为未接线。",
     models: [
       "flux-2-pro",
       "flux-2-flex",
@@ -438,13 +446,14 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
   },
   {
     id: "preset-kling",
-    name: "可灵 Kling",
+    name: "可灵 Kling（未接线）",
     adapter: "openai-compat",
     baseUrl: "https://api-singapore.klingai.com/v1",
     apiKey: "",
     enabled: false,
     capabilities: ["video"],
-    remark: "快手可灵官方国际站。填开发者 Key。国内站需改域名。",
+    runnableCapabilities: [],
+    remark: "可灵视频模型入口保留，但当前没有专用 Kling adapter；未接线，不按 OpenAI 兼容协议发送。",
     models: ["kling-v3", "kling-v3-omni"],
     textModels: [],
     imageModels: [],
@@ -454,13 +463,14 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
   },
   {
     id: "preset-minimax",
-    name: "MiniMax 海螺",
+    name: "MiniMax 海螺（未接线）",
     adapter: "openai-compat",
     baseUrl: "https://api.minimax.io/v1",
     apiKey: "",
     enabled: false,
     capabilities: ["video"],
-    remark: "海螺 Hailuo / H3。填 MiniMax Key。也可走上面的 Fal 聚合。",
+    runnableCapabilities: [],
+    remark: "MiniMax 海螺视频模型入口保留，但当前没有专用 MiniMax adapter；未接线，不按 OpenAI 兼容协议发送。",
     models: ["MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02"],
     textModels: [],
     imageModels: [],
@@ -476,7 +486,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: "",
     enabled: false,
     capabilities: ["text", "image", "video"],
-    remark: "自己的中转。按官方 Images / Chat / Videos 字段接线。",
+    remark: "OpenAI 兼容中转。默认走兼容体，不会把猜测字段当成官方 Sora；官方 api.openai.com 才用 seconds/size/input_reference。",
     models: [],
     textModels: [],
     imageModels: [],
@@ -487,9 +497,9 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
 ];
 
 export const STUDIO_ROUTES: StudioRouteMap = {
-  text: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-4.6" },
-  image: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-imagine-image" },
-  video: { providerId: GROK_RELAY_KEY ? "preset-grok-relay" : "preset-xai-official", model: "grok-imagine-video" },
+  text: { providerId: "preset-grok-relay", model: "grok-4.6" },
+  image: { providerId: "preset-grok-relay", model: "grok-imagine-image" },
+  video: { providerId: "preset-grok-relay", model: "grok-imagine-video" },
   audio: { providerId: "preset-aliyun-tokenplan", model: "qwen-audio-3.0-tts-plus" },
 };
 
@@ -503,9 +513,11 @@ export function studioRelays(): ApiRelayProvider[] {
         baseUrl: item.baseUrl,
         apiKey: item.apiKey,
         adapterType: item.adapter,
-        protocol: item.adapter,
+        protocol: item.id === "preset-openai" ? "openai-official" : item.adapter,
+        authScheme: item.adapter === "fal" ? "Key" : undefined,
         enabled: item.enabled,
         capabilities: item.capabilities,
+        runnableCapabilities: item.runnableCapabilities,
         remark: item.remark,
         allowMatureContent: item.nsfw === true || item.adapter === "civitai" || item.adapter === "fal",
         models: item.models || [],

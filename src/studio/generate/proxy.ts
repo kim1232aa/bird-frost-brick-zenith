@@ -1,5 +1,5 @@
-import type { ApiRelayProvider } from "@/stores/api-relay-config";
-import { rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { providerHasUsableCredential, type ApiRelayProvider } from "../../stores/api-relay-config.ts";
+import { sniffMedia } from "../adapters/contracts.ts";
 import { decompress as zstdDecompress } from "fzstd";
 
 async function inflateIfNeeded(buffer: ArrayBuffer) {
@@ -23,6 +23,82 @@ async function inflateIfNeeded(buffer: ArrayBuffer) {
   return buffer;
 }
 
+function mediaSubtype(contentType: string) {
+  return String(contentType || "")
+    .split(";")[0]!
+    .trim()
+    .toLowerCase();
+}
+
+function looksLikeJsonBytes(bytes: Uint8Array) {
+  let i = 0;
+  while (i < bytes.length && bytes[i]! <= 32) i += 1;
+  const start = bytes[i];
+  return start === 0x7b || start === 0x5b || start === 0x22;
+}
+
+function isMediaMime(value: string) {
+  return value.startsWith("audio/") || value.startsWith("video/") || value.startsWith("image/");
+}
+
+function classifiedMediaType(contentType: string, bytes: Uint8Array, sniff: (bytes: Uint8Array) => string) {
+  const sniffed = String(sniff(bytes) || "").trim().toLowerCase();
+  if (isMediaMime(sniffed)) return sniffed;
+  const type = mediaSubtype(contentType);
+  if (type.startsWith("audio/") || type.startsWith("video/")) return type;
+  return "";
+}
+
+function wrapStudioMedia<T>(mime: string, url: string): T {
+  if (mime.startsWith("video/")) return { url, status: "done", video: { url } } as T;
+  return { url } as T;
+}
+
+function unrecognizedStudioProxyBody(status: number, contentType: string, trimmed: string, looksJson: boolean) {
+  const type = mediaSubtype(contentType) || "unknown";
+  if (looksJson) {
+    return `HTTP ${status} 返回的 JSON 无法解析（content-type: ${type}）。${trimmed.slice(0, 200)}`;
+  }
+  const preview = trimmed.slice(0, 200);
+  const hint = preview ? `：${preview}` : "";
+  return `HTTP ${status} 成功响应不是 JSON，也不是可识别的音频/视频/图片（content-type: ${type}）${hint}`;
+}
+
+export function parseStudioProxyBody<T = unknown>(input: {
+  ok: boolean;
+  status: number;
+  contentType: string;
+  bytes: Uint8Array;
+  sniffMedia: (bytes: Uint8Array) => string;
+  createObjectUrl: (blob: Blob) => string;
+}): T {
+  const bytes = input.bytes;
+  const looksJson = looksLikeJsonBytes(bytes);
+  const mime = looksJson ? "" : classifiedMediaType(input.contentType, bytes, input.sniffMedia);
+  if (input.ok && mime && bytes.length > 32) {
+    const url = input.createObjectUrl(new Blob([bytes.slice()], { type: mime }));
+    return wrapStudioMedia<T>(mime, url);
+  }
+  const raw = new TextDecoder("utf-8").decode(bytes);
+  const trimmed = raw.trim();
+  let data = {} as T & { error?: { message?: string; code?: string } | string; message?: string };
+  try {
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith('"')) {
+      throw new Error("not-json");
+    }
+    data = JSON.parse(trimmed) as typeof data;
+  } catch {
+    if (input.ok) {
+      throw new Error(unrecognizedStudioProxyBody(input.status, input.contentType, trimmed, looksJson));
+    }
+    throw new Error(upstreamErrorText(input.status, trimmed));
+  }
+  if (!input.ok) {
+    throw new Error(upstreamErrorText(input.status, trimmed));
+  }
+  return data;
+}
+
 export async function studioProxyJson<T = unknown>(input: {
   provider: Pick<ApiRelayProvider, "baseUrl" | "apiKey" | "apiKeys"> & { id?: string };
   path: string;
@@ -31,9 +107,11 @@ export async function studioProxyJson<T = unknown>(input: {
   timeoutMs?: number;
   authScheme?: "Bearer" | "Key" | "x-api-key";
   baseUrl?: string;
+  accept?: string;
   extraHeaders?: Record<string, string>;
 }): Promise<T> {
   const path = input.path.startsWith("/") ? input.path : `/${input.path}`;
+  const { rotateRelayApiKey } = await import("../../services/api/relay-proxy.ts");
   const apiKey = rotateRelayApiKey(input.provider as ApiRelayProvider) || input.provider.apiKey;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), input.timeoutMs || 120_000);
@@ -53,7 +131,7 @@ export async function studioProxyJson<T = unknown>(input: {
       method,
       headers: {
         ...(method === "GET" || method === "DELETE" ? {} : { "Content-Type": "application/json" }),
-        Accept: "application/json",
+        Accept: input.accept || "application/json",
         ...(scheme === "x-api-key"
           ? { "x-api-key": apiKey || "" }
           : { Authorization: apiKey ? `${scheme} ${apiKey}` : "" }),
@@ -67,43 +145,14 @@ export async function studioProxyJson<T = unknown>(input: {
       signal: controller.signal,
     });
     const buffer = await inflateIfNeeded(await response.arrayBuffer());
-    const bytes = new Uint8Array(buffer);
-    let i = 0;
-    while (i < bytes.length && bytes[i] <= 32) i += 1;
-    const start = bytes[i];
-    const looksJson = start === 0x7b || start === 0x5b || start === 0x22;
-    const contentType = response.headers.get("content-type") || "";
-    const sniffed = sniffMedia(bytes);
-    if (response.ok && !looksJson && bytes.length > 32 && sniffed) {
-      const blob = new Blob([bytes.slice()], { type: sniffed });
-      const url = URL.createObjectURL(blob);
-      return { url, status: "done", video: sniffed.startsWith("video/") ? { url } : undefined } as T;
-    }
-    if (response.ok && !looksJson && bytes.length > 256) {
-      const blob = new Blob([bytes.slice()], { type: contentType.includes("video") ? contentType : "video/mp4" });
-      const url = URL.createObjectURL(blob);
-      return { url, status: "done", video: { url } } as T;
-    }
-    const raw = new TextDecoder("utf-8").decode(buffer);
-    const trimmed = raw.trim();
-    let data = {} as T & { error?: { message?: string; code?: string } | string; message?: string };
-    try {
-      if (!trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith('"')) {
-        throw new Error("not-json");
-      }
-      data = JSON.parse(trimmed) as typeof data;
-    } catch {
-      if (response.ok && bytes.length > 256) {
-        const blob = new Blob([bytes.slice()], { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-        return { url, status: "done", video: { url } } as T;
-      }
-      throw new Error(upstreamErrorText(response.status, trimmed));
-    }
-    if (!response.ok) {
-      throw new Error(upstreamErrorText(response.status, trimmed));
-    }
-    return data;
+    return parseStudioProxyBody<T>({
+      ok: response.ok,
+      status: response.status,
+      contentType: response.headers.get("content-type") || "",
+      bytes: new Uint8Array(buffer),
+      sniffMedia,
+      createObjectUrl: (blob) => URL.createObjectURL(blob),
+    });
   } catch (err) {
     if (err instanceof Error && (err.name === "AbortError" || /aborted/i.test(err.message))) {
       throw new Error("请求超时或被中断，请再试一次。");
@@ -115,7 +164,7 @@ export async function studioProxyJson<T = unknown>(input: {
 }
 
 export function providerById(id: string, relays: ApiRelayProvider[]) {
-  const found = relays.find((item) => item.id === id && (item.enabled || Boolean(item.apiKey)));
+  const found = relays.find((item) => item.id === id && (item.enabled || providerHasUsableCredential(item)));
   if (!found) throw new Error(`没有启用的中转：${id}。到接线页填密钥并打开开关。`);
   return found;
 }
@@ -131,15 +180,6 @@ function upstreamErrorText(status: number, raw: string) {
     }
   }
   return text.slice(0, 2000);
-}
-
-function sniffMedia(bytes: Uint8Array): string {
-  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
-  if (bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
-  if (bytes.length >= 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) return "video/mp4";
-  return "";
 }
 
 function pushUrl(out: string[], value: unknown) {

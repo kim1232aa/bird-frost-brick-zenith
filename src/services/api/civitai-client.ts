@@ -224,6 +224,7 @@ export async function createCivitaiWorkflow(route: LocalApiRequestRoute, workflo
 export async function pollCivitaiWorkflow(route: LocalApiRequestRoute, workflowId: string, apiKey: string, timeoutMs = route.timeoutMs) {
     const response = await axios.get<unknown>(routedLocalApiUrl(route, `/workflows/${encodeURIComponent(workflowId)}`), {
         headers: buildLocalRelayProxyHeaders(route.provider, undefined, apiKey),
+        params: { hideMatureContent: !civitaiAllowsMatureContent(route.provider) },
         timeout: timeoutMs,
     });
     return readCivitaiWorkflowState(response.data);

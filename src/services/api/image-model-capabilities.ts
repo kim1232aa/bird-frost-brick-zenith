@@ -156,6 +156,7 @@ export type ImageSerializationPolicy = {
         | "image[]-json"
         | "images[]"
         | "images[].url"
+        | "imageStyleReferences[]"
         | "messages[].content[].image_url"
         | "input[].content[].input_image"
         | "img_url"
@@ -1482,6 +1483,12 @@ function resolveCivitai(
     const engine = String(parameters.engine || "").toLowerCase();
     const declaredOperation = String(parameters.operation || operationFromServiceId(id)).toLowerCase();
     const optionalImages = engine === "seedream" || engine === "google" || engine === "flux1-kontext" || service?.modalities?.input?.includes("image");
+    if (isCivitaiFalKrea2Service(service) && declaredOperation === "createimage") {
+        if (operation !== "generate") {
+            return unsupportedResolved(operation, model, provider, "Civitai Krea FAL createImage 不是 edit 合同；风格参考走 imageStyleReferences，不会改成 Comfy editImage");
+        }
+        return resolvedCivitaiServiceProfile("civitai-generic-generate", model, provider, service, "Civitai Krea FAL createImage service");
+    }
     if ((id.includes("/zimage/") || engine === "zimage") && declaredOperation === "createimage") {
         return operation === "generate"
             ? resolvedProfile("civitai-z-image-generate", model, provider, false, "Civitai Z-Image service discriminator")
@@ -2130,10 +2137,14 @@ function resolvedCivitaiServiceProfile(
     if ((id.includes("/comfy/anima/") || id.includes("/comfy/krea2/") || id.includes("/sdcpp/anima/")) && base.operation === "generate") {
         outputCount = nativeBatch(1, 12);
     }
-    if (id.includes("/fal/krea2/") && base.operation === "generate") outputCount = nativeBatch(1, 10);
+    if (id.includes("/fal/krea2/") && base.operation === "generate") {
+        outputCount = nativeBatch(1, 10);
+        referenceCount = references(0, 10, "Krea FAL imageStyleReferences maxItems=10");
+        referenceField = "imageStyleReferences[]";
+    }
     if (id.includes("/comfy/krea2/") && base.operation === "edit") {
         outputCount = nativeBatch(1, 12);
-        referenceCount = references(1, null, "Civitai Comfy krea2 editImage requires images[]; live schema does not publish maxItems");
+        referenceCount = references(1, 2, "Civitai Comfy krea2 editImage accepts 1-2 images");
         referenceField = "images[]";
     }
     if (id.includes("boogu") && base.operation === "edit") {
@@ -2284,7 +2295,14 @@ function overlayCivitaiLoraAdvancedFields(
     if (engine === "wan" || (engine === "flux2" && serviceId.includes("/flux2/dev"))) {
         return {
             ...base,
-            loras: { state: "unsupported", reason: "需要 array {air,strength}，当前不会改成 map 乱发" },
+            loras: {
+                state: "supported",
+                kind: "number-map",
+                wireName: "loras",
+                min: 0,
+                max: 4,
+                note: "Live ImageGenInputLora array {air,strength}; UI keeps an AIR→strength map and the serializer emits the official array",
+            },
         };
     }
     if (engine === "fal" || engine === "google" || engine === "gemini" || engine === "grok" || engine === "openai" || engine === "seedream" || engine === "flux1-kontext" || serviceId.includes("/flux2/pro")) {
@@ -2311,9 +2329,27 @@ const VERIFIED_CIVITAI_IMAGE_ENGINES = new Set([
     "wan",
 ]);
 
+export function isCivitaiFalKrea2Service(service?: Pick<ImageCapabilityService, "id" | "parameters">) {
+    const id = String(service?.id || "").toLowerCase();
+    const engine = String(service?.parameters?.engine || "").toLowerCase();
+    const model = String(service?.parameters?.model || "").toLowerCase();
+    return engine === "fal" && (model === "krea2" || id.includes("/fal/krea2/"));
+}
+
+function isVerifiedCivitaiFalModel(service: ImageCapabilityService) {
+    const id = String(service.id || "").toLowerCase();
+    const model = String(service.parameters?.model || "").toLowerCase();
+    return model === "krea2" || id.includes("/krea2/")
+        || model === "qwen2" || id.includes("/qwen2/")
+        || model === "maiimage" || model === "mai-image" || id.includes("/mai")
+        || model === "reve" || id.includes("/reve");
+}
+
 function isVerifiedCivitaiImageService(service: ImageCapabilityService | undefined) {
     const engine = String(service?.parameters?.engine || "").trim().toLowerCase();
-    return service?.step === "imageGen" && VERIFIED_CIVITAI_IMAGE_ENGINES.has(engine);
+    if (!service?.step || service.step !== "imageGen" || !VERIFIED_CIVITAI_IMAGE_ENGINES.has(engine)) return false;
+    if (engine === "fal") return isVerifiedCivitaiFalModel(service);
+    return true;
 }
 
 function validateOutputCount(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { providerHasUsableCredential } from "@/stores/api-relay-config";
 import { catalogKey } from "@/studio/catalog";
 import { liveCard, liveCatalog, useOpsStore } from "@/studio/ops";
 import { SettingsPage } from "@/pages/settings-page";
@@ -31,7 +32,7 @@ function AdminDesk() {
         <dl className="admin-stats">
           <div>
             <dt>已启用接线</dt>
-            <dd>{relays.filter((item) => item.enabled && item.apiKey).length}</dd>
+            <dd>{relays.filter((item) => item.enabled && providerHasUsableCredential(item)).length}</dd>
           </div>
           <div>
             <dt>图额度</dt>

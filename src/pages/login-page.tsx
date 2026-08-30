@@ -2,14 +2,13 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { DEMO_ADMIN, useAccountStore } from "@/studio/account";
+import { useAccountStore } from "@/studio/account";
 
 function AuthForm({ mode }: { mode: "login" | "register" }) {
   const navigate = useNavigate();
   const login = useAccountStore((state) => state.login);
   const register = useAccountStore((state) => state.register);
   const continueAsGuest = useAccountStore((state) => state.continueAsGuest);
-  const loginDemoAdmin = useAccountStore((state) => state.loginDemoAdmin);
   const session = useAccountStore((state) => state.session);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -52,21 +51,21 @@ function AuthForm({ mode }: { mode: "login" | "register" }) {
         <p className="studio-kicker">{isRegister ? "REGISTER" : "LOGIN"}</p>
         <h1>{isRegister ? "注册普通账号" : "登录创作台"}</h1>
         <p className="studio-lead">
-          未登录不能进运营后台和接线。普通用户可以生图、生视频。预览已预置管理员，方便你测后台。
+          接线可在设置页填自己的 Key。运营后台仍需管理员。普通用户可以生图、生视频。管理员账号请自行登录，页面不会展示口令。
         </p>
       </header>
       <ol className="acct-steps">
         <li>
           <b>1</b>
-          <span>管理员进后台改接线</span>
+          <span>去设置填自己的 Key</span>
         </li>
         <li>
           <b>2</b>
-          <span>普通用户 / 访客只创作</span>
+          <span>登录或访客后创作</span>
         </li>
         <li>
           <b>3</b>
-          <span>退出后不会自动再登管理员</span>
+          <span>运营后台仍需管理员</span>
         </li>
       </ol>
       <div className="acct-grid">
@@ -83,7 +82,7 @@ function AuthForm({ mode }: { mode: "login" | "register" }) {
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               autoComplete="username"
-              placeholder={isRegister ? "至少 3 个字符，不能用 admin" : "admin 或你的用户名"}
+              placeholder={isRegister ? "至少 3 个字符" : "你的用户名"}
               required
             />
           </label>
@@ -132,56 +131,34 @@ function AuthForm({ mode }: { mode: "login" | "register" }) {
                 void navigate({ to: "/image" });
               }}
             >
-              以访客继续（不能进后台）
+              以访客继续（不能进运营后台）
             </button>
           </div>
           <p className="studio-footnote">密码经浏览器哈希后存在本机。换设备或清缓存需要重新登录。</p>
         </form>
         <aside className="acct-card">
-          <p className="studio-kicker">DEMO ADMIN</p>
-          <h2>测试管理员</h2>
-          <p className="studio-hint">预览打开时会自动登录管理员，方便你测接线。自己退出后停留在未登录。</p>
-          <dl className="acct-demo">
-            <div>
-              <dt>用户名</dt>
-              <dd>{DEMO_ADMIN.username}</dd>
-            </div>
-            <div>
-              <dt>密码</dt>
-              <dd>{DEMO_ADMIN.password}</dd>
-            </div>
-          </dl>
-          <button
-            type="button"
-            className="studio-primary"
-            disabled={busy}
-            onClick={() => {
-              setBusy(true);
-              void loginDemoAdmin()
-                .then(() => void navigate({ to: "/admin" }))
-                .catch((err) => setError(err instanceof Error ? err.message : "登录失败"))
-                .finally(() => setBusy(false));
-            }}
-          >
-            一键登录管理员并进后台
-          </button>
+          <p className="studio-kicker">ROLES</p>
+          <h2>权限说明</h2>
+          <p className="studio-hint">登录后按角色进入对应功能。接线可填自己的 Key；运营后台需要管理员会话，不要把演示口令写在页面上。</p>
           <ul className="acct-faq">
             <li>
               未登录
-              <span>可以看生图 / 生视频页面，但不能生成，也不能进后台。</span>
+              <span>
+                可以看生图 / 生视频，也能去 <Link to="/settings">设置</Link> 填自己的 Key。未登录不能生成，也不能进运营后台。
+              </span>
             </li>
             <li>
               访客
-              <span>能出图出片，用平台已接线的模型。不能改供应商、额度、上下架。</span>
+              <span>能出图出片，也可在设置页填自己的 Key。额度、上下架仍只有管理员能改。</span>
             </li>
             <li>
               普通账号
-              <span>记住显示名和方案。同样不能进运营后台。</span>
+              <span>记住显示名和方案，可自己接线。不能进运营后台。</span>
             </li>
             <li>
               管理员
               <span>
-                才能打开 <Link to="/admin">运营后台</Link> 和接线。
+                才能打开 <Link to="/admin">运营后台</Link>。接线所有人都能在设置页填写。
               </span>
             </li>
           </ul>

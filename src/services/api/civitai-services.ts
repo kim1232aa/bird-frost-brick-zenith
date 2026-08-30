@@ -102,7 +102,7 @@ const SERVICE_DEFINITIONS: readonly ServiceTuple[] = [
     ["video/sora/image-to-video", "videoGen", { operation: "image-to-video", engine: "sora" }, ["text", "image"], "degraded"],
     ["video/vidu-q3", "videoGen", { engine: "vidu-q3" }, ["text"], "degraded"],
     ["video/vidu", "videoGen", { engine: "vidu" }, ["text"], "degraded"],
-    ["video/wan/v2.1/civitai", "videoGen", { version: "v2.1", provider: "civitai", engine: "wan" }, ["text"], "degraded"],
+    ["video/wan/v2.1/civitai", "videoGen", { version: "v2.1", provider: "civitai", engine: "wan" }, ["text", "image"], "degraded"],
     ["video/wan/v2.2-5b/fal/image-to-video", "videoGen", { operation: "image-to-video", version: "v2.2-5b", provider: "fal", engine: "wan" }, ["text", "image"], "available"],
     ["video/wan/v2.2/fal/image-to-video", "videoGen", { operation: "image-to-video", version: "v2.2", provider: "fal", engine: "wan" }, ["text", "image"], "available"],
     ["video/wan/v2.5/fal/image-to-video", "videoGen", { operation: "image-to-video", version: "v2.5", provider: "fal", engine: "wan" }, ["text", "image"], "available"],

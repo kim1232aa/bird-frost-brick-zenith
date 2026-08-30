@@ -29,6 +29,7 @@ import { wiredStoryDirectorModels } from "../utils/story-director-wired-models";
 import { normalizeStoryImageQuality, storyDirectorQualityOptions, storyImageQualityPatch } from "../utils/story-image-quality";
 import { resolveStoryWorkflowImageOperation } from "../utils/canvas-image-operation";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
+import { canvasSelectOverlayProps } from "../utils/canvas-overlay-popup";
 
 type CanvasStoryDirectorPanelProps = {
     node: CanvasNodeData;
@@ -70,7 +71,6 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
       ? storyDirectorImageModelsProp
       : wiredStoryDirectorModels("image");
     const storyText = storyDirectorEditableText(node.metadata);
-    const canRun = Boolean(storyText.trim()) && storyText.trim() !== "在这里粘贴小说、章节或剧情梗概。\n\n建议包含：人物、场景、关键事件、对白、画风要求。";
     const storyStyle = node.metadata?.storyStyle || "电影感写实";
     const storyShotCount = node.metadata?.storyShotCount || 5;
     const storyAspectRatio = node.metadata?.storyAspectRatio || "16:9";
@@ -119,7 +119,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         })
         : null;
     const qualityOptions = storyDirectorQualityOptions(selectedImageCapability);
-    const getPopupContainer = useCallback(() => document.body, []);
+    const overlaySelectProps = canvasSelectOverlayProps();
     const closeSelect = useCallback(() => {
         setOpenSelect(null);
         window.setTimeout(() => {
@@ -131,9 +131,9 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         (key: StorySelectKey) => ({
             open: openSelect === key,
             onOpenChange: (open: boolean) => setOpenSelect(open ? key : null),
-            getPopupContainer,
+            ...overlaySelectProps,
         }),
-        [getPopupContainer, openSelect],
+        [openSelect, overlaySelectProps],
     );
 
     return (
@@ -212,7 +212,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
                     description="分析故事 → 角色图 → 5 张分镜 → 视频占位"
-                    disabled={!canRun || isAnalyzing || isGenerating}
+                    disabled={isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
                 <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
@@ -220,7 +220,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     icon={<FileText className="size-4" />}
                     title="分析故事"
                     description="只拆角色 / 场景 / 分镜，不生图"
-                    disabled={!canRun || isAnalyzing || isGenerating}
+                    disabled={isAnalyzing || isGenerating}
                     onClick={() => onAnalyzeStory(node)}
                 />
                 <DirectorAction
@@ -240,10 +240,10 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
-                <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
+                <Button className="!rounded-xl" disabled={isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
                     旁边加一块角色图设置
                 </Button>
-                <Button className="!rounded-xl" disabled={!canRun || isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
+                <Button className="!rounded-xl" disabled={isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
                     旁边加一块分镜图设置
                 </Button>
             </div>
@@ -471,11 +471,7 @@ function StoryDirectorTextModelSelect({
     title: string;
     placeholder?: string;
     fullWidth?: boolean;
-    selectProps: {
-        open: boolean;
-        onOpenChange: (open: boolean) => void;
-        getPopupContainer: (trigger: HTMLElement) => HTMLElement;
-    };
+    selectProps: Record<string, unknown>;
     onChange: (value: string) => void;
 }) {
     const selectOptions = groupStoryDirectorModelOptions(options);
@@ -490,7 +486,8 @@ function StoryDirectorTextModelSelect({
             optionLabelProp="label"
             notFoundContent={<span className="text-xs">没有可用模型。去「设置」启用中转并填密钥。</span>}
             popupMatchSelectWidth={false}
-            styles={{ popup: { root: { minWidth: 280 } } }}
+            listHeight={360}
+            styles={{ popup: { root: { minWidth: 280, zIndex: 4000 } } }}
             optionRender={(ori) => {
                 const data = ori.data as unknown as StoryDirectorTextModelOption | undefined;
                 if (!data?.value) return ori.label;

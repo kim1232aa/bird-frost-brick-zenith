@@ -1,7 +1,7 @@
 import { resolveCivitaiService, type CivitaiGenerationService } from "@/services/api/civitai-services";
 import { resolveCivitaiVideoMediaContract } from "@/services/api/civitai-video-media-contract";
-import { assertCivitaiLoraCompatibility, civitaiLoraUnsupportedMessage, parseCivitaiLoraAir } from "@/services/api/civitai-lora-resource";
-import { civitaiEngineAcceptsOptionalImages, civitaiPureTextToImageReferenceMessage } from "@/services/api/image-model-capabilities";
+import { assertCivitaiLoraCompatibility, civitaiLoraUnsupportedMessage, isCivitaiArrayLoraService, parseCivitaiLoraAir } from "@/services/api/civitai-lora-resource";
+import { civitaiEngineAcceptsOptionalImages, civitaiPureTextToImageReferenceMessage, isCivitaiFalKrea2Service } from "@/services/api/image-model-capabilities";
 import {
     VIDEO_GENERATION_PARAMETER_NAMES,
     resolveVideoModelCapability,
@@ -94,6 +94,8 @@ export type CivitaiImageWorkflowOptions = {
     readonly denoiseStrength?: number;
     readonly outputFormat?: "jpeg" | "png" | "webP" | "";
     readonly loras?: Readonly<Record<string, number>>;
+    /** Official FAL Krea2 style refs; never mixed with Comfy `images[]`. */
+    readonly imageStyleReferences?: readonly CivitaiImageStyleReference[];
     readonly checkpointAir?: string;
     readonly strength?: number;
     readonly vaeAir?: string;
@@ -132,6 +134,17 @@ type CivitaiSdCppSchedule = (typeof CIVITAI_SDCPP_SCHEDULES)[number];
 type CivitaiComfySampler = (typeof CIVITAI_COMFY_SAMPLERS)[number];
 type CivitaiComfyScheduler = (typeof CIVITAI_COMFY_SCHEDULERS)[number];
 
+export type CivitaiImageStyleReference = {
+    readonly imageUrl: string;
+    readonly strength?: number;
+};
+
+const CIVITAI_IMAGE_LORA_STRENGTH_MIN = 0;
+const CIVITAI_IMAGE_LORA_STRENGTH_MAX = 4;
+const CIVITAI_KREA_FAL_STYLE_REF_MAX = 10;
+const CIVITAI_KREA_FAL_STYLE_STRENGTH_MIN = -2;
+const CIVITAI_KREA_FAL_STYLE_STRENGTH_MAX = 2;
+
 export type CivitaiVideoWorkflowOptions = {
     readonly model: string;
     readonly service?: CivitaiGenerationService;
@@ -164,6 +177,7 @@ export function buildCivitaiImageWorkflow(options: CivitaiImageWorkflowOptions) 
     const images = requireCompleteMediaArray(options.images || [], `Civitai / ${service.id} 参考图片`);
     const operation = service.parameters.operation || "";
     const engine = service.parameters.engine.toLowerCase();
+    const kreaFal = isCivitaiFalKrea2Service(service);
     const acceptsOptionalImages = civitaiEngineAcceptsOptionalImages(engine);
     const requiresImage = (
         service.modalities.input.includes("image")
@@ -171,26 +185,28 @@ export function buildCivitaiImageWorkflow(options: CivitaiImageWorkflowOptions) 
         || operation === "proEditImage"
         || operation === "createVariant"
         || operation === "image-to-image"
-    ) && !acceptsOptionalImages;
+    ) && !acceptsOptionalImages && !kreaFal;
     if (requiresImage && !images.length) throw new Error(`Civitai / ${options.model} 需要参考图片，请连接图片后重试`);
-    if (images.length && !requiresImage && !acceptsOptionalImages) {
+    if (images.length && !requiresImage && !acceptsOptionalImages && !kreaFal) {
         throw new Error(`Civitai / ${options.model} ${civitaiPureTextToImageReferenceMessage(service.id || options.model)}`);
     }
     if (operation === "createVariant" && images.length !== 1) throw new Error(`Civitai / ${options.model} 仅接受 1 张变体源图`);
-    const imageInput = operation === "createVariant"
-        ? { image: requireCivitaiImageSource(images[0], service) }
-        : images.length
-          ? { images }
-          : {};
+    const imageInput = kreaFal
+        ? {}
+        : operation === "createVariant"
+          ? { image: requireCivitaiImageSource(images[0], service) }
+          : images.length
+            ? { images }
+            : {};
     const maskInput = buildCivitaiImageMaskInput(service, options.maskImage);
-    const advancedInput = buildCivitaiImageAdvancedInput(service, options);
+    const advancedInput = buildCivitaiImageAdvancedInput(service, options, images);
     return {
         allowMatureContent: options.allowMatureContent !== false,
         steps: [{
             $type: "imageGen",
             input: {
                 ...service.parameters,
-                ...(service.modalities.input.includes("text") || acceptsOptionalImages ? { prompt: options.prompt } : {}),
+                ...(service.modalities.input.includes("text") || acceptsOptionalImages || kreaFal ? { prompt: options.prompt } : {}),
                 ...buildCivitaiImageSettings(engine, service.parameters, options),
                 ...advancedInput,
                 ...imageInput,
@@ -223,13 +239,18 @@ function buildCivitaiImageMaskInput(service: CivitaiGenerationService, value: st
     return { maskImage };
 }
 
-function buildCivitaiImageAdvancedInput(service: CivitaiGenerationService, options: CivitaiImageWorkflowOptions) {
+function buildCivitaiImageAdvancedInput(
+    service: CivitaiGenerationService,
+    options: CivitaiImageWorkflowOptions,
+    images: readonly string[] = [],
+) {
     const provided = providedCivitaiImageAdvancedFields(options);
     const parameters = service.parameters;
     const isZImage = parameters.engine === "sdcpp" && parameters.ecosystem === "zImage";
     const isSdxlVariant = parameters.engine === "sdcpp"
         && parameters.ecosystem === "sdxl"
         && parameters.operation === "createVariant";
+    if (isCivitaiFalKrea2Service(service)) return buildCivitaiFalKrea2AdvancedInput(service, options, images);
     if (isSdxlVariant) return buildCivitaiSdxlVariantAdvancedInput(service, options);
     if (parameters.engine === "comfy") return buildCivitaiComfyAdvancedInput(service, options);
     if (parameters.engine === "sdcpp" && parameters.operation === "createVariant") {
@@ -244,6 +265,12 @@ function buildCivitaiImageAdvancedInput(service: CivitaiGenerationService, optio
         const loras = normalizeCivitaiLoras(options.loras, service);
         return loras ? { loras } : {};
     }
+    if (isCivitaiArrayLoraImageService(service)) {
+        const leftover = provided.filter((field) => field !== "loras");
+        if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；当前 service 没有已验证的 serializer`);
+        const loras = normalizeCivitaiLoraArray(options.loras, service);
+        return loras ? { loras } : {};
+    }
     if (provided.includes("loras")) throw new Error(civitaiLoraUnsupportedMessage(service.id));
     if (provided.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${provided.join("、")}；当前 service 没有已验证的 serializer`);
     return {};
@@ -251,6 +278,66 @@ function buildCivitaiImageAdvancedInput(service: CivitaiGenerationService, optio
 
 function isCivitaiFlux2KleinService(service: CivitaiGenerationService) {
     return service.parameters.engine.toLowerCase() === "flux2" && String(service.parameters.model || "").toLowerCase() === "klein";
+}
+
+function isCivitaiArrayLoraImageService(service: CivitaiGenerationService) {
+    return isCivitaiArrayLoraService(service.id)
+        || (service.parameters.engine.toLowerCase() === "flux2" && String(service.parameters.model || "").toLowerCase() === "dev")
+        || service.parameters.engine.toLowerCase() === "wan";
+}
+
+function buildCivitaiFalKrea2AdvancedInput(
+    service: CivitaiGenerationService,
+    options: CivitaiImageWorkflowOptions,
+    images: readonly string[],
+) {
+    const leftover = providedCivitaiImageAdvancedFields(options).filter((field) => field !== "seed" && field !== "imageStyleReferences");
+    if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；Krea FAL 合同只有 seed / imageStyleReferences`);
+    if (options.seed !== undefined && !Number.isSafeInteger(options.seed)) {
+        throw new Error(`Civitai / ${service.id} 的 seed 必须是 JavaScript 可精确表示的安全整数`);
+    }
+    return {
+        ...(options.seed !== undefined ? { seed: options.seed } : {}),
+        imageStyleReferences: normalizeCivitaiKreaFalStyleReferences(service, options, images),
+    };
+}
+
+function normalizeCivitaiKreaFalStyleReferences(
+    service: CivitaiGenerationService,
+    options: CivitaiImageWorkflowOptions,
+    images: readonly string[],
+) {
+    const explicit = options.imageStyleReferences;
+    if (explicit && images.length) {
+        throw new Error(`Civitai / ${service.id} 不能同时发送 images[] 和 imageStyleReferences；FAL Krea 只用 imageStyleReferences`);
+    }
+    const refs = explicit
+        ? explicit.map((entry, index) => normalizeCivitaiKreaFalStyleReference(service, entry, index))
+        : images.map((imageUrl, index) => normalizeCivitaiKreaFalStyleReference(service, { imageUrl }, index));
+    if (refs.length > CIVITAI_KREA_FAL_STYLE_REF_MAX) {
+        throw new Error(`Civitai / ${service.id} 的 imageStyleReferences 最多 ${CIVITAI_KREA_FAL_STYLE_REF_MAX} 项`);
+    }
+    return refs;
+}
+
+function normalizeCivitaiKreaFalStyleReference(
+    service: CivitaiGenerationService,
+    entry: CivitaiImageStyleReference | undefined,
+    index: number,
+) {
+    if (!entry || typeof entry !== "object") {
+        throw new Error(`Civitai / ${service.id} 的 imageStyleReferences[${index}] 必须是 {imageUrl, strength?} 对象`);
+    }
+    const imageUrl = nonEmptyString(entry.imageUrl);
+    if (!imageUrl) throw new Error(`Civitai / ${service.id} 的 imageStyleReferences[${index}].imageUrl 不能为空`);
+    if (entry.strength === undefined) return { imageUrl };
+    if (typeof entry.strength !== "number" || !Number.isFinite(entry.strength)) {
+        throw new Error(`Civitai / ${service.id} 的 imageStyleReferences[${index}].strength 必须是有限数字`);
+    }
+    if (entry.strength < CIVITAI_KREA_FAL_STYLE_STRENGTH_MIN || entry.strength > CIVITAI_KREA_FAL_STYLE_STRENGTH_MAX) {
+        throw new Error(`Civitai / ${service.id} 的 imageStyleReferences strength 必须在 ${CIVITAI_KREA_FAL_STYLE_STRENGTH_MIN}..${CIVITAI_KREA_FAL_STYLE_STRENGTH_MAX} 范围内`);
+    }
+    return { imageUrl, strength: entry.strength };
 }
 
 /** engine: "sdcpp" createVariant — image + strength. SDXL checkpoint AIR stays on the dedicated serializer. */
@@ -361,8 +448,11 @@ function buildCivitaiComfyAdvancedInput(service: CivitaiGenerationService, optio
     }
     const loras = normalizeCivitaiLoras(options.loras, service);
     const clipSkip = resolveCivitaiClipSkip(service, options);
-    const denoiseStrength = options.denoiseStrength
-        ?? (parameters.operation === "editImage" || parameters.operation === "createVariant" ? options.strength : undefined);
+    const krea2Edit = parameters.ecosystem === "krea2" && parameters.operation === "editImage";
+    const denoiseStrength = krea2Edit
+        ? options.denoiseStrength
+        : options.denoiseStrength
+          ?? (parameters.operation === "editImage" || parameters.operation === "createVariant" ? options.strength : undefined);
     if (denoiseStrength !== undefined) assertFiniteRange("denoiseStrength", denoiseStrength, 0, 1, service);
 
     return {
@@ -470,6 +560,7 @@ function providedCivitaiImageAdvancedFields(options: CivitaiImageWorkflowOptions
     if (nonEmptyString(options.scheduler)) fields.push("scheduler");
     if (nonEmptyString(options.schedule)) fields.push("schedule");
     if (options.loras !== undefined && (!isRecord(options.loras) || Object.keys(options.loras).length)) fields.push("loras");
+    if (options.imageStyleReferences !== undefined) fields.push("imageStyleReferences");
     if (nonEmptyString(options.checkpointAir)) fields.push("checkpointAir");
     if (options.strength !== undefined) fields.push("strength");
     if (nonEmptyString(options.vaeAir)) fields.push("vaeAir");
@@ -525,6 +616,17 @@ function normalizeCivitaiLoras(value: Readonly<Record<string, number>> | undefin
         normalized[parsed.air] = weight;
     }
     return normalized;
+}
+
+function normalizeCivitaiLoraArray(value: Readonly<Record<string, number>> | undefined, service: CivitaiGenerationService) {
+    const mapped = normalizeCivitaiLoras(value, service);
+    if (!mapped) return undefined;
+    return Object.entries(mapped).map(([air, strength]) => {
+        if (strength < CIVITAI_IMAGE_LORA_STRENGTH_MIN || strength > CIVITAI_IMAGE_LORA_STRENGTH_MAX) {
+            throw new Error(`Civitai / ${service.id} 的 loras strength 必须在 ${CIVITAI_IMAGE_LORA_STRENGTH_MIN}..${CIVITAI_IMAGE_LORA_STRENGTH_MAX} 范围内`);
+        }
+        return { air, strength };
+    });
 }
 
 function assertIntegerRange(label: string, value: number, minimum: number, maximum: number, service: CivitaiGenerationService) {

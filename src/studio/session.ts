@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { createApiRelayProvider, type ApiRelayProvider } from "@/stores/api-relay-config";
+import { createApiRelayProvider, providerHasUsableCredential, type ApiRelayProvider } from "@/stores/api-relay-config";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
 import { loadRelayVault, saveRelayVault } from "@/studio/server/relay-vault";
@@ -62,13 +62,14 @@ function readPersisted(value: unknown): PersistedSession {
   };
 }
 
-function vaultSnapshot(state: Pick<StudioSession, "relays" | "hiddenPresetIds">) {
+export function vaultSnapshot(state: Pick<StudioSession, "relays" | "hiddenPresetIds">) {
   return JSON.stringify({
     hiddenPresetIds: state.hiddenPresetIds,
     relays: state.relays.map((item) => ({
       id: item.id,
       apiKey: item.apiKey,
       apiKeys: item.apiKeys,
+      hasApiKey: item.hasApiKey,
       baseUrl: item.baseUrl,
       enabled: item.enabled,
       name: item.name,
@@ -82,6 +83,7 @@ function vaultSnapshot(state: Pick<StudioSession, "relays" | "hiddenPresetIds">)
       textModels: item.textModels,
       audioModels: item.audioModels,
       capabilities: item.capabilities,
+      runnableCapabilities: item.runnableCapabilities,
       remark: item.remark,
     })),
   });
@@ -109,7 +111,7 @@ export const useStudioSession = create<StudioSession>()(
       vaultMessage: "",
       setRelayKey: (id, apiKey) => {
         set({
-          relays: get().relays.map((item) => (item.id === id ? { ...item, apiKey, enabled: true } : item)),
+          relays: get().relays.map((item) => (item.id === id ? { ...item, apiKey, hasApiKey: Boolean(apiKey.trim()), enabled: true } : item)),
         });
         scheduleFlush();
       },
@@ -148,7 +150,7 @@ export const useStudioSession = create<StudioSession>()(
       },
       enableWiredRelays: () => {
         set({
-          relays: get().relays.map((item) => (item.apiKey ? { ...item, enabled: true } : item)),
+          relays: get().relays.map((item) => (providerHasUsableCredential(item) ? { ...item, enabled: true } : item)),
         });
         scheduleFlush();
       },
@@ -171,8 +173,14 @@ export const useStudioSession = create<StudioSession>()(
           const remote = await loadRelayVault();
           const local = get();
           const hiddenPresetIds = Array.from(new Set([...(remote.hiddenPresetIds || []), ...local.hiddenPresetIds]));
-          const relays = mergeRelaySources(remote.relays, local.relays);
-          set({ relays, hiddenPresetIds, vaultStatus: "ok", vaultMessage: "密钥已同步到数据库" });
+          const relays = mergeRelaySources(local.relays, remote.relays);
+          const ready = relays.filter((item) => item.enabled && (item.hasApiKey || item.apiKey)).length;
+          set({
+            relays,
+            hiddenPresetIds,
+            vaultStatus: "ok",
+            vaultMessage: ready ? `密钥已同步到数据库（${ready} 条已填）` : "密钥已同步到数据库",
+          });
           lastPushed = "";
           hydrating = false;
           await get().flushVault();
@@ -186,6 +194,7 @@ export const useStudioSession = create<StudioSession>()(
         }
       },
       flushVault: async () => {
+        if (hydrating) return;
         const state = get();
         const snap = vaultSnapshot(state);
         if (snap === lastPushed) return;

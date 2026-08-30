@@ -1351,6 +1351,8 @@ optgroup {
   gap: 0;
   margin: -28px -20px -64px;
   min-height: calc(100vh - 64px);
+  max-height: calc(100vh - 64px);
+  overflow: hidden;
 }
 
 .wire-list {
@@ -1361,6 +1363,8 @@ optgroup {
   border-right: 1px solid #2c2c34;
   background: #121218;
   overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .wire-item {
@@ -1388,6 +1392,8 @@ optgroup {
   flex-direction: column;
   gap: 12px;
   overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .wire-editor hr {

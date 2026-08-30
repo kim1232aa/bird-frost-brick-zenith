@@ -2,15 +2,16 @@
 
 import { FormEvent, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { providerHasUsableCredential } from "@/stores/api-relay-config";
 import { accountLabel, canEnterOps, useAccountStore } from "@/studio/account";
 import { MEMBERSHIP_IS_LOCAL_MOCK, STUDIO_CREDIT_PACKS, STUDIO_PLANS, planById, planLabel, useMembershipStore, type StudioPlanId } from "@/studio/membership";
 import { useStudioJobs } from "@/studio/generate/jobs";
 import { useOpsStore } from "@/studio/ops";
 import { useStudioSession } from "@/studio/session";
 
-function maskKey(value: string) {
+function maskKey(value: string, hasApiKey = false) {
   const key = value.trim();
-  if (!key) return "未配置";
+  if (!key) return hasApiKey ? "已配置（已脱敏）" : "未配置";
   if (key.length <= 8) return "••••";
   return `${key.slice(0, 4)}••••${key.slice(-4)}`;
 }
@@ -21,7 +22,6 @@ export function AccountPage() {
   const hydrated = useAccountStore((state) => state.hydrated);
   const logout = useAccountStore((state) => state.logout);
   const updateProfile = useAccountStore((state) => state.updateProfile);
-  const loginDemoAdmin = useAccountStore((state) => state.loginDemoAdmin);
   const continueAsGuest = useAccountStore((state) => state.continueAsGuest);
   const plan = useMembershipStore((state) => state.plan);
   const upgrade = useMembershipStore((state) => state.upgrade);
@@ -37,7 +37,7 @@ export function AccountPage() {
   const currentPlan = planById(plan);
   const webCredits = credits.image + credits.video;
   const apiCredits = credits.text;
-  const wired = relays.filter((item) => item.enabled && item.apiKey).length;
+  const wired = relays.filter((item) => item.enabled && providerHasUsableCredential(item)).length;
   const enabled = relays.filter((item) => item.enabled).length;
   const admin = canEnterOps({ session });
   const label = accountLabel({ session, isGuest, hydrated });
@@ -74,7 +74,7 @@ export function AccountPage() {
         <h1>{session ? `你好，${session.displayName || session.username}` : isGuest ? "访客模式" : "还没登录"}</h1>
         <p className="studio-lead">
           当前身份：{label}
-          {session?.role === "admin" ? " · 可以进运营后台。" : " · 不能进后台改接线。"}
+          {session?.role === "admin" ? " · 可以进运营后台。" : " · 运营后台仅管理员。可去设置填自己的 Key。"}
           {MEMBERSHIP_IS_LOCAL_MOCK ? " 会员和额度还没接到远端结算。" : " 生成成功会从本账号额度账本扣点，失败不扣。"}
         </p>
       </header>
@@ -82,8 +82,8 @@ export function AccountPage() {
       {!session && !isGuest ? (
         <section className="acct-banner">
           <div>
-            <h2>未登录不能进后台</h2>
-            <p className="studio-hint">可以先看生图页。要出图：登录、注册，或访客继续。运营接线和额度只有管理员能改。</p>
+            <h2>未登录不能进运营后台</h2>
+            <p className="studio-hint">可以先看生图页，或去设置填自己的 Key。要出图：登录、注册，或访客继续。运营后台仍需管理员。</p>
           </div>
           <div className="acct-alt">
             <Link to="/login" className="studio-primary">
@@ -92,11 +92,11 @@ export function AccountPage() {
             <Link to="/register" className="studio-ghost">
               注册
             </Link>
+            <Link to="/settings" className="studio-ghost">
+              去设置
+            </Link>
             <button type="button" className="studio-ghost" onClick={continueAsGuest}>
               访客继续
-            </button>
-            <button type="button" className="studio-ghost" onClick={() => void loginDemoAdmin()}>
-              登录管理员
             </button>
           </div>
         </section>
@@ -211,19 +211,19 @@ export function AccountPage() {
               <p className="studio-kicker">PROVIDERS</p>
               <h2>供应商</h2>
             </div>
-            <Link to={admin ? "/settings" : "/image"} className="studio-primary">
-              {admin ? "打开接线" : "去生图"}
+            <Link to="/settings" className="studio-primary">
+              打开接线
             </Link>
           </div>
           <p className="studio-hint">
-            {admin ? "在设置页可以新增、删除、全部启用。这里只做总览。" : "接线由管理员配置。你这边只看已启用的供应商，不能改密钥。"}
+            在设置页可以新增、删除、全部启用，也可填自己的 Key。这里只做总览。运营后台仍需管理员。
           </p>
           <ul className="acct-relay-list">
             {relays.slice(0, 8).map((item) => (
               <li key={item.id}>
                 {item.name}
                 <span>
-                  {item.enabled ? "启用" : "关闭"} · {maskKey(item.apiKey || "")} · {item.baseUrl}
+                  {item.enabled ? "启用" : "关闭"} · {maskKey(item.apiKey || "", item.hasApiKey)} · {item.baseUrl}
                 </span>
               </li>
             ))}
@@ -260,13 +260,16 @@ export function AccountPage() {
             <div>
               <p className="studio-kicker">SESSION</p>
               <h2>{isGuest ? "访客" : "未登录"}</h2>
-              <p className="studio-hint">访客能出图，不能进运营后台。注册普通账号只记住显示名和方案。</p>
+              <p className="studio-hint">访客能出图，也可去设置填自己的 Key。不能进运营后台。注册普通账号只记住显示名和方案。</p>
               <div className="acct-alt">
                 <Link to="/login" className="studio-primary">
                   登录
                 </Link>
                 <Link to="/register" className="studio-ghost">
                   注册
+                </Link>
+                <Link to="/settings" className="studio-ghost">
+                  去设置
                 </Link>
               </div>
             </div>
@@ -292,9 +295,14 @@ export function AccountPage() {
                 </Link>
               </>
             ) : (
-              <Link className="studio-ghost" to="/image">
-                去生图
-              </Link>
+              <>
+                <Link className="studio-ghost" to="/settings">
+                  去设置
+                </Link>
+                <Link className="studio-ghost" to="/image">
+                  去生图
+                </Link>
+              </>
             )}
           </div>
         </div>

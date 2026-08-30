@@ -19,6 +19,13 @@ import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
 import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
 import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
+import {
+  buildVideoStudioGenerateFields,
+  snapVideoStudioFps,
+  videoStudioCivitaiControls,
+} from "@/pages/video-studio-page.logic";
+import { videoStudioModeFromQuery, videoStudioModeLocation } from "@/pages/studio-mode-routes";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
 type VideoMode = "t2v" | "i2v" | "flf" | "extract";
 
@@ -65,12 +72,12 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const [polishError, setPolishError] = useState("");
   const [url, setUrl] = useState("");
   const [frameCount, setFrameCount] = useState(6);
+  const [fps, setFps] = useState(24);
+  const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const fromQuery = queryParam("mode");
-    if (fromQuery === "i2v" || fromQuery === "flf" || fromQuery === "extract" || fromQuery === "t2v") setMode(fromQuery);
-    else setMode(initialMode);
+    setMode(videoStudioModeFromQuery(queryParam("mode"), initialMode));
   }, [initialMode]);
 
   useEffect(() => {
@@ -80,8 +87,52 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
 
   const models = liveCatalog("video", true);
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection);
-  const isArk = /volcengine|seedance/i.test(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;
+  const { providerId, model: selectedModel } = splitModel(selection);
+  const selectedRelay = relays.find((r) => r.id === providerId || r.id === card?.providerId);
+  const isArk =
+    (selectedRelay?.adapterType === "ark-plan" || selectedRelay?.adapterType === "ark" || /volcengine|seedance/i.test(selection)) &&
+    selectedRelay?.adapterType !== "civitai";
+  const videoModel = card?.model || selectedModel || "";
+  const videoControls = videoStudioCivitaiControls(selectedRelay?.adapterType, videoModel, providerId || card?.providerId);
+  const { showLora: showVideoLora, loraShape: videoLoraShape, fpsSpec, fpsOptions } = videoControls;
+  const generatePreview = buildVideoStudioGenerateFields({
+    adapterType: selectedRelay?.adapterType,
+    providerId: providerId || card?.providerId,
+    model: videoModel,
+    mode,
+    duration,
+    ratio,
+    firstFrame,
+    lastFrame,
+    audio,
+    fps,
+    loras,
+    isArk,
+    host: selectedRelay?.baseUrl,
+    protocol: selectedRelay?.protocol,
+    provider: selectedRelay,
+  });
+  const durationOptions = generatePreview.durationOptions;
+  const generateBlockReason = generatePreview.error || "";
+  const referenceControls = generatePreview.referenceControls;
+  const modeReason = (next: "i2v" | "flf") => next === "i2v" ? referenceControls.i2vReason : referenceControls.flfReason;
+  const modeCapabilityNotice = referenceControls.notice || referenceControls.i2vReason || referenceControls.flfReason;
+  const firstFrameInputDisabled = !referenceControls.supportsFirstFrame;
+  const lastFrameInputDisabled = mode === "flf"
+    ? !referenceControls.supportsFirstLastFrame
+    : !referenceControls.supportsLastFrameInI2v;
+
+  useEffect(() => {
+    if (generatePreview.duration !== duration) {
+      setDuration(generatePreview.duration);
+    }
+  }, [selection, duration, selectedRelay?.baseUrl, selectedRelay?.protocol, generatePreview.duration]);
+
+  useEffect(() => {
+    if (!fpsSpec) return;
+    setFps((current) => snapVideoStudioFps(videoModel, current) ?? fpsSpec.defaultFps);
+  }, [videoModel, fpsSpec]);
   const mine = useMemo(() => items.filter((item) => item.kind === "video" && item.urls[0]), [items]);
   const seeds = useMemo(() => {
     const all = GALLERY_SEED.filter((item) => item.kind === "video");
@@ -97,9 +148,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const goMode = (next: VideoMode) => {
     setMode(next);
     setError("");
-    if (next === "extract") void navigate({ to: "/frames" });
-    else if (next === "i2v" || next === "flf") void navigate({ to: "/i2v" });
-    else void navigate({ to: "/video" });
+    void navigate(videoStudioModeLocation(next));
   };
 
   const pickImage = async (files: FileList | null, slot: "first" | "last") => {
@@ -121,11 +170,9 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           ? "请先填写提示词"
           : !models.length
             ? "没有可选视频模型"
-            : (mode === "i2v" || mode === "flf") && !firstFrame
-              ? "图生视频需要首帧"
-              : mode === "flf" && !lastFrame
-                ? "首尾帧模式需要尾帧"
-                : selectedLive && !selectedLive.wired
+            : generateBlockReason
+              ? generateBlockReason
+              : selectedLive && !selectedLive.wired
                   ? `${card?.model || "该模型"} 待接线，换一个已填密钥的，或去设置填 Key`
                   : remaining < creditCost
                     ? `积分不足，需要 ${creditCost} 点`
@@ -137,6 +184,27 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       return;
     }
     const { providerId, model } = splitModel(selection);
+    const payload = buildVideoStudioGenerateFields({
+      adapterType: selectedRelay?.adapterType,
+      providerId,
+      model: videoModel || model,
+      mode,
+      duration,
+      ratio,
+      firstFrame,
+      lastFrame,
+      audio,
+      fps,
+      loras,
+      isArk,
+      host: selectedRelay?.baseUrl,
+      protocol: selectedRelay?.protocol,
+      provider: selectedRelay,
+    });
+    if (payload.error) {
+      setError(payload.error);
+      return;
+    }
     setBusy("提交任务…");
     setError("");
     const jobId = startJob({
@@ -150,13 +218,15 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       const created = await createStudioVideo({
         relays,
         prompt,
-        duration,
+        duration: payload.duration,
         aspectRatio: ratio,
         providerId,
-        model,
-        imageUrl: mode === "t2v" ? undefined : firstFrame || undefined,
-        lastFrameUrl: mode === "t2v" ? undefined : lastFrame || undefined,
-        generateAudio: isArk ? audio : undefined,
+        model: videoModel || model,
+        imageUrl: payload.imageUrl,
+        lastFrameUrl: payload.lastFrameUrl,
+        generateAudio: payload.generateAudio,
+        fps: payload.fps,
+        loras: payload.loras,
       });
       const videoUrl = await waitStudioVideo({
         relays,
@@ -254,15 +324,33 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         </header>
         <div className="studio-seg" style={{ maxWidth: 520, marginBottom: 20 }}>
           <button type="button" onClick={() => goMode("t2v")}>文生视频</button>
-          <button type="button" onClick={() => goMode("i2v")}>图生视频</button>
-          <button type="button" onClick={() => goMode("flf")}>首尾帧</button>
+          <button
+            type="button"
+            disabled={Boolean(referenceControls.i2vReason)}
+            title={modeReason("i2v") || undefined}
+            aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+            onClick={() => goMode("i2v")}
+          >
+            图生视频{referenceControls.i2vReason ? "（不可用）" : ""}
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(referenceControls.flfReason)}
+            title={modeReason("flf") || undefined}
+            aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+            onClick={() => goMode("flf")}
+          >
+            首尾帧{referenceControls.flfReason ? "（不可用）" : ""}
+          </button>
           <button type="button" className="is-active">抽帧</button>
         </div>
+        {modeCapabilityNotice ? <small id="video-mode-capability-hint" className="studio-hint">{modeCapabilityNotice}</small> : null}
         <div className="bp-work">
           <aside className="bp-left">
             <label className="dropzone">
               <span>上传视频 · mp4 / webm</span>
               <input
+                className="sr-only"
                 type="file"
                 accept="video/*"
                 onChange={(event) => {
@@ -342,7 +430,14 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                     className="studio-ghost"
                     onClick={() => {
                       dropToCanvas({ kind: "image", url: frames[0], prompt: "视频抽帧", text: "视频抽帧" });
-                      void navigate({ to: "/canvas" });
+                      const id = pushMediaToCanvasWorkspace({
+                        kind: "image",
+                        url: frames[0],
+                        urls: frames,
+                        prompt: "视频抽帧",
+                        text: "视频抽帧",
+                      });
+                      void navigate({ to: "/canvas/workspace", search: { id } });
                     }}
                   >
                     送入画布
@@ -373,13 +468,28 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           <button type="button" className={mode === "t2v" ? "is-active" : undefined} onClick={() => goMode("t2v")}>
             文生视频
           </button>
-          <button type="button" className={mode === "i2v" ? "is-active" : undefined} onClick={() => goMode("i2v")}>
-            图生视频
+          <button
+            type="button"
+            className={mode === "i2v" ? "is-active" : undefined}
+            disabled={Boolean(referenceControls.i2vReason)}
+            title={modeReason("i2v") || undefined}
+            aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+            onClick={() => goMode("i2v")}
+          >
+            图生视频{referenceControls.i2vReason ? "（不可用）" : ""}
           </button>
-          <button type="button" className={mode === "flf" ? "is-active" : undefined} onClick={() => goMode("flf")}>
-            首尾帧
+          <button
+            type="button"
+            className={mode === "flf" ? "is-active" : undefined}
+            disabled={Boolean(referenceControls.flfReason)}
+            title={modeReason("flf") || undefined}
+            aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+            onClick={() => goMode("flf")}
+          >
+            首尾帧{referenceControls.flfReason ? "（不可用）" : ""}
           </button>
         </div>
+        {modeCapabilityNotice ? <small id="video-mode-capability-hint" className="studio-hint">{modeCapabilityNotice}</small> : null}
         <div className="bp-model-fields">
           <StudioModelField kind="video" value={selection} onChange={setSelection} label="视频模型" />
           <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="润色文本模型" />
@@ -410,29 +520,59 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         {mode !== "t2v" ? (
           <div className="ref-grid">
             <label className="dropzone dropzone-mini">
-              <span>{mode === "flf" ? "首帧（必填）" : "首帧（必填）"}</span>
-              <input type="file" accept="image/*" onChange={(event) => void pickImage(event.target.files, "first")} />
-              {firstFrame ? <img src={firstFrame} alt="" className="ref-thumb" /> : <small>图生视频必须上传</small>}
+              <span>首帧（必填）{firstFrameInputDisabled ? "（当前模型不支持）" : ""}</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                disabled={firstFrameInputDisabled}
+                aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+                onChange={(event) => void pickImage(event.target.files, "first")}
+              />
+              {firstFrame ? <img src={firstFrame} alt="" className="ref-thumb" /> : null}
+              {firstFrameInputDisabled ? <small>{referenceControls.firstFrameReason}</small> : !firstFrame ? <small>图生视频必须上传</small> : null}
             </label>
             <label className="dropzone dropzone-mini">
-              <span>{mode === "flf" ? "尾帧（必填）" : "尾帧（可选）"}</span>
-              <input type="file" accept="image/*" onChange={(event) => void pickImage(event.target.files, "last")} />
-              {lastFrame ? <img src={lastFrame} alt="" className="ref-thumb" /> : <small>{isArk ? "火山会按 last_frame 提交" : "有尾帧的模型会一起提交"}</small>}
+              <span>{mode === "flf" ? "尾帧（必填）" : "尾帧（可选）"}{lastFrameInputDisabled ? "（当前模型不支持）" : ""}</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                disabled={lastFrameInputDisabled}
+                aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+                onChange={(event) => void pickImage(event.target.files, "last")}
+              />
+              {lastFrame ? <img src={lastFrame} alt="" className="ref-thumb" /> : null}
+              {lastFrameInputDisabled ? (
+                <small>
+                  {referenceControls.lastFrameReason || "当前模型不接受尾帧。"}
+                  {lastFrame ? " 已保留，但不会作为当前模式发送。" : ""}
+                </small>
+              ) : !lastFrame ? <small>{isArk ? "火山会按 last_frame 提交" : "有尾帧的模型会一起提交"}</small> : null}
             </label>
           </div>
         ) : (
           <label className="dropzone">
-            <span>可选首帧 · 上传后切到图生视频</span>
+            <span>可选首帧 · 上传后切到图生视频{firstFrameInputDisabled ? "（当前模型不支持）" : ""}</span>
             <input
+              className="sr-only"
               type="file"
               accept="image/*"
+              disabled={firstFrameInputDisabled}
+              aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
               onChange={(event) => {
                 void pickImage(event.target.files, "first").then(() => goMode("i2v"));
               }}
             />
-            <small>不上传则走文生视频</small>
+            <small>{firstFrameInputDisabled ? referenceControls.firstFrameReason : "不上传则走文生视频"}</small>
           </label>
         )}
+        {firstFrameInputDisabled && firstFrame ? (
+          <button type="button" className="studio-ghost" onClick={() => setFirstFrame("")}>清除已保留首帧</button>
+        ) : null}
+        {lastFrameInputDisabled && lastFrame ? (
+          <button type="button" className="studio-ghost" onClick={() => setLastFrame("")}>清除已保留尾帧</button>
+        ) : null}
         {TEMPLATE_GROUPS.map(([group, list]) => (
           <div key={group}>
             <p className="studio-kicker">{group}</p>
@@ -452,12 +592,17 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         ))}
         <p className="studio-kicker">时长 / 画幅</p>
         <div className="studio-seg">
-          {[4, 5, 6, 8, 10].map((item) => (
+          {durationOptions.map((item) => (
             <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
               {item}s
             </button>
           ))}
         </div>
+        {videoModel === "ltx2.3" ? (
+          <small className="studio-hint">LTX 2.3 时长按 live OpenAPI 为 3–20 秒（默认 5）。菜谱写「仅 3 或 20」与 schema 冲突，页面跟 schema。</small>
+        ) : videoModel === "hunyuan" ? (
+          <small className="studio-hint">Hunyuan 时长按 live OpenAPI 为 1–30 秒（默认 5），不是 OpenAI 的 4/8/12。</small>
+        ) : null}
         <div className="aspect-grid">
           {["16:9", "9:16", "1:1"].map((item) => {
             const [w, h] = item.split(":").map(Number);
@@ -471,11 +616,76 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             );
           })}
         </div>
-        {isArk ? (
+        {generatePreview.showGenerateAudio ? (
           <label className="flow-check">
             <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
-            生成原声
+            {videoModel === "ltx2.3" ? "生成原声（generateAudio，可开可关）" : "生成原声"}
           </label>
+        ) : null}
+        {fpsSpec ? (
+          <>
+            <p className="studio-kicker">帧率 fps</p>
+            <div className="studio-seg">
+              {fpsOptions.map((item) => (
+                <button key={item} type="button" className={fps === item ? "is-active" : undefined} onClick={() => setFps(item)}>
+                  {item} fps
+                </button>
+              ))}
+            </div>
+            <small className="studio-hint">
+              {videoModel === "hunyuan"
+                ? "Hunyuan 常见取值 24 / 25 / 30，默认 25。页面把该值作为 fps 传给 generate。"
+                : "LTX 2.3 官方字段是 fps，默认 24。"}
+            </small>
+          </>
+        ) : null}
+        {showVideoLora ? (
+          <div className="lora-stack">
+            <p className="studio-kicker">Civitai LoRA{videoLoraShape === "array" ? "（array）" : ""}</p>
+            {loras.map((item, index) => (
+              <div key={index} className="lora-row">
+                <input
+                  value={item.resource}
+                  onChange={(event) =>
+                    setLoras((current) => current.map((row, i) => (i === index ? { ...row, resource: event.target.value } : row)))
+                  }
+                  placeholder="urn:air:…:lora:civitai:<id>@<ver>"
+                />
+                <input
+                  type="number"
+                  min={-2}
+                  max={2}
+                  step={0.05}
+                  value={item.weight}
+                  onChange={(event) =>
+                    setLoras((current) => current.map((row, i) => (i === index ? { ...row, weight: Number(event.target.value) } : row)))
+                  }
+                />
+                <button
+                  type="button"
+                  className="studio-ghost"
+                  onClick={() =>
+                    setLoras((current) => {
+                      const next = current.filter((_, i) => i !== index);
+                      return next.length ? next : [{ resource: "", weight: 1 }];
+                    })
+                  }
+                >
+                  去掉
+                </button>
+              </div>
+            ))}
+            {loras.length < 8 ? (
+              <button type="button" className="studio-ghost" onClick={() => setLoras((current) => [...current, { resource: "", weight: 1 }])}>
+                加 LoRA
+              </button>
+            ) : null}
+            <small className="studio-hint">
+              {videoLoraShape === "array"
+                ? "Hunyuan 会把 AIR→权重转成官方 {air,strength} array。只支持文生视频。"
+                : "LTX 2.3 提交官方 loras map。"}
+            </small>
+          </div>
         ) : null}
         <div className="bp-cta">
           <button type="button" className="bp-generate bp-generate-video" disabled={Boolean(disabledReason)} onClick={() => void generate()}>
@@ -514,7 +724,13 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                   className="studio-ghost"
                   onClick={() => {
                     dropToCanvas({ kind: "video", url, prompt, model: selection });
-                    void navigate({ to: "/canvas" });
+                    const id = pushMediaToCanvasWorkspace({
+                      kind: "video",
+                      url,
+                      prompt,
+                      model: selection,
+                    });
+                    void navigate({ to: "/canvas/workspace", search: { id } });
                   }}
                 >
                   送入画布

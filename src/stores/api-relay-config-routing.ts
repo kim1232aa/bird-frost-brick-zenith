@@ -19,23 +19,21 @@ import {
     defaultApiPlatformBoardModelRouting,
     providerModelsForCapability,
     modelBelongsToProvider,
-    resolveConfiguredModel,
-    modelMatchesAllowedModel,
     normalizeModelList,
     mergeModelLists,
     filterModelsByCapability,
     normalizeCapabilities,
+    providerCapabilityIsRunnable,
     inferCapabilityFromModel,
 } from "./api-relay-config-models";
 import {
     ensureApiRelaySettings,
-    providerDisplayName,
-    encodeProviderModelSelection,
     listedRelayModelOptionsForCapability,
     providerCanRunCapability,
     canonicalProviderModel,
     providerHasUsableCredential,
 } from "./api-relay-config-provider";
+import { resolveUniqueModelOwner } from "./api-relay-model-inference";
 
 export function enabledRelayModelOptionsForCapability(
     providers: readonly ApiRelayProvider[],
@@ -88,8 +86,12 @@ export function resolveProviderModelSelection(
         owners.push(provider);
         canonicalModels.set(provider.id, canonical);
     }
-    if (owners.length) {
-        const provider = owners[0];
+    const unique = resolveUniqueModelOwner(owners);
+    if (unique.status === "ambiguous") {
+        return { status: "ambiguous", selection: null, model, owners: unique.owners };
+    }
+    if (unique.status === "resolved") {
+        const provider = unique.owner;
         return {
             status: "resolved",
             selection: { providerId: provider.id, model: canonicalModels.get(provider.id) || model },
@@ -114,6 +116,7 @@ function providerModelResolutionError(
         if (provider) {
             if (!provider.enabled) return new Error(`当前选择的${label}中转已停用`);
             if (!provider.capabilities.includes(capability)) return new Error(`当前中转不支持${label}生成`);
+            if (!providerCapabilityIsRunnable(provider, capability)) return new Error(`当前中转的${label}能力尚未接线`);
             if (!provider.baseUrl.trim()) return new Error(`请为${label}中转填写 Base URL`);
             if (!providerHasUsableCredential(provider)) return new Error(`请为${label}中转填写 API Key`);
             return new Error(`${label}模型“${resolution.model}”不在所选中转模型列表中，已阻止请求`);
@@ -208,14 +211,14 @@ export function resolveCapabilityRoute(
     }
     if (!provider.enabled) throw new Error(`当前选择的${label}中转已停用`);
     if (!provider.capabilities.includes(capability)) throw new Error(`当前中转不支持${label}生成`);
+    if (!providerCapabilityIsRunnable(provider, capability)) throw new Error(`当前中转的${label}能力尚未接线`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${label}中转填写 Base URL`);
     if (!providerHasUsableCredential(provider)) throw new Error(`请为${label}中转填写 API Key`);
 
-    const models = providerModelsForCapability(provider, capability);
-    const model = explicitRoute?.model || route.model.trim();
-
-    if (!model) throw new Error(`请为${label}中转选择模型`);
-    if (!normalized.apiRelayAdvanced.allowCustomModel && models.length && !models.includes(model)) throw new Error(`${label}模型不在当前中转模型列表中`);
+    const requestedModel = explicitRoute?.model || route.model.trim();
+    if (!requestedModel) throw new Error(`请为${label}中转选择模型`);
+    const model = resolveAllowedCapabilityModel(provider, capability, requestedModel, normalized.apiRelayAdvanced.allowCustomModel);
+    if (!model) throw new Error(`${label}模型不在当前中转模型列表中`);
 
     return { provider, capability, model };
 }
@@ -255,16 +258,34 @@ export function resolveBoardCapabilityRoute(
     if (!provider) throw new Error(`未找到${boardLabel}板块中转 API，请重新选择`);
     if (!provider.enabled) throw new Error(`当前选择的${boardLabel}板块中转已停用`);
     if (!provider.capabilities.includes(definition.capability)) throw new Error(`当前中转不支持${boardLabel}所需的${capabilityLabel}能力`);
+    if (!providerCapabilityIsRunnable(provider, definition.capability)) throw new Error(`当前中转的${boardLabel}能力尚未接线`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${boardLabel}板块中转填写 Base URL`);
     if (!providerHasUsableCredential(provider)) throw new Error(`请为${boardLabel}板块中转填写 API Key`);
 
-    const models = providerModelsForCapability(provider, definition.capability);
-    const model = explicitRoute?.model || route.model.trim();
-
-    if (!model) throw new Error(`请为${boardLabel}板块中转选择模型`);
-    if (!normalized.apiRelayAdvanced.allowCustomModel && models.length && !models.includes(model)) throw new Error(`${boardLabel}板块模型不在当前中转模型列表中`);
+    const requestedModel = explicitRoute?.model || route.model.trim();
+    if (!requestedModel) throw new Error(`请为${boardLabel}板块中转选择模型`);
+    const model = resolveAllowedCapabilityModel(
+        provider,
+        definition.capability,
+        requestedModel,
+        normalized.apiRelayAdvanced.allowCustomModel,
+    );
+    if (!model) throw new Error(`${boardLabel}板块模型不在当前中转模型列表中`);
 
     return { provider, capability: definition.capability, model };
+}
+
+function resolveAllowedCapabilityModel(
+    provider: ApiRelayProvider,
+    capability: ApiCapability,
+    requestedModel: string,
+    allowCustomModel: boolean,
+) {
+    const canonical = canonicalProviderModel(provider, capability, requestedModel);
+    if (canonical) return canonical;
+    const models = providerModelsForCapability(provider, capability);
+    if (allowCustomModel || !models.length) return requestedModel;
+    return "";
 }
 
 function resolveExplicitModelRoute(
@@ -278,10 +299,18 @@ function resolveExplicitModelRoute(
             providerCanRunCapability(provider, capability) &&
             Boolean(canonicalProviderModel(provider, capability, model)),
     );
-    if (!owners.length) throw new Error(`显式${routeLabel}模型“${model}”没有可用中转，已阻止请求`);
+    const unique = resolveUniqueModelOwner(owners);
+    if (unique.status === "empty") throw new Error(`显式${routeLabel}模型“${model}”没有可用中转，已阻止请求`);
+    if (unique.status === "ambiguous") {
+        throw providerModelResolutionError(
+            { status: "ambiguous", selection: null, model, owners: unique.owners },
+            routeLabel,
+            capability,
+        );
+    }
     return {
-        provider: owners[0],
-        model: canonicalProviderModel(owners[0], capability, model) || model,
+        provider: unique.owner,
+        model: canonicalProviderModel(unique.owner, capability, model) || model,
     };
 }
 

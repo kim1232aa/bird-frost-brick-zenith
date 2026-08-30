@@ -1,0 +1,47 @@
+# Build context exclusions — keep secrets, VCS, host outputs, and local data out.
+.git
+.github
+# Host .vercel (including a prior .vercel/output) must not enter the context.
+# The image builds its own Nitro vercel output in the build stage.
+.vercel
+.node_modules.lock
+node_modules
+
+# Env / secrets (keep the public example)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Host build / preview / local data
+.tanstack
+.output
+dist
+screenshots
+artifacts
+attachments
+temp
+data
+*.db
+*.sqlite
+*.sqlite3
+.project_id
+.github_repo
+*.log
+.DS_Store
+
+# Packaging files are not needed inside the image
+Dockerfile
+docker-compose.test.yml
+.dockerignore
+
+# Grok / editor / agent scratch (keep .grok/app-env.json for VITE_* build flags)
+.grok/*
+!.grok/app-env.json
+.superpowers
+.kimi-code
+.claude
+.cache
+.agents

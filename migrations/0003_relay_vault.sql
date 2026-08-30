@@ -1,5 +1,6 @@
--- Studio-wide relay wiring (API keys live here, not only in the browser).
--- One row for the whole studio so admin-wired keys work on every device.
+-- Per-user relay wiring (API keys live here, not only in the browser).
+-- The id column stores the server-verified user id as the row key. The former
+-- global row id='studio' is intentionally not read as a fallback.
 create table if not exists studio_relay_vault (
   id text primary key,
   relays_json text not null default '[]',

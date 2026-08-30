@@ -8,6 +8,9 @@ import { preferredAudioKey, preferredImageKey, preferredTextKey, preferredVideoK
 import { ModelMenu } from "@/studio/model-menu";
 import { useCanvasActions } from "./context";
 import { STYLE_PRESETS, type CanvasData } from "./types";
+import { videoDurationOptions, normalizeVideoDuration } from "@/studio/video-duration-options";
+import { useStudioSession } from "@/studio/session";
+import { splitModel } from "@/studio/split";
 
 export const DEFAULT_IMAGE = preferredImageKey();
 export const DEFAULT_VIDEO = preferredVideoKey();
@@ -266,9 +269,17 @@ export function ImageNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
 export function VideoNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
   const { updateNodeData } = useReactFlow();
   const actions = useCanvasActions();
+  const relays = useStudioSession((state) => state.relays);
   const running = runningStatus(data.status);
   const locked = running || Boolean(actions.busy);
   const showPanel = selected || running || !data.url;
+
+  const modelKey = data.model || DEFAULT_VIDEO;
+  const { providerId } = splitModel(modelKey);
+  const card = liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === modelKey);
+  const relay = relays.find((r) => r.id === providerId || r.id === card?.providerId);
+  const durationOptions = videoDurationOptions(relay?.baseUrl, relay?.protocol);
+
   return (
     <div className={`orig-node orig-video ${selected ? "is-selected" : ""}`}>
       <Port id="in" type="target" position={Position.Left} label="提示" tone="in" offset={130} />
@@ -309,14 +320,21 @@ export function VideoNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
         </div>
         <div className="orig-model">
           <Settings2 size={14} />
-          <ModelSelect value={data.model || DEFAULT_VIDEO} kind="video" onChange={(model) => updateNodeData(id, { model })} />
+          <ModelSelect value={data.model || DEFAULT_VIDEO} kind="video" onChange={(model) => {
+            const { providerId: nextProviderId } = splitModel(model);
+            const nextCard = liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === model);
+            const nextRelay = relays.find((r) => r.id === nextProviderId || r.id === nextCard?.providerId);
+            const nextDurationOptions = videoDurationOptions(nextRelay?.baseUrl, nextRelay?.protocol);
+            const normalized = normalizeVideoDuration(data.duration || 6, nextRelay?.baseUrl, nextRelay?.protocol);
+            updateNodeData(id, { model, duration: normalized });
+          }} />
         </div>
         <div className="orig-params is-open">
           <label>
             时长
             <ChipRow
               value={String(data.duration || 6)}
-              options={[4, 5, 6, 8, 10].map((item) => ({ value: String(item), label: `${item}s` }))}
+              options={durationOptions.map((item) => ({ value: String(item), label: `${item}s` }))}
               onChange={(duration) => updateNodeData(id, { duration: Number(duration) })}
             />
           </label>
@@ -334,7 +352,15 @@ export function VideoNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
 export function SeedanceNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
   const { updateNodeData } = useReactFlow();
   const actions = useCanvasActions();
+  const relays = useStudioSession((state) => state.relays);
   const running = runningStatus(data.status) || /占位|生成/.test(actions.busy);
+
+  const modelKey = data.model || DEFAULT_VIDEO;
+  const { providerId } = splitModel(modelKey);
+  const card = liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === modelKey);
+  const relay = relays.find((r) => r.id === providerId || r.id === card?.providerId);
+  const durationOptions = videoDurationOptions(relay?.baseUrl, relay?.protocol);
+
   return (
     <div className={`sd2-panel ${selected ? "is-selected" : ""}`}>
       {running ? (
@@ -362,7 +388,13 @@ export function SeedanceNode({ id, data, selected }: NodeProps<Node<CanvasData>>
         </label>
         <label>
           视频模型
-          <ModelSelect value={data.model || DEFAULT_VIDEO} kind="video" onChange={(model) => updateNodeData(id, { model })} />
+          <ModelSelect value={data.model || DEFAULT_VIDEO} kind="video" onChange={(model) => {
+            const { providerId: nextProviderId } = splitModel(model);
+            const nextCard = liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === model);
+            const nextRelay = relays.find((r) => r.id === nextProviderId || r.id === nextCard?.providerId);
+            const normalized = normalizeVideoDuration(data.duration || 5, nextRelay?.baseUrl, nextRelay?.protocol);
+            updateNodeData(id, { model, duration: normalized });
+          }} />
         </label>
       </div>
       <label className="nodrag">
@@ -375,7 +407,7 @@ export function SeedanceNode({ id, data, selected }: NodeProps<Node<CanvasData>>
           时长
           <ChipRow
             value={String(data.duration || 5)}
-            options={[4, 5, 8, 10].map((item) => ({ value: String(item), label: `约 ${item} 秒` }))}
+            options={durationOptions.map((item) => ({ value: String(item), label: `约 ${item} 秒` }))}
             onChange={(duration) => updateNodeData(id, { duration: Number(duration) })}
           />
         </label>
@@ -790,8 +822,16 @@ export function StoryNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
 export function ConfigNode({ id, data, selected }: NodeProps<Node<CanvasData>>) {
   const { updateNodeData } = useReactFlow();
   const actions = useCanvasActions();
+  const relays = useStudioSession((state) => state.relays);
   const mode = data.generationMode || "image";
   const locked = Boolean(actions.busy) || runningStatus(data.status);
+
+  const modelKey = data.model || (mode === "video" ? DEFAULT_VIDEO : mode === "audio" ? DEFAULT_AUDIO : DEFAULT_IMAGE);
+  const { providerId } = splitModel(modelKey);
+  const card = mode === "video" ? liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === modelKey) : undefined;
+  const relay = card ? relays.find((r) => r.id === providerId || r.id === card?.providerId) : undefined;
+  const durationOptions = mode === "video" ? videoDurationOptions(relay?.baseUrl, relay?.protocol) : [];
+
   return (
     <div className={`sd-panel config-panel ${selected ? "is-selected" : ""}`}>
       <Port id="in" type="target" position={Position.Left} label="输入" tone="in" offset={90} />
@@ -826,7 +866,17 @@ export function ConfigNode({ id, data, selected }: NodeProps<Node<CanvasData>>) 
         <ModelSelect
           value={data.model || (mode === "video" ? DEFAULT_VIDEO : mode === "audio" ? DEFAULT_AUDIO : DEFAULT_IMAGE)}
           kind={mode === "audio" ? "audio" : mode}
-          onChange={(model) => updateNodeData(id, { model })}
+          onChange={(model) => {
+            if (mode === "video") {
+              const { providerId: nextProviderId } = splitModel(model);
+              const nextCard = liveCatalog("video", false).find((item) => `${item.provider}/${item.model}` === model);
+              const nextRelay = relays.find((r) => r.id === nextProviderId || r.id === nextCard?.providerId);
+              const normalized = normalizeVideoDuration(data.duration || 5, nextRelay?.baseUrl, nextRelay?.protocol);
+              updateNodeData(id, { model, duration: normalized });
+            } else {
+              updateNodeData(id, { model });
+            }
+          }}
         />
       </label>
       {mode === "image" ? (
@@ -838,7 +888,7 @@ export function ConfigNode({ id, data, selected }: NodeProps<Node<CanvasData>>) 
       {mode === "video" ? (
         <ChipRow
           value={String(data.duration || 5)}
-          options={[4, 5, 6, 8, 10].map((item) => ({ value: String(item), label: `${item}s` }))}
+          options={durationOptions.map((item) => ({ value: String(item), label: `${item}s` }))}
           onChange={(duration) => updateNodeData(id, { duration: Number(duration) })}
         />
       ) : null}

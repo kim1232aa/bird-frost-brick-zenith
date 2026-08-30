@@ -19,6 +19,16 @@ import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { enhancePrompt } from "@/studio/story/plan";
 import { StageOverlay, WorkbenchStatus } from "@/studio/workbench-status";
 import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
+import { civitaiCheckpointPlaceholder } from "@/studio/civitai-ui-options";
+import {
+  buildImageStudioGenerateFields,
+  imageStudioParamState,
+  normalizeCivitaiImageDims,
+  resolveImageStudioFamily,
+  snapImageStudioCount,
+} from "@/pages/image-studio-page.logic";
+import { imageStudioModeFromQuery, imageStudioModeLocation } from "@/pages/studio-mode-routes";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
 const ASPECTS: Record<string, { w: number; h: number }> = {
   "1:1": { w: 1024, h: 1024 },
@@ -30,14 +40,8 @@ const ASPECTS: Record<string, { w: number; h: number }> = {
 
 type ImageMode = "t2i" | "i2i" | "edit";
 
-function engineFamily(selection: string) {
-  if (/volcengine|seedream/i.test(selection)) return "ark" as const;
-  if (selection.includes("civitai") || /krea2|flux2|sdxl|anima|z-image-turbo|qwen-3\.0/i.test(selection)) return "civitai" as const;
-  if (/gpt-image/i.test(selection)) return "gpt" as const;
-  if (/grok-imagine-image/i.test(selection)) return "grok" as const;
-  if (/agnes-image/i.test(selection)) return "agnes" as const;
-  if (/sensenova/i.test(selection)) return "sensenova" as const;
-  return "generic" as const;
+function engineFamily(selection: string, adapterType?: string) {
+  return resolveImageStudioFamily(selection, adapterType);
 }
 
 function aspectBox(ratio: string) {
@@ -46,10 +50,6 @@ function aspectBox(ratio: string) {
   if (!w || !h) return { width: max, height: max };
   if (w >= h) return { width: max, height: Math.max(8, Math.round((max * h) / w)) };
   return { width: Math.max(8, Math.round((max * w) / h)), height: max };
-}
-
-function supportsLora(family: ReturnType<typeof engineFamily>, model: string) {
-  return family === "civitai" && /sdxl|anima|flux1|krea|z-image/i.test(model);
 }
 
 export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMode }) {
@@ -77,6 +77,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const references = useMediaDraft((state) => state.references);
   const setReferences = useMediaDraft((state) => state.setReferences);
   const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
+  const [checkpointAir, setCheckpointAir] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [polishBusy, setPolishBusy] = useState(false);
@@ -84,9 +85,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const [urls, setUrls] = useState<string[]>([]);
 
   useEffect(() => {
-    const fromQuery = queryParam("mode");
-    if (fromQuery === "edit" || fromQuery === "i2i" || fromQuery === "t2i") setMode(fromQuery);
-    else setMode(initialMode);
+    setMode(imageStudioModeFromQuery(queryParam("mode"), initialMode));
   }, [initialMode]);
 
   useEffect(() => {
@@ -107,14 +106,21 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   }, [models, selection, mode]);
 
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection) || models[0];
-  const family = engineFamily(selection);
+  const { providerId: selectedProviderId, model: selectedModel } = splitModel(selection);
+  const selectedRelay = relays.find((item) => item.id === selectedProviderId || item.id === card?.providerId);
+  const family = engineFamily(selection, selectedRelay?.adapterType);
   const selectedLive = card ? liveCard(card) : undefined;
   const mine = useMemo(
     () => items.filter((item) => item.kind === "image" && item.urls[0]),
     [items],
   );
   const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "image"), []);
-  const showLora = supportsLora(family, card?.model || "");
+  const civitaiModel = family === "civitai" ? card?.model || selectedModel || "" : "";
+  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showSeed } = imageStudioParamState(family, civitaiModel, mode);
+
+  useEffect(() => {
+    setCount((current) => snapImageStudioCount(current, quantityOptions));
+  }, [quantityMax]);
 
   useEffect(() => {
     if (family === "ark") setSize(quality === "hq" ? "3K" : "2K");
@@ -123,21 +129,38 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const dims = useMemo(() => {
     const base = ASPECTS[aspect] || ASPECTS["1:1"];
     const scale = quality === "eco" ? 0.75 : quality === "hq" ? 1.25 : 1;
-    return { width: Math.round(base.w * scale), height: Math.round(base.h * scale) };
-  }, [aspect, quality]);
+    const raw = { width: Math.round(base.w * scale), height: Math.round(base.h * scale) };
+    return family === "civitai" ? normalizeCivitaiImageDims(civitaiModel, raw) : raw;
+  }, [aspect, quality, family, civitaiModel]);
+
+  const generatePreview = buildImageStudioGenerateFields({
+    family,
+    model: civitaiModel || selectedModel,
+    mode,
+    quality,
+    aspect,
+    size,
+    seed,
+    count,
+    references,
+    loras,
+    checkpointAir,
+    negativePrompt: negative,
+    dims,
+  });
+  const generateBlockReason = generatePreview.error || "";
 
   const goMode = (next: ImageMode) => {
     setMode(next);
     setError("");
-    if (next === "edit") void navigate({ to: "/edit" });
-    else void navigate({ to: "/image" });
+    void navigate(imageStudioModeLocation(next));
   };
 
   const addRefs = async (files: FileList | null) => {
     if (!files?.length) return;
     const next = await filesToDataUrls(files, 3);
     setReferences((current) => [...current, ...next].slice(0, 5));
-    if (mode === "t2i") setMode("i2i");
+    if (mode === "t2i") goMode("i2i");
   };
 
   const generate = async () => {
@@ -146,40 +169,52 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       return;
     }
     const { providerId, model } = splitModel(selection);
-    const refs = mode === "t2i" ? [] : references;
-    if ((mode === "i2i" || mode === "edit") && !refs.length) {
-      setError(mode === "edit" ? "编辑至少上传 1 张参考图" : "图生图至少上传 1 张参考图");
+    const payload = buildImageStudioGenerateFields({
+      family,
+      model: civitaiModel || model,
+      mode,
+      quality,
+      aspect,
+      size,
+      seed,
+      count,
+      references,
+      loras,
+      checkpointAir,
+      negativePrompt: negative,
+      dims,
+    });
+    if (payload.error) {
+      setError(payload.error);
       return;
     }
     setBusy(`正在提交 ${card?.model || model}…`);
     setError("");
-    const loraMap = showLora
-      ? Object.fromEntries(loras.filter((item) => item.resource.trim()).map((item) => [item.resource.trim(), item.weight]))
-      : undefined;
     const jobId = startJob({
       kind: mode === "edit" ? "edit" : "image",
       prompt,
       model,
       providerId,
-      credits: (family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1) * count,
+      credits: (family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1) * payload.count,
     });
     try {
       const result = await generateStudioImage({
         relays,
         prompt,
         providerId,
-        model,
-        size: family === "ark" ? size : family === "gpt" ? (quality === "hq" ? "1536x1536" : "1024x1024") : family === "agnes" || family === "sensenova" ? aspect : size,
-        aspectRatio: aspect,
-        width: family === "civitai" || family === "grok" ? dims.width : undefined,
-        height: family === "civitai" || family === "grok" ? dims.height : undefined,
-        seed: family === "civitai" && seed ? Number(seed) : undefined,
-        imageUrl: refs[0],
-        imageUrls: refs,
-        negativePrompt: negative || undefined,
-        n: count,
+        model: civitaiModel || model,
+        size: payload.size,
+        aspectRatio: payload.aspectRatio,
+        width: payload.width,
+        height: payload.height,
+        seed: payload.seed,
+        imageUrl: payload.imageUrl,
+        imageUrls: payload.imageUrls,
+        negativePrompt: payload.negativePrompt,
+        n: payload.n,
         operation: mode === "edit" ? "edit" : "generate",
-        loras: loraMap && Object.keys(loraMap).length ? loraMap : undefined,
+        loras: payload.loras,
+        checkpointAir: payload.checkpointAir,
         workTitle: `${mode === "edit" ? "改图 · " : mode === "i2i" ? "图生图 · " : ""}${prompt}`.slice(0, 40),
       });
       setBusy("正在写入结果…");
@@ -210,8 +245,17 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   };
 
   const sendCanvas = () => {
-    dropToCanvas({ kind: urls[0] ? "image" : "prompt", url: urls[0] || undefined, prompt, model: selection, text: prompt });
-    void navigate({ to: "/canvas" });
+    const kind = urls[0] ? "image" : "prompt";
+    dropToCanvas({ kind, url: urls[0] || undefined, prompt, model: selection, text: prompt });
+    const id = pushMediaToCanvasWorkspace({
+      kind,
+      url: urls[0] || undefined,
+      urls,
+      prompt,
+      model: selection,
+      text: prompt,
+    });
+    void navigate({ to: "/canvas/workspace", search: { id } });
   };
 
   const unitCost = family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1;
@@ -226,8 +270,8 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
           ? mode === "edit"
             ? "没有可编辑模型。确认 Qwen-Image-Edit 或 FLUX.2-dev 已接线。"
             : "没有可选手模型"
-          : (mode === "i2i" || mode === "edit") && !references.length
-            ? "先上传 1–3 张参考图"
+          : generateBlockReason
+            ? generateBlockReason
             : selectedLive && !selectedLive.wired
               ? `${card?.model || "该模型"} 待接线，换一个已填密钥的，或去设置填 Key`
               : remaining < creditCost
@@ -239,7 +283,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       ? { kicker: "改图", title: "改图", copy: "上传 1 到 3 张要改的图，写下改哪里、留下什么。生成成功会从本账号额度扣点，失败不扣。" }
       : mode === "i2i"
         ? { kicker: "生图", title: "按图出图", copy: "参考图最多 3 张，都会送给模型，不会只传第一张。" }
-        : { kicker: "生图", title: "文生图", copy: "选模型、写想法，一次可出 1 / 2 / 4 张。" };
+        : { kicker: "生图", title: "文生图", copy: `选模型、写想法，一次可出 1–${quantityMax} 张。` };
 
   return (
     <div className="bp-page">
@@ -294,6 +338,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                 <label className="dropzone dropzone-mini">
                   <span>{references.length ? `再加一张（${references.length}/3）` : mode === "edit" ? "上传要改的图，最多 3 张" : "上传参考图，最多 3 张"}</span>
                   <input
+                    className="sr-only"
                     type="file"
                     accept="image/*"
                     multiple
@@ -311,6 +356,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
           <label className="dropzone">
             <span>可选：丢一张参考会自动切到图生图</span>
             <input
+              className="sr-only"
               type="file"
               accept="image/*"
               multiple
@@ -335,19 +381,20 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             </button>
           ))}
         </div>
-        {(family === "civitai" || family === "generic" || mode === "edit") && (
+        {showNegative ? (
           <label>
             负面提示
             <textarea rows={2} value={negative} onChange={(event) => setNegative(event.target.value)} placeholder="不要出现的内容" />
           </label>
-        )}
+        ) : null}
         <p className="studio-kicker">出图设置</p>
         <p className="cap-strip">
           {mode === "t2i" ? "文生图" : mode === "edit" ? "改图 · 参考 1–3 张" : "按图出图 · 参考 1–3 张"}
           {" · "}
           一次 {count} 张
           {showLora ? " · 可加风格插件" : ""}
-          {family === "civitai" ? " · 可填种子" : ""}
+          {showSeed ? " · 可填种子" : ""}
+          {needsCheckpoint ? " · 必填 checkpoint AIR" : ""}
           {family === "ark" ? ` · ${size}` : ` · ${quality === "eco" ? "省一点" : quality === "hq" ? "更清楚" : "普通"}`}
         </p>
         <div className="bp-params-col">
@@ -382,21 +429,32 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             </>
           )}
           <div className="studio-seg">
-            {[1, 2, 4].map((item) => (
+            {quantityOptions.map((item) => (
               <button key={item} type="button" className={count === item ? "is-active" : undefined} onClick={() => setCount(item)}>
                 {item} 张
               </button>
             ))}
           </div>
-          {family === "civitai" ? (
+          {showSeed ? (
             <label className="bp-seed">
               种子
               <input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="可空" />
             </label>
           ) : null}
+          {needsCheckpoint ? (
+            <label>
+              Checkpoint AIR
+              <input
+                value={checkpointAir}
+                onChange={(event) => setCheckpointAir(event.target.value)}
+                placeholder={civitaiCheckpointPlaceholder(civitaiModel)}
+              />
+              <small className="studio-hint">Comfy Flux1 / SDXL 必填完整 checkpoint AIR（urn:air:…）。不会编造默认值。</small>
+            </label>
+          ) : null}
           {showLora ? (
             <div className="lora-stack">
-              <p className="studio-kicker">Civitai LoRA</p>
+              <p className="studio-kicker">Civitai LoRA{loraShape === "array" ? "（array）" : ""}</p>
               {loras.map((item, index) => (
                 <div key={index} className="lora-row">
                   <input
@@ -404,7 +462,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                     onChange={(event) =>
                       setLoras((current) => current.map((row, i) => (i === index ? { ...row, resource: event.target.value } : row)))
                     }
-                    placeholder="urn:air:sdxl:lora:civitai:模型@版本"
+                    placeholder="urn:air:…:lora:civitai:<id>@<ver>"
                   />
                   <input
                     type="number"
@@ -430,12 +488,16 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                   </button>
                 </div>
               ))}
-              {loras.length < 4 ? (
+              {loras.length < 8 ? (
                 <button type="button" className="studio-ghost" onClick={() => setLoras((current) => [...current, { resource: "", weight: 1 }])}>
                   加 LoRA
                 </button>
               ) : null}
-              <small className="studio-hint">填完整 model-version AIR。SDXL / Anima / Flux1 / Krea 才提交。</small>
+              <small className="studio-hint">
+                {loraShape === "array"
+                  ? "Flux 2 Dev 会把 AIR→权重转成官方 {air,strength} array。"
+                  : "填完整 model-version AIR。仅官方支持 LoRA 的引擎会提交。"}
+              </small>
             </div>
           ) : null}
         </div>
@@ -444,7 +506,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             <span>{busy ? busy : mode === "edit" ? "开始编辑" : "生成图片"}</span>
             <small>{disabledReason || `${creditCost} 点 · 剩余 ${remaining}`}</small>
           </button>
-          {error ? <p className="studio-error">{error}</p> : null}
+          {error ? <p className="studio-error" role="alert">{error}</p> : null}
         </div>
       </aside>
       <section className="bp-right">

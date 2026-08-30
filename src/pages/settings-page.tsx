@@ -2,20 +2,21 @@
 
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { providerHasUsableCredential, type ApiRelayProvider } from "@/stores/api-relay-config";
 import { adapterForProvider, listStudioAdapters } from "@/studio/adapters";
 import { PROTOCOL_PRESETS, protocolById, type EndpointMap } from "@/studio/protocols";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { useStudioSession } from "@/studio/session";
 import { RelayModelBoard, guessCapabilities } from "@/studio/relay-models";
-import { RequireAdmin } from "@/studio/auth-gate";
 
 type WireFilter = "all" | "ready" | "template" | "paused" | "custom";
 type DeskMode = "edit" | "create";
 
-function relayState(item: { enabled?: boolean; apiKey?: string }) {
-  if (item.enabled && item.apiKey) return { label: "启用 · 已填密钥", className: "wire-state-on", filter: "ready" as const };
+function relayState(item: Pick<ApiRelayProvider, "enabled" | "apiKey" | "apiKeys" | "hasApiKey" | "baseUrl">) {
+  const hasCredential = providerHasUsableCredential(item);
+  if (item.enabled && hasCredential) return { label: "启用 · 已填密钥", className: "wire-state-on", filter: "ready" as const };
   if (item.enabled) return { label: "启用 · 待填密钥", className: "wire-state-on", filter: "template" as const };
-  if (item.apiKey) return { label: "已填密钥 · 未启用", className: "wire-state-paused", filter: "paused" as const };
+  if (hasCredential) return { label: "已填密钥 · 未启用", className: "wire-state-paused", filter: "paused" as const };
   return { label: "关闭 · 模板", className: "wire-state-off", filter: "template" as const };
 }
 
@@ -50,7 +51,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const resetRelays = useStudioSession((state) => state.resetRelays);
   const vaultStatus = useStudioSession((state) => state.vaultStatus);
   const vaultMessage = useStudioSession((state) => state.vaultMessage);
-  const [active, setActive] = useState(() => relays.find((item) => item.enabled && item.apiKey)?.id || relays[0]?.id || "");
+  const [active, setActive] = useState(() => relays.find((item) => item.enabled && providerHasUsableCredential(item))?.id || relays[0]?.id || "");
   const [mode, setMode] = useState<DeskMode>("edit");
   const [tests, setTests] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
@@ -61,10 +62,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const [pane, setPane] = useState<"list" | "editor">("list");
 
   const current = relays.find((item) => item.id === active) || relays[0];
+  const currentHasKey = current ? providerHasUsableCredential(current) : false;
   const counts = useMemo(() => {
-    const ready = relays.filter((item) => item.enabled && item.apiKey).length;
-    const paused = relays.filter((item) => item.apiKey && !item.enabled).length;
-    const template = relays.filter((item) => !item.apiKey).length;
+    const ready = relays.filter((item) => item.enabled && providerHasUsableCredential(item)).length;
+    const paused = relays.filter((item) => providerHasUsableCredential(item) && !item.enabled).length;
+    const template = relays.filter((item) => !providerHasUsableCredential(item)).length;
     const custom = relays.filter((item) => !isManagedRelayId(item.id)).length;
     return { ready, paused, template, custom, total: relays.length };
   }, [relays]);
@@ -121,7 +123,7 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
     try {
       const result = adapter.testConnection
         ? await adapter.testConnection({ provider: relay })
-        : { ok: Boolean(relay.apiKey), message: relay.apiKey ? "密钥已保存，该协议未实现独立探测" : "缺少密钥" };
+        : { ok: providerHasUsableCredential(relay), message: providerHasUsableCredential(relay) ? "密钥已保存，该协议未实现独立探测" : "缺少密钥" };
       setTests((now) => ({
         ...now,
         [id]: `${result.ok ? "通过" : "失败"} · ${Date.now() - start}ms · ${result.message}${result.models?.length ? ` · 模型 ${result.models.slice(0, 6).join(", ")}` : ""}`,
@@ -416,15 +418,21 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
               API Key
               <input
                 type={showKey ? "text" : "password"}
-                value={showKey ? current.apiKey || "" : ""}
-                onChange={(event) => setRelayKey(current.id, event.target.value)}
+                value={showKey ? current.apiKey || "" : currentHasKey ? "••••••••••••••••" : ""}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  if (!showKey && currentHasKey && /^•+$/.test(next)) return;
+                  setShowKey(true);
+                  setRelayKey(current.id, next === "••••••••••••••••" ? "" : next);
+                }}
                 autoComplete="new-password"
-                placeholder={current.apiKey ? "已保存在数据库 · 点显示密钥可查看，或直接粘贴新密钥覆盖" : "粘贴密钥，保存到账号数据库"}
+                placeholder={currentHasKey ? "已保存在服务器密钥库 · 明文不回传浏览器" : "粘贴密钥，保存到账号数据库"}
               />
             </label>
+
             <div className="result-actions">
               <button type="button" className="studio-ghost" onClick={() => setShowKey((value) => !value)}>
-                {showKey ? "隐藏密钥" : current.apiKey ? "显示密钥" : "显示输入"}
+                {showKey ? "隐藏密钥" : currentHasKey ? "编辑密钥" : "显示输入"}
               </button>
               <button type="button" className="studio-ghost" onClick={() => setRelayEnabled(current.id, !current.enabled)}>
                 {current.enabled ? "停用" : "启用"}
@@ -470,5 +478,5 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
     </div>
   );
   if (embedded) return desk;
-  return <RequireAdmin>{desk}</RequireAdmin>;
+  return desk;
 }

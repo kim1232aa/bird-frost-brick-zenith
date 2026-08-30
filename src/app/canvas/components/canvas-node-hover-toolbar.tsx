@@ -14,7 +14,7 @@ import { formatCanvasGenerationError } from "../utils/canvas-errors";
 import { ImageToolSettingsModal, type ImageToolbarSettingsTool } from "./canvas-image-toolbar-settings-modal";
 import { IMAGE_QUICK_TOOLS_STORAGE_KEY, buildImageToolbarTools, defaultImageQuickToolIds, readImageQuickToolsConfig, type ImageQuickToolId } from "./canvas-image-toolbar-tools";
 
-const HIDE_CANVAS_NODE_HOVER_TOOLBAR = true;
+const HIDE_CANVAS_NODE_HOVER_TOOLBAR = false;
 
 type CanvasNodeHoverToolbarProps = {
     node: CanvasNodeData | null;
@@ -121,7 +121,6 @@ export function CanvasNodeHoverToolbar({
     const hasImage = isImage && Boolean(node.metadata?.content);
     const hasVideo = isVideo && Boolean(node.metadata?.content);
     const hasAudio = isAudio && Boolean(node.metadata?.content);
-    if (hasImage) return null;
 
     const isText = node.type === CanvasNodeType.Text;
     const isConfig = node.type === CanvasNodeType.Config;

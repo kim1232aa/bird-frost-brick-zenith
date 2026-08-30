@@ -3,6 +3,18 @@ import type { AudioCapabilityProfileId } from "@/services/api/audio-model-capabi
 import type { ImageCapabilityProfileSelection } from "@/services/api/image-model-capabilities";
 import type { VideoCapabilityProfileId } from "@/services/api/video-model-capabilities";
 import type { RelayModelCatalogMetadataRecord } from "@/services/api/models-dev-catalog";
+import {
+    inferCapabilityFromModelName,
+    isAudioModelName,
+    isImageModelName,
+    isTextModelName,
+    isVideoModelName,
+} from "./api-relay-model-inference";
+
+export {
+    inferCapabilityFromModelName,
+    isHappyHorseVideoModelName,
+} from "./api-relay-model-inference";
 
 export type ApiCapability = "text" | "image" | "video" | "audio";
 export type ApiRouteSource = "platform" | "localPool" | "relay";
@@ -16,9 +28,10 @@ export type ApiPlatformBoardModelRouting = Record<ApiBoardRouteKey, ApiPlatformB
 export type ApiRelayAdvanced = { allowCustomModel: boolean; defaultTimeoutMs: number; showDisabledProviders: boolean };
 export type ApiRelayProxyMode = "direct" | "custom";
 export type ApiRelayProvider = {
-    id: string; name: string; baseUrl: string; apiKey: string; apiKeyId?: string;
+    id: string; name: string; baseUrl: string; apiKey: string; hasApiKey?: boolean; apiKeyId?: string;
     apiKeys?: string[]; apiKeyIds?: string[]; adapterType?: string;
     proxyMode: ApiRelayProxyMode; proxyUrl: string;
+    runnableCapabilities?: ApiCapability[];
     videoCapabilityProfiles?: Record<string, VideoCapabilityProfileId>;
     audioCapabilityProfiles?: Record<string, AudioCapabilityProfileId>;
     imageCapabilityProfiles?: Record<string, ImageCapabilityProfileSelection>;
@@ -28,7 +41,7 @@ export type ApiRelayProvider = {
     allowMatureContent?: boolean; civitaiMaturePolicyVersion?: number;
     timeoutOverrideMs?: number; timeoutMs: number; remark: string;
     createdAt: string; updatedAt: string;
-    endpoints?: { chat?: string; images?: string; videosCreate?: string; videosPoll?: string; models?: string; test?: string };
+    endpoints?: { chat?: string; images?: string; videosCreate?: string; videosPoll?: string; audio?: string; models?: string; test?: string };
     authScheme?: "Bearer" | "Key" | "x-api-key"; protocol?: string;
 };
 export type ResolvedCapabilityRoute = { provider: ApiRelayProvider; capability: ApiCapability; model: string };
@@ -87,25 +100,6 @@ export function normalizeModelList(models: string[]) {
 }
 export function mergeModelLists(...lists: string[][]) { return normalizeModelList(lists.flat()); }
 export function normalizeApiKeyInput(value: string) { return normalizeProviderKeyInput(value); }
-export function isHappyHorseVideoModelName(model: string) { return model.trim().toLowerCase().includes("happyhorse"); }
-function isVideoModelName(model: string) {
-    const value = model.toLowerCase();
-    if (value.includes("imagine-image") || value.includes("imagine-edit")) return false;
-    return value.includes("seedance") || value.includes("video") || value.includes("sora") || value.includes("veo") || value.includes("kling") || value.includes("wan") || value.includes("hailuo") || value.includes("imagine-video") || isHappyHorseVideoModelName(value);
-}
-function isAudioModelName(model: string) {
-    const value = model.toLowerCase();
-    return value.includes("audio") || value.includes("tts") || value.includes("speech") || value.includes("voice") || value.includes("music") || value.includes("sound");
-}
-function isImageModelName(model: string) {
-    const value = model.toLowerCase();
-    return !isVideoModelName(model) && !isAudioModelName(model) && (value.includes("seedream") || value.includes("gpt-image") || value.includes("image") || value.includes("dall-e") || value.includes("dalle") || value.includes("imagen") || value.includes("flux") || value.includes("sdxl") || value.includes("stable-diffusion") || value.includes("midjourney"));
-}
-function isTextModelName(model: string) {
-    if (isImageModelName(model) || isVideoModelName(model) || isAudioModelName(model)) return false;
-    const value = model.trim().toLowerCase();
-    return /(^|[/_.-])(gpt|chatgpt|claude|gemini|qwen|deepseek|llama|mistral|mixtral|command|grok|glm|kimi|minimax|doubao|ernie|yi|phi|o[134])([/_.-]|$)/u.test(value) || value.includes("chat") || value.includes("instruct") || value.includes("reasoning");
-}
 export function isLegacyGrokTextModelName(model: string) {
     const value = model.trim().toLowerCase();
     return value.startsWith("grok-") && !isVideoModelName(value) && !isImageModelName(value) && !isAudioModelName(value);
@@ -121,10 +115,7 @@ export function filterModelsByCapability(models: string[], capability?: ApiCapab
     return capability ? normalizeModelList(models).filter((model) => modelMatchesCapability(model, capability)) : normalizeModelList(models);
 }
 export function inferCapabilityFromModel(model: string): ApiCapability {
-    if (isImageModelName(model)) return "image";
-    if (isVideoModelName(model)) return "video";
-    if (isAudioModelName(model)) return "audio";
-    return "text";
+    return inferCapabilityFromModelName(model);
 }
 export function inferCapabilitiesFromModels(models: string[]): ApiCapability[] {
     const inferred = new Set<ApiCapability>();
@@ -134,6 +125,12 @@ export function inferCapabilitiesFromModels(models: string[]): ApiCapability[] {
 export function normalizeCapabilities(capabilities: ApiCapability[]) {
     const values = new Set(capabilities.filter((capability): capability is ApiCapability => API_CAPABILITIES.includes(capability)));
     return API_CAPABILITIES.filter((capability) => values.has(capability));
+}
+export function providerCapabilityIsRunnable(
+    provider: Pick<ApiRelayProvider, "runnableCapabilities">,
+    capability: ApiCapability,
+) {
+    return !Array.isArray(provider.runnableCapabilities) || provider.runnableCapabilities.includes(capability);
 }
 export function shouldUsePlatformAccountPool(capability: ApiCapability, model: string) {
     return capability === "image" && model.trim().toLowerCase() === "gpt-image-2";
@@ -152,7 +149,7 @@ export function providersForCapability(providers: ApiRelayProvider[], capability
 export function modelBelongsToProvider(provider: ApiRelayProvider, capability: ApiCapability, model?: string) {
     const cleanModel = String(model || "").trim();
     if (!cleanModel) return false;
-    return providerModelsForCapability(provider, capability).includes(cleanModel);
+    return modelMatchesAllowedModel(cleanModel, providerModelsForCapability(provider, capability));
 }
 function normalizeModelMatchKey(model: string) {
     return String(model || "").trim().toLowerCase().replace(/[._]+/g, "-").replace(/-+/g, "-");

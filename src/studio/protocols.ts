@@ -1,12 +1,13 @@
 import type { StudioAdapterId } from "./adapters/types";
 
-export type ProtocolId = StudioAdapterId;
+export type ProtocolId = StudioAdapterId | "openai-official";
 
 export type EndpointMap = {
   chat?: string;
   images?: string;
   videosCreate?: string;
   videosPoll?: string;
+  audio?: string;
   models?: string;
   test?: string;
 };
@@ -27,8 +28,8 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
     id: "openai-compat",
     label: "OpenAI 兼容",
     docs: "https://platform.openai.com/docs/api-reference/images",
-    blurb: "Chat Completions + Images Generations。中转站（SuperXihe 等）用这个。",
-    defaultBaseUrl: "https://api.openai.com/v1",
+    blurb: "Chat Completions + Images Generations。中转站（SuperXihe 等）用这个。官方 api.openai.com 请用 OpenAI 官方预设，不要把兼容体打到官方 host。",
+    defaultBaseUrl: "https://api.example.com/v1",
     authScheme: "Bearer",
     endpoints: {
       chat: "/chat/completions",
@@ -39,6 +40,23 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
       test: "/models",
     },
     exampleModels: ["gpt-image-2", "gpt-4.1"],
+  },
+  {
+    id: "openai-official",
+    label: "OpenAI 官方",
+    docs: "https://developers.openai.com/api/reference/typescript/resources/videos/methods/create",
+    blurb: "官方 api.openai.com。视频 POST /videos，使用 seconds、size、input_reference；不要把官方协议当作 OpenAI 兼容中转。",
+    defaultBaseUrl: "https://api.openai.com/v1",
+    authScheme: "Bearer",
+    endpoints: {
+      chat: "/chat/completions",
+      images: "/images/generations",
+      videosCreate: "/videos",
+      videosPoll: "/videos/{id}",
+      models: "/models",
+      test: "/models",
+    },
+    exampleModels: ["gpt-image-2", "sora-2"],
   },
   {
     id: "xai-imagine",
@@ -75,15 +93,15 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
   {
     id: "civitai",
     label: "Civitai Orchestration",
-    docs: "https://developer.civitai.com/docs/api/orchestration",
-    blurb: "官方 recipes：POST /imageGen、/videoGen。Base 是 orchestration.civitai.com/v2/consumer/recipes。",
-    defaultBaseUrl: "https://orchestration.civitai.com/v2/consumer/recipes",
+    docs: "https://developer.civitai.com/orchestration/guide/submitting-work",
+    blurb: "官方通用 workflows 提交图片/视频步骤；Base 是 orchestration.civitai.com/v2/consumer，提交和轮询都走 /workflows。",
+    defaultBaseUrl: "https://orchestration.civitai.com/v2/consumer",
     authScheme: "Bearer",
     endpoints: {
-      images: "/imageGen?wait=1",
-      videosCreate: "/videoGen?wait=0",
-      videosPoll: "/jobs/{id}",
-      test: "/imageGen?wait=0",
+      images: "/workflows",
+      videosCreate: "/workflows",
+      videosPoll: "/workflows/{id}",
+      test: "/workflows",
     },
     exampleModels: ["krea2-turbo", "flux1", "sdxl"],
   },
@@ -99,6 +117,7 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
       images: "/api/v1/services/aigc/multimodal-generation/generation",
       videosCreate: "/api/v1/services/aigc/video-generation/video-synthesis",
       videosPoll: "/api/v1/tasks/{id}",
+      audio: "/api/v1/services/audio/tts/SpeechSynthesizer",
       test: "/api/v1/services/aigc/text2image/image-synthesis",
     },
     exampleModels: ["qwen-plus", "qwen-image-plus", "wan2.6-t2v"],
@@ -119,13 +138,15 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
   {
     id: "agnes",
     label: "Agnes AI",
-    docs: "https://agnes-ai.com",
-    blurb: "原版槽位。OpenAI 兼容聊天与生图。",
-    defaultBaseUrl: "https://api.agnes-ai.com/v1",
+    docs: "https://agnes-ai.com/en/docs/overview",
+    blurb: "官方 apihub OpenAI 风格接口。聊天/生图走兼容路径，视频创建走 /videos，结果查询走 /agnesapi?video_id=。",
+    defaultBaseUrl: "https://apihub.agnes-ai.com/v1",
     authScheme: "Bearer",
     endpoints: {
       chat: "/chat/completions",
       images: "/images/generations",
+      videosCreate: "/videos",
+      videosPoll: "/agnesapi?video_id={id}",
       models: "/models",
       test: "/models",
     },

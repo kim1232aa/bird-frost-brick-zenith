@@ -674,12 +674,12 @@ const VIDEO_CAPABILITY_PROFILES = defineVideoCapabilityProfiles({
         provider: "openai",
         label: "xAI Grok Imagine Video",
         supportsFirstFrame: true,
-        supportsFirstLastFrame: true,
-        referenceImagePolicy: { supported: true, min: 1, max: 5 },
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: true, min: 1, max: 7 },
         storyAutoReferencePolicy: "current-shot",
-        supportsReferenceSetWithFirst: true,
-        supportsReferenceSetWithFrames: true,
-        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
+        supportsReferenceSetWithFirst: false,
+        supportsReferenceSetWithFrames: false,
+        supportedOperations: ["text-to-video", "image-to-video", "reference-to-video"],
         intentPolicy: "frames-or-reference-set",
     },
 });
@@ -751,7 +751,9 @@ const OPENAI_VIDEO_EVIDENCE = [
     "https://developers.openai.com/api/reference/resources/videos/methods/create (verified 2026-08-03)",
 ] as const;
 const XAI_IMAGINE_VIDEO_EVIDENCE = [
-    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-28; duration 1–15, aspect_ratio, resolution 480p/720p/1080p)",
+    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-30; duration 1–15, aspect_ratio, resolution 480p/720p/1080p, generate_audio=false for silent output)",
+    "https://docs.x.ai/developers/model-capabilities/video/image-to-video (verified 2026-08-30; image is the generated video's starting frame)",
+    "https://docs.x.ai/developers/model-capabilities/video/reference-to-video (verified 2026-08-30; up to 7 reference images and no first-frame lock)",
 ] as const;
 const DASHSCOPE_WAN27_I2V_EVIDENCE = [
     "https://help.aliyun.com/en/model-studio/image-to-video-general-api-reference (verified 2026-08-03)",
@@ -845,28 +847,38 @@ const OPENAI_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
     },
 );
 
-const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
-    "xai:imagine-video",
-    XAI_IMAGINE_VIDEO_EVIDENCE,
-    "unsupported",
-    {
-        duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", {
-            enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-            defaultValue: 8,
-            integer: true,
-            minimum: 1,
-            maximum: 15,
-        }),
-        resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", {
-            enumValues: ["480p", "720p", "1080p"],
-            defaultValue: "720p",
-        }),
-        aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", {
-            enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
-            defaultValue: "16:9",
-        }),
-    },
-);
+function xaiImagineVideoGenerationParameters(includeAudio: boolean) {
+    return makeVideoGenerationParameterContract(
+        "xai:imagine-video",
+        XAI_IMAGINE_VIDEO_EVIDENCE,
+        "unsupported",
+        {
+            duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", {
+                enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                defaultValue: 8,
+                integer: true,
+                minimum: 1,
+                maximum: 15,
+            }),
+            resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", {
+                enumValues: ["480p", "720p", "1080p"],
+                defaultValue: "720p",
+            }),
+            aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", {
+                enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                defaultValue: "16:9",
+            }),
+            ...(includeAudio
+                ? {
+                    audio: supportedParameter("boolean", "generate_audio", "是否生成音轨；false 时请求静音视频（仅 grok-imagine-video-1.5）", { defaultValue: true }),
+                }
+                : {}),
+        },
+    );
+}
+
+const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(false);
+const XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(true);
 
 const DASHSCOPE_SEED = supportedParameter("integer", "seed", "随机种子 0..2147483647", { minimum: 0, maximum: 2_147_483_647, integer: true });
 const DASHSCOPE_WATERMARK = supportedParameter("boolean", "watermark", "是否添加 provider 水印");
@@ -2149,6 +2161,11 @@ function isExactOpenAiVideoModel(model: string) {
     return OPENAI_VIDEO_MODEL_KEYS.has(normalizeModelKey(model));
 }
 
+function isXaiImagineVideo15Model(model: string) {
+    const normalized = normalizeModelKey(model);
+    return normalized === "grok-imagine-video-1-5" || normalized === "grok-imagine-video-1-5-preview";
+}
+
 const OPENAI_VIDEO_MODEL_KEYS = new Set([
     "sora-2",
     "sora-2-pro",
@@ -2193,13 +2210,34 @@ function resolvedCivitaiProfile(model: string, provider: VideoCapabilityProvider
 
 function resolvedProfile(id: VideoCapabilityProfileId, model: string, provider: VideoCapabilityProvider | undefined, profileConfigured: boolean): ResolvedVideoModelCapability {
     const profile = VIDEO_CAPABILITY_PROFILES[id];
-    return {
+    const capability = {
         ...profile,
         model,
         providerLabel: String(provider?.displayName || provider?.name || "").trim() || profile.label,
         profileConfigured,
         generationParameters: videoGenerationParametersForModel(profile.provider, model),
     };
+    if (capability.id !== "xai-imagine-video" || isOfficialXaiProvider(provider)) return capability;
+    // The official profile is intentionally strict. Existing xAI-compatible
+    // relays expose a legacy first/last-frame wire, so keep that route-specific
+    // capability without weakening the api.x.ai contract.
+    return {
+        ...capability,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: true, min: 1, max: 5 },
+        supportsReferenceSetWithFirst: true,
+        supportsReferenceSetWithFrames: true,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
+    };
+}
+
+function isOfficialXaiProvider(provider: VideoCapabilityProvider | undefined) {
+    const baseUrl = String(provider?.baseUrl || "").trim();
+    try {
+        return new URL(baseUrl).hostname.toLowerCase() === "api.x.ai";
+    } catch {
+        return false;
+    }
 }
 
 function videoGenerationParametersForModel(provider: VideoCapabilityProfile["provider"], model: string): VideoGenerationParameterContract {
@@ -2211,7 +2249,9 @@ function videoGenerationParametersForModel(provider: VideoCapabilityProfile["pro
     }
     if (provider === "openai") {
         if (/grok-imagine-video/i.test(model) || normalized.includes("grok-imagine-video")) {
-            return XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
+            return isXaiImagineVideo15Model(model)
+                ? XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS
+                : XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
         }
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);
     }

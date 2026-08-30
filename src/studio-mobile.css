@@ -9,6 +9,45 @@
   body,
   #app {
     overflow-x: hidden;
+    max-width: 100%;
+  }
+
+  /* Do not use `* { max-width: 100% }` — it shrinks canvas/react-flow nodes,
+     SVG edges, transformed media, and can collapse overlaid file controls. */
+  .studio-page,
+  .bp-work,
+  .bench,
+  .wire-desk,
+  .acct-page,
+  .login-card,
+  .home-hero,
+  .bp-left,
+  .bench-side,
+  .bp-right,
+  .story-board,
+  .wire-list,
+  .wire-editor {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+  }
+
+  .studio-root.is-canvas,
+  .studio-root.is-canvas img,
+  .studio-root.is-canvas video,
+  .react-flow,
+  .react-flow img,
+  .react-flow video,
+  .flow-board,
+  .flow-board img,
+  .flow-board video,
+  input[type="file"],
+  .sr-only {
+    max-width: none;
   }
 
   .studio-topbar {
@@ -19,19 +58,26 @@
   }
 
   .studio-brand {
-    min-height: 44px;
+    min-height: 48px;
     font-size: 15px;
   }
 
-  .studio-credits,
   .studio-top-actions .studio-ghost {
     display: none !important;
   }
 
+  .studio-credits {
+    max-width: 88px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
   .studio-userchip {
     max-width: 96px;
-    min-height: 36px;
-    padding: 6px 10px;
+    min-height: 48px;
+    padding: 8px 10px;
     font-size: 12px;
   }
 
@@ -46,9 +92,10 @@
 
   .studio-menu-btn {
     display: inline-flex !important;
-    width: 44px;
-    height: 44px;
-    min-width: 44px;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
   }
 
   .studio-drawer {
@@ -90,6 +137,7 @@
     padding: 16px 14px 12px;
     border-right: 0;
     border-bottom: 1px solid var(--bp-border, #e2e8f0);
+    scroll-padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 
   .bp-left h1 {
@@ -111,6 +159,7 @@
 
   .model-picker select,
   .model-picker input,
+  .model-menu-trigger,
   .bp-left textarea,
   .bp-left input:not([type="checkbox"]):not([type="file"]),
   .bp-left select,
@@ -122,7 +171,8 @@
   .acct-card select,
   .acct-card textarea,
   .login-card input {
-    min-height: 44px;
+    min-height: 48px;
+    height: auto;
     font-size: 16px !important;
   }
 
@@ -152,18 +202,26 @@
   .chip-row button,
   .studio-seg button,
   .wire-filters button,
-  .aspect-grid button {
+  .aspect-grid button,
+  .studio-primary,
+  .bp-cta .studio-ghost {
     flex: none;
-    min-height: 40px;
-    padding: 8px 14px;
+    min-height: 48px;
+    padding: 10px 14px;
+  }
+
+  .bp-left,
+  .bench-side,
+  .story-board {
+    padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
   }
 
   .bp-cta {
     position: sticky;
     bottom: 0;
     z-index: 15;
-    margin: 8px -14px -12px;
-    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    margin: 8px -14px 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
     background: #fff;
     border-top: 1px solid var(--bp-border, #e2e8f0);
   }
@@ -202,6 +260,8 @@
     grid-template-columns: 1fr;
     margin: 0;
     min-height: 0;
+    max-height: none;
+    overflow: visible;
   }
 
   .wire-list {
@@ -229,7 +289,7 @@
   .wire-add-btn,
   .wire-item,
   .wire-item-del {
-    min-height: 44px;
+    min-height: 48px;
   }
 
   .wire-row {
@@ -246,7 +306,7 @@
   }
 
   .wire-model-caps label {
-    min-height: 36px;
+    min-height: 48px;
     font-size: 13px;
   }
 
@@ -288,7 +348,7 @@
   .result-actions button,
   .acct-alt a,
   .acct-alt button {
-    min-height: 44px;
+    min-height: 48px;
     flex: 1 1 calc(50% - 8px);
   }
 

@@ -29,7 +29,6 @@ type AccountState = {
   login: (input: { username: string; password: string }) => Promise<StudioAccountProfile>;
   continueAsGuest: () => void;
   logout: () => void;
-  loginDemoAdmin: () => Promise<StudioAccountProfile>;
   updateProfile: (patch: Partial<Pick<StudioAccountProfile, "displayName" | "email">>) => void;
 };
 
@@ -145,11 +144,6 @@ async function runBootstrap() {
     useAccountStore.setState({ hydrated: true });
     return;
   }
-  try {
-    await useAccountStore.getState().login({ username: DEMO_ADMIN.username, password: DEMO_ADMIN.password });
-  } catch {
-    /* keep unlogged if seed failed */
-  }
   useAccountStore.setState({ hydrated: true });
 }
 
@@ -199,7 +193,6 @@ export const useAccountStore = create<AccountState>()(
       },
       continueAsGuest: () => set({ session: null, isGuest: true, skipAutoLogin: true, hydrated: true }),
       logout: () => set({ session: null, isGuest: false, skipAutoLogin: true, hydrated: true }),
-      loginDemoAdmin: async () => get().login({ username: DEMO_ADMIN.username, password: DEMO_ADMIN.password }),
       updateProfile: (patch) => {
         const session = get().session;
         if (!session) return;

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { providerCanRunCapability } from "@/stores/api-relay-config";
 import { catalogKey, cardsFromRelays, STUDIO_CATALOG, type ModelCard } from "./catalog";
 import { useStudioSession } from "./session";
 
@@ -138,7 +139,7 @@ export function liveCard(card: ModelCard): ModelCard {
   const relays = useStudioSession.getState().relays;
   const key = catalogKey(card);
   const relay = relays.find((item) => item.id === card.providerId);
-  const wired = Boolean(relay?.enabled && relay.apiKey);
+  const wired = Boolean(relay && providerCanRunCapability(relay, card.kind));
   const points = ops.points[key] ?? defaultPoints(card);
   return {
     ...card,

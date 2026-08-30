@@ -1,10 +1,10 @@
-import type { StudioAdapter } from "./types";
-import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import type { ImageGenInput, StudioAdapter, VideoCreateInput, VideoPollResult } from "./types.ts";
+import { collectImageRefs } from "../image-refs.ts";
 
 type Extra = {
   imageUrl?: string;
   imageUrls?: string[];
+  lastFrameUrl?: string;
   width?: number;
   height?: number;
   seed?: number;
@@ -12,6 +12,27 @@ type Extra = {
   quantity?: number;
   n?: number;
   loras?: Record<string, number> | Readonly<Record<string, number>>;
+  checkpointAir?: string;
+  aspectRatio?: string;
+  duration?: number;
+  fps?: number;
+  strength?: number;
+  generateAudio?: boolean;
+};
+
+export type CivitaiImagePlanInput = ImageGenInput & {
+  checkpointAir?: string;
+  whatif?: boolean;
+  quantity?: number;
+  allowMatureContent?: boolean;
+};
+
+export type CivitaiVideoPlanInput = VideoCreateInput & {
+  loras?: Extra["loras"];
+  whatif?: boolean;
+  width?: number;
+  height?: number;
+  allowMatureContent?: boolean;
 };
 
 export type CivitaiEngine = {
@@ -23,16 +44,163 @@ export type CivitaiEngine = {
   body: (prompt: string, extra?: Extra) => Record<string, unknown>;
 };
 
-function refsOf(extra?: Extra) {
-  return [...(extra?.imageUrls || []), ...(extra?.imageUrl ? [extra.imageUrl] : [])].filter(Boolean).slice(0, 3);
+type CivitaiPlannedRequest = {
+  path: string;
+  body: ReturnType<typeof workflowBody>;
+  timeoutMs: number;
+  baseUrl: string;
+};
+
+function extraRefs(extra?: Extra, max?: number) {
+  return collectImageRefs({ imageUrl: extra?.imageUrl, imageUrls: extra?.imageUrls }, max);
 }
 
-function qty(extra?: Extra) {
-  return Math.max(1, Math.min(4, extra?.quantity || extra?.n || 1));
+function qty(extra: Extra | undefined, max: number) {
+  const raw = extra?.quantity ?? extra?.n ?? 1;
+  const n = typeof raw === "number" && Number.isFinite(raw) ? Math.floor(raw) : 1;
+  return Math.max(1, Math.min(max, n));
 }
 
-function loraPatch(extra?: Extra) {
-  return extra?.loras && Object.keys(extra.loras).length ? { loras: extra.loras } : {};
+function hasLoras(extra?: Extra) {
+  return Boolean(extra?.loras && Object.keys(extra.loras).length);
+}
+
+/**
+ * Official LoRA wire fields from live OpenAPI (`ImageGenInputLora` / `VideoGenInputLora`
+ * and map `additionalProperties: number`): AIR → strength only.
+ * No `weight`, `clipStrength`, `type`, or nested objects.
+ * https://orchestration.civitai.com/openapi/v2-consumers.json
+ * https://developer.civitai.com/orchestration/recipes/flux2
+ */
+function officialLoraEntries(extra?: Extra): Array<[string, number]> {
+  if (!extra?.loras) return [];
+  const entries: Array<[string, number]> = [];
+  for (const [rawAir, strength] of Object.entries(extra.loras)) {
+    const air = String(rawAir || "").trim();
+    if (!air) throw new Error("Civitai LoRA 需要 AIR URN（urn:air:…:lora:…），不会编造");
+    if (typeof strength !== "number" || !Number.isFinite(strength)) {
+      throw new Error("Civitai LoRA 只支持 strength 数字，不支持 weight/clipStrength");
+    }
+    entries.push([air, strength]);
+  }
+  return entries;
+}
+
+function loraMapPatch(extra?: Extra) {
+  const entries = officialLoraEntries(extra);
+  return entries.length ? { loras: Object.fromEntries(entries) } : {};
+}
+
+/** Flux 2 Dev: `loras[]` of `{ air, strength }` with ImageGenInputLora.strength 0–4. Hunyuan: same keys, no official max. */
+function loraArrayPatch(extra?: Extra, kind: "image" | "video" = "image") {
+  const entries = officialLoraEntries(extra);
+  if (!entries.length) return {};
+  return {
+    loras: entries.map(([air, strength]) => {
+      if (kind === "image" && (strength < 0 || strength > 4)) {
+        throw new Error(`Civitai LoRA strength 仅支持 0–4（ImageGenInputLora），收到 ${strength}`);
+      }
+      return { air, strength };
+    }),
+  };
+}
+
+function rejectLoras(label: string, extra?: Extra) {
+  if (hasLoras(extra)) throw new Error(`${label} 不支持 LoRA`);
+}
+
+function requireCheckpointAir(label: string, extra?: Extra) {
+  const air = String(extra?.checkpointAir || "").trim();
+  if (!air) throw new Error(`${label} 需要 checkpoint AIR（urn:air:…），不会编造 AIR`);
+  return air;
+}
+
+function comfyCheckpointBody(
+  ecosystem: "flux1" | "sdxl",
+  label: string,
+  prompt: string,
+  extra: Extra | undefined,
+  withNegativePrompt: boolean,
+) {
+  const refs = extraRefs(extra);
+  if (refs.length > 1) {
+    throw new Error(`${label} 的 createVariant 只用 1 张参考图`);
+  }
+  const image = refs[0];
+  return {
+    engine: "comfy",
+    ecosystem,
+    model: requireCheckpointAir(label, extra),
+    operation: image ? "createVariant" : "createImage",
+    prompt,
+    width: extra?.width || 1024,
+    height: extra?.height || 1024,
+    quantity: qty(extra, 12),
+    ...(withNegativePrompt && extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+    ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+    ...(image ? { image } : {}),
+    ...(image && typeof extra?.strength === "number" ? { denoiseStrength: extra.strength } : {}),
+    ...loraMapPatch(extra),
+  };
+}
+
+function flux2Body(model: "klein" | "pro" | "dev", prompt: string, extra?: Extra) {
+  if (model === "pro") rejectLoras("Flux 2 Pro", extra);
+  const refs = extraRefs(extra, model === "klein" ? 2 : undefined);
+  const loras = model === "dev" ? loraArrayPatch(extra) : model === "klein" ? loraMapPatch(extra) : {};
+  return {
+    engine: "flux2",
+    model,
+    operation: refs.length ? "editImage" : "createImage",
+    prompt,
+    width: extra?.width || 1024,
+    height: extra?.height || 1024,
+    quantity: qty(extra, 4),
+    ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+    ...(model === "klein" && extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+    ...(refs.length ? { images: refs } : {}),
+    ...loras,
+  };
+}
+
+/**
+ * Civitai's live OpenAPI exposes a separate Krea 2 Comfy edit model:
+ * model `edit`, operation `editImage`, and 1–2 `images`.
+ * https://orchestration.civitai.com/openapi/v2-consumers.json
+ */
+function krea2Body(model: "turbo" | "raw", prompt: string, extra?: Extra) {
+  const refs = extraRefs(extra);
+  if (refs.length) {
+    const editRefs = extraRefs(extra, 2);
+    return {
+      engine: "comfy",
+      ecosystem: "krea2",
+      model: "edit",
+      operation: "editImage",
+      prompt,
+      width: extra?.width || 1024,
+      height: extra?.height || 1024,
+      quantity: qty(extra, 4),
+      ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+      ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+      images: editRefs,
+      ...loraMapPatch(extra),
+    };
+  }
+  return {
+    engine: "comfy",
+    ecosystem: "krea2",
+    model,
+    operation: "createImage",
+    prompt,
+    width: extra?.width || 1024,
+    height: extra?.height || 1024,
+    quantity: qty(extra, 12),
+    ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+    ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+    imageMetadata: JSON.stringify({ app: "boundless-studio", engine: `krea2-${model}` }),
+    ...loraMapPatch(extra),
+  };
 }
 
 export const CIVITAI_ENGINES: CivitaiEngine[] = [
@@ -42,21 +210,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Comfy"],
-    body: (prompt, extra) => ({
-      engine: "comfy",
-      ecosystem: "krea2",
-      model: "turbo",
-      operation: "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
-      ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
-      imageMetadata: JSON.stringify({ app: "boundless-studio", engine: "krea2-turbo" }),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => krea2Body("turbo", prompt, extra),
   },
   {
     id: "krea2-raw",
@@ -64,19 +218,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Comfy"],
-    body: (prompt, extra) => ({
-      engine: "comfy",
-      ecosystem: "krea2",
-      model: "raw",
-      operation: "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      imageMetadata: JSON.stringify({ app: "boundless-studio", engine: "krea2-raw" }),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => krea2Body("raw", prompt, extra),
   },
   {
     id: "flux1",
@@ -84,17 +226,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Flux"],
-    body: (prompt, extra) => ({
-      engine: "comfy",
-      ecosystem: "flux1",
-      operation: "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => comfyCheckpointBody("flux1", "Flux 1", prompt, extra, false),
   },
   {
     id: "flux2-klein",
@@ -102,16 +234,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Flux2", "便宜", "编辑"],
-    body: (prompt, extra) => ({
-      engine: "flux2",
-      model: "klein",
-      operation: refsOf(extra).length ? "editImage" : "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => flux2Body("klein", prompt, extra),
   },
   {
     id: "flux2-pro",
@@ -119,16 +242,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Flux2", "编辑"],
-    body: (prompt, extra) => ({
-      engine: "flux2",
-      model: "pro",
-      operation: refsOf(extra).length ? "editImage" : "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => flux2Body("pro", prompt, extra),
   },
   {
     id: "z-image-turbo",
@@ -136,18 +250,24 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Z-Image"],
-    body: (prompt, extra) => ({
-      engine: "sdcpp",
-      ecosystem: "z-image",
-      model: "turbo",
-      operation: refsOf(extra).length ? "createVariant" : "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => {
+      if (extraRefs(extra).length) {
+        throw new Error("Z-Image 仅支持 createImage，不接受参考图，不能使用 createVariant。");
+      }
+      return {
+        engine: "sdcpp",
+        ecosystem: "zImage",
+        model: "turbo",
+        operation: "createImage",
+        prompt,
+        width: extra?.width || 1024,
+        height: extra?.height || 1024,
+        quantity: qty(extra, 12),
+        ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+        ...loraMapPatch(extra),
+      };
+    },
   },
   {
     id: "civitai-grok",
@@ -155,14 +275,20 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Grok", "编辑"],
-    body: (prompt, extra) => ({
-      engine: "grok",
-      operation: refsOf(extra).length ? "editImage" : "createImage",
-      prompt,
-      ...(extra?.width ? { width: extra.width } : {}),
-      ...(extra?.height ? { height: extra.height } : {}),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => {
+      rejectLoras("Grok Image", extra);
+      const refs = extraRefs(extra, 3);
+      const create = refs.length === 0;
+      return {
+        engine: "grok",
+        version: "v1.0",
+        operation: create ? "createImage" : "editImage",
+        prompt,
+        quantity: qty(extra, 4),
+        ...(create && extra?.aspectRatio ? { aspectRatio: extra.aspectRatio } : {}),
+        ...(refs.length ? { images: refs } : {}),
+      };
+    },
   },
   {
     id: "flux2-dev",
@@ -170,16 +296,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Flux2", "编辑"],
-    body: (prompt, extra) => ({
-      engine: "flux2",
-      model: "dev",
-      operation: refsOf(extra).length ? "editImage" : "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => flux2Body("dev", prompt, extra),
   },
   {
     id: "sdxl",
@@ -187,18 +304,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "SDXL", "LoRA"],
-    body: (prompt, extra) => ({
-      engine: "comfy",
-      ecosystem: "sdxl",
-      operation: "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => comfyCheckpointBody("sdxl", "SDXL", prompt, extra, true),
   },
   {
     id: "anima",
@@ -206,17 +312,24 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "动漫", "LoRA"],
-    body: (prompt, extra) => ({
-      engine: "comfy",
-      ecosystem: "anima",
-      operation: "createImage",
-      prompt,
-      width: extra?.width || 1024,
-      height: extra?.height || 1024,
-      quantity: qty(extra),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-      ...loraPatch(extra),
-    }),
+    body: (prompt, extra) => {
+      const refs = extraRefs(extra);
+      if (refs.length) {
+        throw new Error("Anima 仅支持 createImage，不接受参考图。请改用 Flux 2 Klein 或 Qwen 做编辑。");
+      }
+      return {
+        engine: "sdcpp",
+        ecosystem: "anima",
+        operation: "createImage",
+        prompt,
+        width: extra?.width || 1024,
+        height: extra?.height || 1024,
+        quantity: qty(extra, 12),
+        ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+        ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...loraMapPatch(extra),
+      };
+    },
   },
   {
     id: "qwen-3.0-pro",
@@ -224,13 +337,24 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Qwen", "编辑"],
-    body: (prompt, extra) => ({
-      engine: "qwen",
-      model: "3.0-pro",
-      operation: refsOf(extra).length ? "editImage" : "createImage",
-      prompt,
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => {
+      rejectLoras("Qwen 3.0 Pro", extra);
+      const refs = extraRefs(extra, 3);
+      return {
+        engine: "qwen",
+        model: "3.0-pro",
+        operation: refs.length ? "editImage" : "createImage",
+        prompt,
+        width: extra?.width || 1024,
+        height: extra?.height || 1024,
+        quantity: qty(extra, 6),
+        // Official default is true and dominates latency (11s off vs 98s on for 3.0-pro).
+        // https://developer.civitai.com/orchestration/recipes/qwen
+        promptExtend: false,
+        ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...(refs.length ? { images: refs } : {}),
+      };
+    },
   },
   {
     id: "seedream-4.5",
@@ -238,16 +362,21 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Seedream"],
-    body: (prompt, extra) => ({
-      engine: "seedream",
-      version: "v4.5",
-      prompt,
-      enableSafetyChecker: false,
-      quantity: qty(extra),
-      ...(extra?.width ? { width: extra.width } : {}),
-      ...(extra?.height ? { height: extra.height } : {}),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => {
+      rejectLoras("Seedream", extra);
+      const refs = extraRefs(extra, 10);
+      return {
+        engine: "seedream",
+        version: "v4.5",
+        prompt,
+        enableSafetyChecker: false,
+        quantity: qty(extra, 12),
+        ...(extra?.width ? { width: extra.width } : {}),
+        ...(extra?.height ? { height: extra.height } : {}),
+        ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...(refs.length ? { images: refs } : {}),
+      };
+    },
   },
   {
     id: "seedream-5.0-pro",
@@ -255,16 +384,21 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "image",
     nsfw: true,
     tags: ["mature", "Seedream"],
-    body: (prompt, extra) => ({
-      engine: "seedream",
-      version: "v5.0-pro",
-      prompt,
-      enableSafetyChecker: false,
-      quantity: qty(extra),
-      ...(extra?.width ? { width: extra.width } : {}),
-      ...(extra?.height ? { height: extra.height } : {}),
-      ...(refsOf(extra).length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => {
+      rejectLoras("Seedream", extra);
+      const refs = extraRefs(extra, 10);
+      return {
+        engine: "seedream",
+        version: "v5.0-pro",
+        prompt,
+        enableSafetyChecker: false,
+        quantity: qty(extra, 12),
+        ...(extra?.width ? { width: extra.width } : {}),
+        ...(extra?.height ? { height: extra.height } : {}),
+        ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...(refs.length ? { images: refs } : {}),
+      };
+    },
   },
   {
     id: "ltx2.3",
@@ -272,12 +406,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "video",
     nsfw: true,
     tags: ["mature", "视频"],
-    body: (prompt, extra) => ({
-      engine: "ltx2.3",
-      operation: extra?.imageUrl ? "firstLastFrameToVideo" : "createVideo",
-      prompt,
-      ...(extra?.imageUrl || extra?.imageUrls?.length ? { images: refsOf(extra) } : {}),
-    }),
+    body: (prompt, extra) => buildLtxBody(prompt, extra),
   },
   {
     id: "hunyuan",
@@ -285,12 +414,168 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
     kind: "video",
     nsfw: true,
     tags: ["mature", "视频"],
-    body: (prompt) => ({ engine: "hunyuan", prompt }),
+    body: (prompt, extra) => buildHunyuanBody(prompt, extra),
   },
 ];
 
+function uniqueUrls(values: Array<string | undefined>) {
+  return Array.from(new Set(values.map((item) => String(item || "").trim()).filter(Boolean)));
+}
+
+/** LTX 2.3 official sizes: 1280×720, 720×1280, 1024×1024. https://developer.civitai.com/orchestration/recipes/ltx2 */
+const LTX_ASPECT_SIZE: Record<string, { width: number; height: number }> = {
+  "16:9": { width: 1280, height: 720 },
+  "9:16": { width: 720, height: 1280 },
+  "1:1": { width: 1024, height: 1024 },
+};
+
+/** Hunyuan recommended sizes. https://developer.civitai.com/orchestration/recipes/hunyuan */
+const HUNYUAN_ASPECT_SIZE: Record<string, { width: number; height: number }> = {
+  "16:9": { width: 1280, height: 720 },
+  "9:16": { width: 480, height: 854 },
+  "1:1": { width: 480, height: 480 },
+};
+
+function normalizeAspectRatio(value?: string) {
+  return String(value || "").trim().replace(/\s+/g, "");
+}
+
+function videoDimensions(
+  label: string,
+  map: Record<string, { width: number; height: number }>,
+  extra: Extra | undefined,
+  fallback: { width: number; height: number },
+) {
+  const hasW = typeof extra?.width === "number" && Number.isFinite(extra.width) && extra.width > 0;
+  const hasH = typeof extra?.height === "number" && Number.isFinite(extra.height) && extra.height > 0;
+  if (hasW || hasH) {
+    return {
+      width: hasW ? extra!.width! : fallback.width,
+      height: hasH ? extra!.height! : fallback.height,
+    };
+  }
+  const ratio = normalizeAspectRatio(extra?.aspectRatio);
+  if (!ratio) return fallback;
+  const size = map[ratio];
+  if (!size) {
+    throw new Error(`${label} 的 aspectRatio 仅支持 ${Object.keys(map).join(" / ")}，收到 ${ratio}`);
+  }
+  return size;
+}
+
+function buildLtxBody(prompt: string, extra?: Extra) {
+  const first = String(extra?.imageUrl || "").trim();
+  const last = String(extra?.lastFrameUrl || "").trim();
+  const listed = uniqueUrls(extra?.imageUrls || []);
+  const extras = listed.filter((url) => url !== first && url !== last);
+  const size = videoDimensions("LTX 2.3", LTX_ASPECT_SIZE, extra, { width: 1280, height: 720 });
+  const shared = {
+    engine: "ltx2.3",
+    model: "22b-distilled",
+    prompt,
+    duration: extra?.duration || 5,
+    width: size.width,
+    height: size.height,
+    fps: extra?.fps || 24,
+    ...(typeof extra?.generateAudio === "boolean" ? { generateAudio: extra.generateAudio } : {}),
+    ...loraMapPatch(extra),
+  };
+  if (last) {
+    if (extras.length) {
+      throw new Error("LTX firstLastFrameToVideo 只用 firstFrame/lastFrame，不能附加 images");
+    }
+    return {
+      ...shared,
+      operation: "firstLastFrameToVideo",
+      ...(first ? { firstFrame: first } : {}),
+      lastFrame: last,
+    };
+  }
+  const images = uniqueUrls([first, ...listed]);
+  if (images.length > 1) throw new Error("LTX createVideo 的 images 最多 1 张");
+  return {
+    ...shared,
+    operation: "createVideo",
+    ...(images.length ? { images } : {}),
+  };
+}
+
+function buildHunyuanBody(prompt: string, extra?: Extra) {
+  const refs = extraRefs(extra);
+  if (refs.length || String(extra?.lastFrameUrl || "").trim()) {
+    throw new Error("Hunyuan 是纯文本生视频（T2V），不接受参考图。");
+  }
+  const size = videoDimensions("Hunyuan", HUNYUAN_ASPECT_SIZE, extra, { width: 1280, height: 720 });
+  return {
+    engine: "hunyuan",
+    prompt,
+    duration: extra?.duration || 5,
+    width: size.width,
+    height: size.height,
+    frameRate: typeof extra?.fps === "number" ? extra.fps : 25,
+    cfgScale: 4,
+    ...loraArrayPatch(extra, "video"),
+  };
+}
+
 export function civitaiEngine(model: string) {
-  return CIVITAI_ENGINES.find((item) => item.id === model) || CIVITAI_ENGINES[0];
+  const engine = CIVITAI_ENGINES.find((item) => item.id === model);
+  if (!engine) throw new Error(`未知 Civitai 模型：${model || "(empty)"}，不会 fallback 到 Krea`);
+  return engine;
+}
+
+type MediaBlob = { url?: string; available?: boolean };
+
+function blobUrl(item: MediaBlob | undefined) {
+  const url = String(item?.url || "").trim();
+  if (!url) return "";
+  if (item?.available === false) return "";
+  return url;
+}
+
+function proxyImageUrl(item: unknown) {
+  if (typeof item === "string") {
+    const text = item.trim();
+    return /^https?:\/\//i.test(text) || text.startsWith("data:image/") || text.startsWith("blob:") ? text : "";
+  }
+  if (!item || typeof item !== "object") return "";
+  const row = item as Record<string, unknown>;
+  if (row.available === false) return "";
+  const url = String(row.url || row.image_url || row.image || "").trim();
+  if (url) return url;
+  const b64 = String(row.b64_json || row.b64 || "").trim();
+  return b64 ? `data:image/png;base64,${b64}` : "";
+}
+
+function readCivitaiProxyImageUrls(data: unknown): string[] {
+  if (!data) return [];
+  if (typeof data === "string") {
+    const url = proxyImageUrl(data);
+    return url ? [url] : [];
+  }
+  if (typeof data !== "object") return [];
+  const record = data as Record<string, unknown>;
+  if (record.available === false) return [];
+  const out: string[] = [];
+  const lists = [record.data, record.images, record.output_images, record.outputImages, record.urls, record.outputs];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const url = proxyImageUrl(item);
+      if (url) out.push(url);
+    }
+  }
+  const output = record.output && typeof record.output === "object" && !Array.isArray(record.output)
+    ? record.output
+    : undefined;
+  if (output) out.push(...readCivitaiProxyImageUrls(output));
+  const outputs = record.outputs && typeof record.outputs === "object" && !Array.isArray(record.outputs)
+    ? record.outputs
+    : undefined;
+  if (outputs) out.push(...readCivitaiProxyImageUrls(outputs));
+  const direct = proxyImageUrl(record.url || record.image_url);
+  if (direct) out.push(direct);
+  return Array.from(new Set(out));
 }
 
 export function readCivitaiMediaUrl(data: unknown) {
@@ -300,32 +585,205 @@ export function readCivitaiMediaUrl(data: unknown) {
 export function readCivitaiMediaUrls(data: unknown) {
   if (!data || typeof data !== "object") return [];
   const record = data as {
-    images?: Array<{ url?: string; available?: boolean }>;
-    videos?: Array<{ url?: string; available?: boolean }>;
-    jobs?: Array<{ result?: { blobUrl?: string; blobUrlExpired?: boolean } }>;
-    steps?: Array<{ output?: { videos?: Array<{ url?: string; available?: boolean }>; images?: Array<{ url?: string; available?: boolean }> } }>;
+    images?: MediaBlob[];
+    videos?: MediaBlob[];
+    steps?: Array<{
+      output?: {
+        blobs?: MediaBlob[];
+        video?: MediaBlob;
+        additionalVideos?: MediaBlob[];
+        videos?: MediaBlob[];
+        images?: MediaBlob[];
+      };
+    }>;
   };
-  const stepMedia = (record.steps || []).flatMap((step) => [...(step.output?.videos || []), ...(step.output?.images || [])]);
-  const media = [...(record.images || []), ...(record.videos || []), ...stepMedia];
-  const urls = media.filter((item) => item.url && item.available !== false).map((item) => String(item.url).trim());
-  const fallback = media.filter((item) => item.url).map((item) => String(item.url).trim());
-  const jobUrl = String(record.jobs?.[0]?.result?.blobUrl || "").trim();
-  return Array.from(new Set([...urls, ...fallback, ...(jobUrl ? [jobUrl] : []), ...allImageUrls(data)]));
+  const urls: string[] = [];
+  for (const step of record.steps || []) {
+    const output = step.output;
+    for (const item of output?.blobs || []) {
+      const blob = blobUrl(item);
+      if (blob) urls.push(blob);
+    }
+    const video = blobUrl(output?.video);
+    if (video) urls.push(video);
+    for (const item of output?.additionalVideos || []) {
+      const extra = blobUrl(item);
+      if (extra) urls.push(extra);
+    }
+    for (const item of output?.videos || []) {
+      const legacyVideo = blobUrl(item);
+      if (legacyVideo) urls.push(legacyVideo);
+    }
+    for (const item of output?.images || []) {
+      const image = blobUrl(item);
+      if (image) urls.push(image);
+    }
+  }
+  for (const item of record.images || []) {
+    const image = blobUrl(item);
+    if (image) urls.push(image);
+  }
+  for (const item of record.videos || []) {
+    const video = blobUrl(item);
+    if (video) urls.push(video);
+  }
+  urls.push(...readCivitaiProxyImageUrls(data));
+  return Array.from(new Set(urls));
 }
 
-function readJobId(data: unknown) {
+export function readCivitaiWorkflowId(data: unknown) {
   if (!data || typeof data !== "object") return "";
-  const record = data as { jobs?: Array<{ id?: string }>; id?: string; jobId?: string; token?: string };
-  return String(record.jobs?.[0]?.id || record.jobId || record.id || record.token || "").trim();
+  const record = data as {
+    jobs?: Array<{ id?: string }>;
+    id?: string;
+    jobId?: string;
+    token?: string;
+    workflowId?: string;
+  };
+  const id = String(record.id || "").trim();
+  const workflowId = String(record.workflowId || "").trim();
+  if (id.startsWith("wf_")) return id;
+  if (workflowId) return workflowId;
+  if (id) return id;
+  return String(record.jobId || record.jobs?.[0]?.id || record.token || "").trim();
+}
+
+const TERMINAL_FAILED = new Set(["failed", "error", "expired", "canceled", "cancelled"]);
+const TERMINAL_SUCCEEDED = new Set(["succeeded", "success", "completed", "done"]);
+const CIVITAI_IMAGE_POLL_INTERVAL_MS = 4_000;
+
+function workflowStatus(data: unknown) {
+  const record = data as { status?: string; jobs?: Array<{ status?: string }>; steps?: Array<{ status?: string }> };
+  return String(record?.status || record?.steps?.[0]?.status || record?.jobs?.[0]?.status || "").toLowerCase();
+}
+
+export function readCivitaiPollResult(data: unknown, kind: "image" | "video" = "video"): VideoPollResult {
+  const url = readCivitaiMediaUrl(data);
+  const status = workflowStatus(data);
+  if (TERMINAL_FAILED.has(status)) {
+    return { status: "failed", error: civitaiError(data) || status };
+  }
+  if (url) return { status: "completed", url };
+  if (TERMINAL_SUCCEEDED.has(status)) {
+    return {
+      status: "failed",
+      error: civitaiError(data) || (kind === "image" ? "Civitai 没有返回图片地址" : "Civitai 没有返回视频地址"),
+    };
+  }
+  return { status: "pending" };
+}
+
+async function delay(ms: number) {
+  await new Promise((resolve) => {
+    const timer = globalThis.setTimeout(resolve, ms);
+    if (typeof timer === "object" && timer && "unref" in timer && typeof timer.unref === "function") timer.unref();
+  });
+}
+
+async function pollCivitaiWorkflow(
+  ctx: Parameters<NonNullable<StudioAdapter["generateImage"]>>[0],
+  workflowId: string,
+  kind: "image" | "video",
+  timeoutMs: number,
+): Promise<VideoPollResult> {
+  const { studioProxyJson } = await import("../generate/proxy.ts");
+  const started = Date.now();
+  const allowMatureContent = ctx.provider.allowMatureContent !== false;
+  let last: VideoPollResult = { status: "pending" };
+  while (Date.now() - started < timeoutMs) {
+    const remaining = timeoutMs - (Date.now() - started);
+    if (remaining <= 0) break;
+    const waitSeconds = Math.max(0, Math.min(30, Math.floor(remaining / 1000)));
+    const data = await studioProxyJson({
+      provider: ctx.provider,
+      path: `/workflows/${encodeURIComponent(workflowId)}?${workflowPollQuery(waitSeconds, allowMatureContent)}`,
+      method: "GET",
+      timeoutMs: Math.min(timeoutMs, Math.max(30_000, waitSeconds * 1000 + 15_000)),
+      baseUrl: CIVITAI_WORKFLOWS,
+    });
+    last = readCivitaiPollResult(data, kind);
+    if (last.status !== "pending") return last;
+    const pause = Math.min(CIVITAI_IMAGE_POLL_INTERVAL_MS, timeoutMs - (Date.now() - started));
+    if (pause <= 0) break;
+    await delay(pause);
+  }
+  return { status: "failed", error: last.error || `Civitai ${kind === "image" ? "图片" : "视频"}生成超时` };
 }
 
 const CIVITAI_WORKFLOWS = "https://orchestration.civitai.com/v2/consumer";
 
-function workflowBody(type: "imageGen" | "videoGen", input: Record<string, unknown>) {
+function workflowBody(type: "imageGen" | "videoGen", input: Record<string, unknown>, allowMatureContent = true) {
+  const allowsMatureContent = allowMatureContent !== false;
   return {
-    allowMatureContent: true,
-    currencies: ["yellow"],
+    allowMatureContent: allowsMatureContent,
+    ...(allowsMatureContent ? { currencies: ["yellow"] } : {}),
     steps: [{ $type: type, input }],
+  };
+}
+
+function workflowQuery(wait: number, whatif = false, allowMatureContent = true) {
+  const params = new URLSearchParams();
+  params.set("wait", String(wait));
+  if (whatif) params.set("whatif", "true");
+  if (allowMatureContent === false) params.set("hideMatureContent", "true");
+  return `/workflows?${params.toString()}`;
+}
+
+function workflowPollQuery(wait: number, allowMatureContent = true) {
+  const params = new URLSearchParams();
+  params.set("wait", String(wait));
+  if (allowMatureContent === false) params.set("hideMatureContent", "true");
+  return params.toString();
+}
+
+function imageExtra(input: CivitaiImagePlanInput): Extra {
+  return {
+    imageUrl: input.imageUrl,
+    imageUrls: input.imageUrls,
+    width: input.width,
+    height: input.height,
+    seed: input.seed,
+    negativePrompt: input.negativePrompt,
+    quantity: input.quantity ?? input.n,
+    n: input.n,
+    loras: input.loras,
+    checkpointAir: input.checkpointAir,
+    aspectRatio: input.aspectRatio,
+    strength: input.strength,
+  };
+}
+
+export function planCivitaiImageRequest(input: CivitaiImagePlanInput): CivitaiPlannedRequest {
+  const engine = civitaiEngine(input.model);
+  const refs = extraRefs({ imageUrl: input.imageUrl, imageUrls: input.imageUrls });
+  if (input.operation === "edit" && !refs.length) throw new Error("编辑需要至少一张参考图");
+  return {
+    path: workflowQuery(input.whatif ? 0 : 60, Boolean(input.whatif), input.allowMatureContent),
+    body: workflowBody("imageGen", engine.body(input.prompt, imageExtra(input)), input.allowMatureContent),
+    timeoutMs: 180_000,
+    baseUrl: CIVITAI_WORKFLOWS,
+  };
+}
+
+export function planCivitaiVideoRequest(input: CivitaiVideoPlanInput): CivitaiPlannedRequest {
+  const engine = civitaiEngine(input.model);
+  const extra: Extra = {
+    imageUrl: input.imageUrl,
+    imageUrls: input.imageUrls,
+    lastFrameUrl: input.lastFrameUrl,
+    width: input.width,
+    height: input.height,
+    duration: input.duration,
+    fps: input.fps,
+    loras: input.loras,
+    generateAudio: input.generateAudio,
+    aspectRatio: input.aspectRatio,
+  };
+  return {
+    path: workflowQuery(0, Boolean(input.whatif), input.allowMatureContent),
+    body: workflowBody("videoGen", engine.body(input.prompt, extra), input.allowMatureContent),
+    timeoutMs: 90_000,
+    baseUrl: CIVITAI_WORKFLOWS,
   };
 }
 
@@ -334,60 +792,45 @@ export const civitaiAdapter: StudioAdapter = {
   label: "Civitai Orchestration",
   docs: "https://developer.civitai.com/orchestration/guide/submitting-work",
   async generateImage(ctx, input) {
-    if (!ctx.provider.apiKey) throw new Error("Civitai 需要 API Token");
-    const engine = civitaiEngine(input.model);
-    const refs = imageRefs(input);
-    if (input.operation === "edit" && !refs.length) throw new Error("编辑需要至少一张参考图");
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) throw new Error("Civitai 需要 API Token");
+    const planned = planCivitaiImageRequest({
+      ...input,
+      allowMatureContent: ctx.provider.allowMatureContent,
+    });
+    const { studioProxyJson } = await import("../generate/proxy.ts");
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: "/workflows?wait=60&allowMatureContent=true",
-      body: workflowBody(
-        "imageGen",
-        engine.body(input.prompt, {
-          imageUrl: refs[0],
-          imageUrls: refs,
-          width: input.width,
-          height: input.height,
-          seed: input.seed,
-          negativePrompt: input.negativePrompt,
-          quantity: input.n || 1,
-          n: input.n,
-          loras: input.loras,
-        }),
-      ),
-      timeoutMs: 180_000,
-      baseUrl: CIVITAI_WORKFLOWS,
+      path: planned.path,
+      body: planned.body,
+      timeoutMs: planned.timeoutMs,
+      baseUrl: planned.baseUrl,
     });
     const urls = readCivitaiMediaUrls(data);
-    if (!urls[0]) throw new Error(civitaiError(data) || "Civitai 没有返回图片地址");
-    return { url: urls[0], urls };
+    if (urls[0]) return { url: urls[0], urls };
+    const poll = readCivitaiPollResult(data, "image");
+    if (poll.status === "completed" && poll.url) return { url: poll.url, urls: [poll.url] };
+    if (poll.status === "failed") throw new Error(poll.error || "Civitai 没有返回图片地址");
+    const workflowId = readCivitaiWorkflowId(data);
+    if (!workflowId) throw new Error(civitaiError(data) || "Civitai 没有返回图片地址");
+    const finished = await pollCivitaiWorkflow(ctx, workflowId, "image", planned.timeoutMs);
+    if (finished.status === "completed" && finished.url) return { url: finished.url, urls: [finished.url] };
+    throw new Error(finished.error || "Civitai 没有返回图片地址");
   },
   async createVideo(ctx, input) {
-    if (!ctx.provider.apiKey) throw new Error("Civitai 需要 API Token");
-    const engine = civitaiEngine(input.model);
-    const frames = [input.imageUrl, input.lastFrameUrl].filter(Boolean) as string[];
-    const inputBody: Record<string, unknown> = {
-      ...engine.body(input.prompt, { imageUrl: frames[0], imageUrls: frames }),
-      duration: input.duration || 5,
-      width: 1280,
-      height: 720,
-      fps: 24,
-    };
-    if (engine.id === "ltx2.3") {
-      inputBody.model = "22b-distilled";
-      if (frames.length) {
-        inputBody.operation = "firstLastFrameToVideo";
-        inputBody.images = frames;
-      }
-    }
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) throw new Error("Civitai 需要 API Token");
+    const planned = planCivitaiVideoRequest({
+      ...input,
+      allowMatureContent: ctx.provider.allowMatureContent,
+    });
+    const { studioProxyJson } = await import("../generate/proxy.ts");
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: "/workflows?wait=0&allowMatureContent=true",
-      body: workflowBody("videoGen", inputBody),
-      timeoutMs: 90_000,
-      baseUrl: CIVITAI_WORKFLOWS,
+      path: planned.path,
+      body: planned.body,
+      timeoutMs: planned.timeoutMs,
+      baseUrl: planned.baseUrl,
     });
-    const id = readJobId(data);
+    const id = readCivitaiWorkflowId(data);
     const url = readCivitaiMediaUrl(data);
     if (url) return { id: id || `done:${url}` };
     if (!id) throw new Error(civitaiError(data) || "Civitai 视频没有返回任务 id");
@@ -395,39 +838,32 @@ export const civitaiAdapter: StudioAdapter = {
   },
   async pollVideo(ctx, taskId) {
     if (taskId.startsWith("done:")) return { status: "completed", url: taskId.slice(5) };
+    const { studioProxyJson } = await import("../generate/proxy.ts");
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: `/workflows/${encodeURIComponent(taskId)}`,
+      path: `/workflows/${encodeURIComponent(taskId)}?${workflowPollQuery(0, ctx.provider.allowMatureContent !== false)}`,
       method: "GET",
       timeoutMs: 30_000,
       baseUrl: CIVITAI_WORKFLOWS,
     });
-    const url = readCivitaiMediaUrl(data);
-    if (url) return { status: "completed", url };
-    const record = data as { status?: string; jobs?: Array<{ status?: string; error?: string }>; error?: string };
-    const status = String(record.status || record.jobs?.[0]?.status || "").toLowerCase();
-    if (["failed", "error", "cancelled"].includes(status)) {
-      return { status: "failed", error: civitaiError(data) || status };
-    }
-    return { status: "pending" };
+    return readCivitaiPollResult(data, "video");
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 Civitai Token" };
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 Civitai Token" };
     try {
+      const planned = planCivitaiImageRequest({
+        model: "krea2-turbo",
+        prompt: "connectivity probe",
+        whatif: true,
+        allowMatureContent: ctx.provider.allowMatureContent,
+      });
+      const { studioProxyJson } = await import("../generate/proxy.ts");
       await studioProxyJson({
         provider: ctx.provider,
-        path: "/workflows?wait=0&whatif=true&allowMatureContent=true",
-        body: workflowBody("imageGen", {
-          engine: "comfy",
-          ecosystem: "krea2",
-          model: "turbo",
-          operation: "createImage",
-          prompt: "connectivity probe",
-          width: 1024,
-          height: 1024,
-        }),
+        path: planned.path,
+        body: planned.body,
         timeoutMs: 20_000,
-        baseUrl: CIVITAI_WORKFLOWS,
+        baseUrl: planned.baseUrl,
       });
       return { ok: true, message: "Civitai workflows 可访问", models: CIVITAI_ENGINES.map((item) => item.id) };
     } catch (err) {
@@ -436,14 +872,69 @@ export const civitaiAdapter: StudioAdapter = {
   },
 };
 
-function civitaiError(data: unknown) {
+export function civitaiError(data: unknown) {
   if (!data || typeof data !== "object") return "";
   const record = data as {
-    error?: string | { message?: string };
+    type?: string;
+    title?: string;
+    detail?: string;
+    status?: number | string;
+    errors?: unknown;
+    error?: string | { message?: string; detail?: string; title?: string };
     message?: string;
-    jobs?: Array<{ error?: string; errorMessage?: string }>;
-    steps?: Array<{ error?: string }>;
+    jobs?: Array<{
+      error?: string;
+      errorMessage?: string;
+      reason?: string;
+      blockedReason?: string;
+    }>;
+    steps?: Array<{
+      error?: string;
+      jobs?: Array<{ reason?: string; blockedReason?: string; error?: string }>;
+      output?: { errors?: unknown };
+    }>;
   };
-  const nested = typeof record.error === "string" ? record.error : record.error?.message;
-  return String(nested || record.message || record.jobs?.[0]?.error || record.jobs?.[0]?.errorMessage || record.steps?.[0]?.error || "").trim();
+  const detail = String(record.detail || "").trim();
+  const title = String(record.title || "").trim();
+  const nestedError =
+    typeof record.error === "string"
+      ? record.error
+      : [record.error?.detail, record.error?.title, record.error?.message].map((item) => String(item || "").trim()).find(Boolean) || "";
+  const validation = flattenProblemErrors(record.errors);
+  const stepOutputErrors = flattenProblemErrors(record.steps?.[0]?.output?.errors);
+  const jobReason = String(
+    record.jobs?.[0]?.reason ||
+      record.jobs?.[0]?.blockedReason ||
+      record.jobs?.[0]?.error ||
+      record.jobs?.[0]?.errorMessage ||
+      record.steps?.[0]?.jobs?.[0]?.reason ||
+      record.steps?.[0]?.jobs?.[0]?.blockedReason ||
+      record.steps?.[0]?.jobs?.[0]?.error ||
+      record.steps?.[0]?.error ||
+      "",
+  ).trim();
+  return String(
+    detail || stepOutputErrors || validation || title || nestedError || record.message || jobReason,
+  ).trim();
+}
+
+function flattenProblemErrors(errors: unknown): string {
+  if (!errors) return "";
+  if (typeof errors === "string") return errors.trim();
+  if (Array.isArray(errors)) {
+    return errors
+      .map((item) => (typeof item === "string" ? item : flattenProblemErrors(item)))
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (typeof errors === "object") {
+    return Object.entries(errors as Record<string, unknown>)
+      .map(([key, value]) => {
+        const text = flattenProblemErrors(value);
+        return text ? `${key}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
 }

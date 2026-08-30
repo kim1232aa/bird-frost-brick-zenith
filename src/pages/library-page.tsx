@@ -7,6 +7,7 @@ import { useStudioHistory } from "@/studio/history";
 import { downloadBlob, exportStudioLibrary, importStudioLibrary } from "@/studio/library-zip";
 import { useMediaDraft } from "@/studio/media-draft";
 import { dropToCanvas } from "@/studio/split";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
 function kindLabel(kind: string, title = "") {
   if (kind === "story" || title.startsWith("故事")) return "故事导演";
@@ -44,12 +45,20 @@ function WorkCard({
             <button
               type="button"
               onClick={() => {
+                const kind = item.kind === "video" ? "video" : "upload";
                 dropToCanvas({
-                  kind: item.kind === "video" ? "video" : "upload",
+                  kind,
                   url: item.urls[0],
                   prompt: item.prompt,
                 });
-                void navigate({ to: "/canvas" });
+                const id = pushMediaToCanvasWorkspace({
+                  kind,
+                  url: item.urls[0],
+                  urls: item.urls,
+                  prompt: item.prompt,
+                  title: item.title,
+                });
+                void navigate({ to: "/canvas/workspace", search: { id } });
               }}
             >
               送入画布

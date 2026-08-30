@@ -104,7 +104,7 @@ export const modelscopeAdapter: StudioAdapter = {
     return { url, urls: urls.length ? urls : [url] };
   },
   async testConnection(ctx) {
-    if (!ctx.provider.apiKey) return { ok: false, message: "缺少 ModelScope Access Token" };
+    if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 ModelScope Access Token" };
     const baseUrl = modelscopeBase(ctx.provider.baseUrl);
     try {
       await studioProxyJson({

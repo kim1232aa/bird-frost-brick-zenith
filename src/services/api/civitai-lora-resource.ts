@@ -150,6 +150,9 @@ export function assertCivitaiLoraCompatibility(
     resource: Pick<ParsedCivitaiLoraAir, "air" | "ecosystem"> & { readonly baseModel?: string },
     targetModel: string,
 ) {
+    // Flux2 Dev / WAN image live schemas take `{air,strength}[]` and do not
+    // publish an ecosystem/baseModel allow-list. Complete AIR is still required.
+    if (isCivitaiArrayLoraService(targetModel)) return;
     const target = resolveCivitaiLoraCompatibilityTarget(targetModel);
     if (!target) {
         throw new Error(civitaiLoraUnsupportedMessage(targetModel));
@@ -338,21 +341,23 @@ function parseModelResponse(value: unknown, requestedModelId: string, targetMode
         throw new Error(`Civitai 模型 ${modelId} 没有可选择的 modelVersions`);
     }
     const target = resolveCivitaiLoraCompatibilityTarget(targetModel);
-    if (!target) throw new Error(civitaiLoraUnsupportedMessage(targetModel));
+    if (!target && !isCivitaiArrayLoraService(targetModel)) throw new Error(civitaiLoraUnsupportedMessage(targetModel));
     const versions = value.modelVersions.map((entry, index): CivitaiLoraVersionOption => {
         if (!isRecord(entry)) throw new Error(`Civitai 模型 ${modelId} 的第 ${index + 1} 个 modelVersion 格式无效`);
         const modelVersionId = normalizePositiveIntegerString(entry.id);
         if (!modelVersionId) throw new Error(`Civitai 模型 ${modelId} 的第 ${index + 1} 个 modelVersion 缺少有效 ID`);
         const baseModel = optionalString(entry.baseModel);
-        const compatible = baseModel
-            ? target.baseModels.some((candidate) => normalizeComparable(candidate) === normalizeComparable(baseModel))
-            : null;
+        const compatible = !target
+            ? null
+            : baseModel
+              ? target.baseModels.some((candidate) => normalizeComparable(candidate) === normalizeComparable(baseModel))
+              : null;
         return {
             modelVersionId,
             name: optionalString(entry.name) || `版本 ${modelVersionId}`,
             ...(baseModel ? { baseModel } : {}),
             compatible,
-            ...(compatible === false ? { compatibilityError: `baseModel=${baseModel} 与 ${target.label} 不兼容` } : {}),
+            ...(compatible === false && target ? { compatibilityError: `baseModel=${baseModel} 与 ${target.label} 不兼容` } : {}),
         };
     });
     return { modelId, name: optionalString(value.name), versions };

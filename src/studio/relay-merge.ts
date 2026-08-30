@@ -1,4 +1,5 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
+import { clampManagedTokenPlanRelay } from "@/stores/api-relay-presets";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { studioRelays } from "@/studio/wiring";
 import { providerCredentialPool } from "@/stores/provider-credentials";
@@ -66,8 +67,23 @@ function resolveCredentials(template: ApiRelayProvider, override?: ApiRelayProvi
   };
 }
 
-function resolveEnabled(template: ApiRelayProvider, override: ApiRelayProvider | undefined, apiKey: string) {
-  if (apiKey) return true;
+function resolveHasApiKey(
+  template: ApiRelayProvider,
+  override: ApiRelayProvider | undefined,
+  credentials: ReturnType<typeof resolveCredentials>,
+) {
+  if (credentials.apiKey || credentials.apiKeys?.length) return true;
+  if (override && typeof override.hasApiKey === "boolean") return override.hasApiKey;
+  return template.hasApiKey;
+}
+
+function resolveEnabled(
+  template: ApiRelayProvider,
+  override: ApiRelayProvider | undefined,
+  apiKey: string,
+  hasApiKey?: boolean,
+) {
+  if (apiKey || hasApiKey) return true;
   if (template.id === "preset-xai-official") return false;
   if (override && typeof override.enabled === "boolean") return override.enabled;
   return template.enabled === true;
@@ -75,11 +91,14 @@ function resolveEnabled(template: ApiRelayProvider, override: ApiRelayProvider |
 
 function mergeOne(template: ApiRelayProvider, override?: ApiRelayProvider): ApiRelayProvider {
   const credentials = resolveCredentials(template, override);
+  const hasApiKey = resolveHasApiKey(template, override, credentials);
+  const runnableCapabilities = override?.runnableCapabilities ?? template.runnableCapabilities;
   if (!override) {
     return {
       ...template,
       ...credentials,
-      enabled: resolveEnabled(template, undefined, credentials.apiKey),
+      ...(hasApiKey !== undefined ? { hasApiKey } : {}),
+      enabled: resolveEnabled(template, undefined, credentials.apiKey, hasApiKey),
     };
   }
   return {
@@ -92,6 +111,8 @@ function mergeOne(template: ApiRelayProvider, override?: ApiRelayProvider): ApiR
     protocol: override.protocol || template.protocol,
     adapterType: override.adapterType || template.adapterType,
     ...credentials,
+    ...(hasApiKey !== undefined ? { hasApiKey } : {}),
+    ...(runnableCapabilities !== undefined ? { runnableCapabilities: [...runnableCapabilities] } : {}),
     models: union(template.models, override.models),
     textModels: union(template.textModels, override.textModels),
     imageModels: union(template.imageModels, override.imageModels),
@@ -106,7 +127,7 @@ function mergeOne(template: ApiRelayProvider, override?: ApiRelayProvider): ApiR
       ...(template.videoCapabilityProfiles || {}),
       ...(override.videoCapabilityProfiles || {}),
     },
-    enabled: resolveEnabled(template, override, credentials.apiKey),
+    enabled: resolveEnabled(template, override, credentials.apiKey, hasApiKey),
   };
 }
 
@@ -120,7 +141,7 @@ export function mergePersistedRelays(
 ): ApiRelayProvider[] {
   const base = studioRelays() || [];
   if (!Array.isArray(base) || base.length === 0) {
-    return Array.isArray(saved) ? saved.filter((row) => row?.id) : [];
+    return Array.isArray(saved) ? saved.filter((row) => row?.id).map((row) => clampManagedTokenPlanRelay(row)) : [];
   }
   const hidden = new Set(hiddenPresetIds.filter(isManagedRelayId));
   if (!Array.isArray(saved) || saved.length === 0) {
@@ -131,9 +152,9 @@ export function mergePersistedRelays(
   return base
     .filter((item) => !hidden.has(item.id))
     .map((item) => mergeOne(item, saved.find((row) => row.id === item.id)))
-    .concat(extras.map((row) => ({
+    .concat(extras.map((row) => clampManagedTokenPlanRelay({
       ...row,
-      enabled: row.enabled !== false || Boolean(providerCredentialPool(row).keys.length),
+      enabled: row.enabled !== false || Boolean(providerCredentialPool(row).keys.length || row.hasApiKey),
     })));
 }
 
@@ -144,7 +165,7 @@ export function mergeRelaySources(...lists: Array<ApiRelayProvider[] | undefined
     for (const row of list || []) {
       if (!row?.id) continue;
       const prev = byId.get(row.id);
-      byId.set(row.id, prev ? mergeOne(prev, row) : row);
+      byId.set(row.id, prev ? mergeOne(prev, row) : clampManagedTokenPlanRelay(row));
     }
   }
   return mergePersistedRelays([...byId.values()]);

@@ -1276,7 +1276,7 @@ type ImageBatchContext = {
 async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedImageResult[]> {
     const providerId = context.route.mode === "local" ? context.route.provider.id : "";
     const studioModel = STUDIO_PROVIDERS.some((item) => item.imageModels.includes(context.route.model));
-    if (providerId.startsWith("preset-") || studioModel) {
+    if (context.capability.serialization.kind !== "civitai-workflow" && (providerId.startsWith("preset-") || studioModel)) {
         const result = await generateStudioImage({
             relays: context.config.apiRelays,
             prompt: context.prompt,

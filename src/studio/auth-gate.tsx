@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { DEMO_ADMIN, canEnterOps, canGenerate, useAccountStore } from "@/studio/account";
+import { canEnterOps, canGenerate, useAccountStore } from "@/studio/account";
 
 export function RequireAdmin({ children }: { children: ReactNode }) {
   const hydrated = useAccountStore((state) => state.hydrated);
@@ -20,7 +20,6 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
 
 function OpsDenied() {
   const session = useAccountStore((state) => state.session);
-  const loginDemoAdmin = useAccountStore((state) => state.loginDemoAdmin);
   return (
     <div className="acct-page">
       <header className="acct-hero">
@@ -28,16 +27,19 @@ function OpsDenied() {
         <h1>后台仅管理员可进</h1>
         <p className="studio-lead">
           {session
-            ? `当前账号「${session.displayName || session.username}」是普通用户，不能改接线、额度或上下架。`
-            : "未登录不能进运营后台和接线。访客可以去生图 / 生视频，但不能改供应商。"}
+            ? `当前账号「${session.displayName || session.username}」是普通用户，不能改运营后台的接线、额度或上下架；仍可去设置页填写自己的 Key。`
+            : "未登录不能进运营后台；设置页可以填写自己的 Key。访客可以去生图 / 生视频，但不能改运营后台。"}
         </p>
       </header>
       <section className="acct-banner">
         <div>
           <h2>{session ? "请用管理员账号" : "未登录如何使用"}</h2>
-          <p className="studio-hint">预览管理员：{DEMO_ADMIN.username} / {DEMO_ADMIN.password}。退出后不会自动再登。普通用户注册后只能创作。</p>
+          <p className="studio-hint">设置页对所有人开放，可填写自己的 Key；只有管理员会话能修改运营后台的接线、额度和上下架。</p>
         </div>
         <div className="acct-alt">
+          <Link className="studio-ghost" to="/settings">
+            去设置接线
+          </Link>
           {session ? null : (
             <Link className="studio-ghost" to="/image">
               去生图
@@ -46,9 +48,6 @@ function OpsDenied() {
           <Link className="studio-ghost" to="/login">
             登录
           </Link>
-          <button type="button" className="studio-primary" onClick={() => void loginDemoAdmin()}>
-            一键登录管理员
-          </button>
         </div>
       </section>
     </div>
@@ -65,7 +64,7 @@ export function GuestGenerateBanner({ kind }: { kind: "image" | "video" }) {
     <section className="acct-banner acct-banner-tight">
       <div>
         <h2>先登录再{kind === "video" ? "出片" : "出图"}</h2>
-        <p className="studio-hint">未登录不能进后台，也不能扣额度生成。管理员已预置 {DEMO_ADMIN.username} / {DEMO_ADMIN.password}，也可以访客继续。</p>
+        <p className="studio-hint">未登录不能进运营后台，也不能扣额度生成。可先登录，或用访客继续本地试用。</p>
       </div>
       <div className="acct-alt">
         <Link className="studio-primary" to="/login">

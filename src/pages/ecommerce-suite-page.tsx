@@ -10,6 +10,20 @@ import { useMembershipStore } from "@/studio/membership";
 import { preferredImageKey, StudioModelField } from "@/studio/model-select";
 import { useOpsStore } from "@/studio/ops";
 import { WorkbenchStatus } from "@/studio/workbench-status";
+import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
+import {
+  ecommerceDisabledReason,
+  ecommerceDownloadName,
+  ecommerceNeedsProxy,
+  ecommercePackErrorSummary,
+  ecommercePackFinishMessage,
+  ecommercePrimaryLabel,
+  ecommerceShouldAbortPack,
+  ecommerceSuiteHd,
+  ecommerceSuiteImageParams,
+  ecommerceSuiteSize,
+  ecommerceZipEntryName,
+} from "@/pages/ecommerce-suite-page.logic";
 
 type ShotState = { status: "idle" | "running" | "done" | "error"; url?: string; error?: string; note: string };
 
@@ -19,6 +33,7 @@ export function EcommerceSuitePage() {
   const addHistory = useStudioHistory((state) => state.add);
   const record = useMembershipStore((state) => state.record);
   const remaining = useOpsStore((state) => state.credits.image);
+  const access = useGenerateAccess();
   const [packId, setPackId] = useState("amazon");
   const [sceneId, setSceneId] = useState<(typeof ECOMMERCE_SCENES)[number]["id"]>("solid");
   const [product, setProduct] = useState("");
@@ -32,6 +47,13 @@ export function EcommerceSuitePage() {
 
   const doneCount = pack.shots.filter((shot) => shots[shot.id]?.url).length;
   const history = items.filter((item) => item.kind === "ecommerce").slice(0, 8);
+  const independentHd = ecommerceSuiteHd(batch);
+  const selectedProviderId = selection.split("::")[0] || "";
+  const selectedRelay = relays.find((item) => item.id === selectedProviderId);
+  const adapterType = selectedRelay?.adapterType;
+  const imageParams = ecommerceSuiteImageParams(selection, independentHd, adapterType);
+  const outputSize = ecommerceSuiteSize(selection, independentHd, adapterType);
+  const hasMappedSize = outputSize !== "模型默认";
 
   const patch = (id: string, next: Partial<ShotState>) =>
     setShots((current) => {
@@ -39,12 +61,18 @@ export function EcommerceSuitePage() {
       return { ...current, [id]: { ...prev, ...next } };
     });
 
-  const generateOne = async (shotId: string) => {
+  const generateOne = async (shotId: string): Promise<{ ok: boolean; error?: string }> => {
     const shot = pack.shots.find((item) => item.id === shotId);
-    if (!shot) return;
+    if (!shot) return { ok: false, error: "找不到该分镜" };
+    if (!access.allowed) {
+      const message = access.blockedReason || "请先登录";
+      setError(message);
+      return { ok: false, error: message };
+    }
     if (!product.trim()) {
-      setError("先写产品描述，或上传一张商品参考图。");
-      return;
+      const message = "先写产品描述，或上传一张商品参考图。";
+      setError(message);
+      return { ok: false, error: message };
     }
     patch(shot.id, { status: "running", error: "" });
     setError("");
@@ -57,53 +85,94 @@ export function EcommerceSuitePage() {
         imageUrl: reference || undefined,
         providerId,
         model,
-        size: selection.includes("volcengine") ? "2K" : undefined,
+        size: imageParams.size,
+        width: imageParams.width,
+        height: imageParams.height,
+        aspectRatio: imageParams.aspectRatio,
         workTitle: `${pack.label} · ${shot.label}`,
         workKind: "ecommerce",
       });
       patch(shot.id, { status: "done", url: result.url });
       record("image");
       addHistory({ kind: "ecommerce", title: `${pack.label} · ${shot.label}`, prompt: product, model: result.model, urls: [result.url] });
+      return { ok: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       patch(shot.id, { status: "error", error: message });
       setError(message);
+      return { ok: false, error: message };
     }
   };
 
   const generatePack = async () => {
+    if (!access.allowed) {
+      setError(access.blockedReason || "请先登录");
+      return;
+    }
     if (!product.trim()) {
       setError("先写产品描述，或上传一张商品参考图。");
       return;
     }
     setError("");
+    let ok = 0;
+    let failed = 0;
+    let lastError = "";
     for (let i = 0; i < pack.shots.length; i += 1) {
       setProgress(`${i}/${pack.shots.length} 生成中 · ${pack.shots[i].label}`);
-      await generateOne(pack.shots[i].id);
+      const result = await generateOne(pack.shots[i].id);
+      if (result.ok) ok += 1;
+      else {
+        failed += 1;
+        lastError = result.error || lastError;
+        if (ecommerceShouldAbortPack(result.error || "")) {
+          setProgress(ecommercePackFinishMessage(ok, failed, pack.shots.length));
+          setError(lastError || ecommercePackErrorSummary(ok, failed));
+          return;
+        }
+      }
     }
-    setProgress(`${pack.shots.length}/${pack.shots.length} 已完成`);
+    setProgress(ecommercePackFinishMessage(ok, failed, pack.shots.length));
+    if (failed) setError(lastError || ecommercePackErrorSummary(ok, failed));
   };
 
   const downloadZip = async () => {
-    const files = [];
-    for (const shot of pack.shots) {
-      const url = shots[shot.id]?.url;
-      if (!url) continue;
-      const res = await fetch(`/client-api/fetch-url?url=${encodeURIComponent(url)}`);
-      files.push({ name: `${shot.id}-${shot.label}.png`, data: await res.arrayBuffer() });
+    try {
+      const files = [];
+      for (const shot of pack.shots) {
+        const url = shots[shot.id]?.url;
+        if (!url) continue;
+        const res = ecommerceNeedsProxy(url)
+          ? await fetch(`/client-api/fetch-url?url=${encodeURIComponent(url)}`)
+          : await fetch(url);
+        if (!res.ok) {
+          setError(`打包失败：${shot.label} 无法下载（${res.status}）`);
+          return;
+        }
+        files.push({ name: ecommerceZipEntryName(shot, url), data: await res.arrayBuffer() });
+      }
+      if (!files.length) {
+        setError("还没有可打包的成片");
+        return;
+      }
+      const blob = await createZip(files);
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `${pack.id}-suite.zip`;
+      link.click();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "打包 ZIP 失败");
     }
-    if (!files.length) {
-      setError("还没有可打包的成片");
-      return;
-    }
-    const blob = await createZip(files);
-    const href = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = href;
-    link.download = `${pack.id}-suite.zip`;
-    link.click();
-    URL.revokeObjectURL(href);
   };
+
+  const generating = progress.includes("生成中");
+  const disabledReason = ecommerceDisabledReason({
+    generating,
+    progress,
+    blockedReason: access.blockedReason,
+    product,
+  });
 
   return (
     <div className="bp-page">
@@ -112,6 +181,7 @@ export function EcommerceSuitePage() {
         <h1>电商套图</h1>
         <p>上传商品图，选场景模板和平台方案，一次出 4–9 张，再打包 ZIP。</p>
       </header>
+      <GuestGenerateBanner kind="image" />
       <p className="alert-banner">商品参考图越清楚，套图越稳。没有图也可以先用文字描述试布局。走你选的生图模型，每张成功扣 1 点。</p>
       <div className="bench">
       <aside className="bench-side">
@@ -121,6 +191,7 @@ export function EcommerceSuitePage() {
         <label className="dropzone">
           <span>① 商品参考图（必填更稳）</span>
           <input
+            className="sr-only"
             type="file"
             accept="image/*"
             onChange={(event) => {
@@ -154,6 +225,13 @@ export function EcommerceSuitePage() {
             独立高清
           </button>
         </div>
+        <p className="studio-hint">
+          {hasMappedSize
+            ? batch
+              ? `连续套图按 ${outputSize} 出全套。`
+              : `独立高清按 ${outputSize} 出片。`
+            : "当前线路未接电商尺寸字段，按模型默认输出；出片方式入口保留。"}
+        </p>
         <StudioModelField kind="image" value={selection} onChange={setSelection} label="生图模型" />
         <label>
           ③ 平台方案
@@ -168,11 +246,11 @@ export function EcommerceSuitePage() {
         <button
           type="button"
           className="bp-generate bp-generate-image"
-          disabled={Boolean(progress.includes("生成中")) || !product.trim()}
+          disabled={Boolean(disabledReason)}
           onClick={() => void generatePack()}
         >
-          <span>{progress.includes("生成中") ? progress : `生成整套 ${pack.shots.length}`}</span>
-          <small>{!product.trim() ? "请先填写产品描述" : progress.includes("生成中") ? progress : `${pack.shots.length} 张 · 成功各扣 1 点 · 剩余 ${remaining}`}</small>
+          <span>{ecommercePrimaryLabel({ generating, progress, batch, shotCount: pack.shots.length })}</span>
+          <small>{disabledReason || `${pack.shots.length} 张 · ${batch ? "连续套图" : "独立高清"} ${outputSize} · 成功各扣 1 点 · 剩余 ${remaining}`}</small>
         </button>
         <button type="button" className="studio-ghost" disabled={!doneCount} onClick={() => void downloadZip()}>
           打包 ZIP（{doneCount}/{pack.shots.length}）
@@ -205,11 +283,16 @@ export function EcommerceSuitePage() {
                   </b>
                   <input value={state.note} placeholder="这张的补充要求" onChange={(event) => patch(shot.id, { note: event.target.value })} />
                   <div className="shot-actions">
-                    <button type="button" onClick={() => void generateOne(shot.id)}>
+                    <button
+                      type="button"
+                      disabled={Boolean(access.blockedReason) || generating}
+                      title={access.blockedReason || (generating ? progress : undefined)}
+                      onClick={() => void generateOne(shot.id)}
+                    >
                       {state.url ? "重拍" : "生成"}
                     </button>
                     {state.url ? (
-                      <a href={state.url} download={`${shot.label}.jpg`} target="_blank" rel="noreferrer">
+                      <a href={state.url} download={ecommerceDownloadName(shot.label, state.url)} target="_blank" rel="noreferrer">
                         下载
                       </a>
                     ) : null}

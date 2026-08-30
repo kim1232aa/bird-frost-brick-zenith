@@ -23,7 +23,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
   const chip = accountLabel({ session, isGuest, hydrated });
   const chipHref = session || isGuest ? "/account" : "/login";
   const [menuOpen, setMenuOpen] = useState(false);
-  const nav = STUDIO_NAV.filter((item) => (item.href === "/settings" ? admin : true));
+  const nav = STUDIO_NAV;
 
   useEffect(() => {
     document.documentElement.classList.remove("dark");

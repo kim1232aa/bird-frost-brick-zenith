@@ -210,6 +210,19 @@ html:has(.studio-root.is-canvas) #app {
   background: #f7f5f1;
 }
 
+.studio-page:not(.studio-flush):has(.wire-desk) {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.studio-page:not(.studio-flush):has(.wire-desk) > .wire-desk {
+  flex: 1 1 auto;
+  margin: -28px -20px -80px;
+  min-height: 0;
+  max-height: none;
+  height: 100%;
+}
+
 .studio-kicker {
   margin: 0 0 8px;
   color: var(--bp-text-3);

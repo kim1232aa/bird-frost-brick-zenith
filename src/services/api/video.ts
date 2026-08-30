@@ -56,6 +56,7 @@ import { useConfigStore } from "@/stores/use-config-store";
 import { useMembershipStore } from "@/studio/membership";
 import {
     buildXaiImagineVideoBody,
+    isOfficialXaiHost,
     isXaiImagineVideoModel,
     readXaiImaginePoll,
     readXaiImagineRequestId,
@@ -644,33 +645,46 @@ async function createXaiImagineVideoTask(
 ): Promise<VideoGenerationTask> {
     const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent);
     const stills = Array.from(new Set(videoReferenceIntentItems(publicIntent).map((url) => String(url || "").trim()).filter(Boolean))).slice(0, 5);
+    const official = route.mode === "local" && isOfficialXaiHost(route.provider.baseUrl);
+    if (official && (publicIntent.kind === "first_last_frame" || publicIntent.kind === "last_frame" || publicIntent.kind === "reference_set_with_frames" || publicIntent.kind === "reference_set_with_first")) {
+        throw new Error("xAI 官方视频没有静帧尾帧字段，且 I2V 的 image 不能与 R2V 的 reference_images 混用。延长请走 POST /v1/videos/extensions。");
+    }
     let first = "";
     let last = "";
-    if (publicIntent.kind === "first_frame" || publicIntent.kind === "reference_set_with_first") first = publicIntent.firstFrame;
-    else if (publicIntent.kind === "first_last_frame" || publicIntent.kind === "reference_set_with_frames") {
-        first = publicIntent.firstFrame || stills[0] || "";
-        last = publicIntent.lastFrame || stills[stills.length - 1] || "";
-    } else if (publicIntent.kind === "reference_set") {
-        first = stills[0] || "";
-        last = stills.length > 1 ? stills[stills.length - 1] : "";
-    } else if (publicIntent.kind !== "none" && stills.length) {
-        first = stills[0];
-        last = stills.length > 1 ? stills[stills.length - 1] : "";
+    let references: string[] = [];
+    if (official) {
+        if (publicIntent.kind === "first_frame") first = publicIntent.firstFrame;
+        else if (publicIntent.kind === "reference_set") references = publicIntent.references.map((url) => String(url || "").trim()).filter(Boolean);
+    } else {
+        if (publicIntent.kind === "first_frame" || publicIntent.kind === "reference_set_with_first") first = publicIntent.firstFrame;
+        else if (publicIntent.kind === "first_last_frame" || publicIntent.kind === "reference_set_with_frames") {
+            first = publicIntent.firstFrame || stills[0] || "";
+            last = publicIntent.lastFrame || stills[stills.length - 1] || "";
+        } else if (publicIntent.kind === "reference_set") {
+            first = stills[0] || "";
+            last = stills.length > 1 ? stills[stills.length - 1] : "";
+        } else if (publicIntent.kind !== "none" && stills.length) {
+            first = stills[0];
+            last = stills.length > 1 ? stills[stills.length - 1] : "";
+        }
+        if (!first) first = stills[0] || "";
+        if (last && last === first) last = stills.find((url) => url !== first) || "";
     }
-    if (!first) first = stills[0] || "";
-    if (last && last === first) last = stills.find((url) => url !== first) || "";
-    const duration = typeof generationParameters.duration === "number" ? generationParameters.duration : Number(config.videoSeconds) || 6;
-    const resolution = String(generationParameters.resolution || config.vquality || "720p").replace(/p$/i, "") + "p";
-    const aspect = String(generationParameters.aspectRatio || "16:9");
+    const providedDuration = typeof generationParameters.duration === "number" ? generationParameters.duration : Number(config.videoSeconds);
+    const duration = Number.isFinite(providedDuration) && providedDuration > 0 ? Math.max(1, Math.min(15, Math.round(providedDuration))) : undefined;
+    const providedResolution = String(generationParameters.resolution || (!official ? config.vquality : "") || "").trim();
+    const resolution = providedResolution ? `${providedResolution.replace(/p$/i, "")}p` : "";
+    const aspect = String(generationParameters.aspectRatio || (!official ? "16:9" : "")).trim();
     const body = buildXaiImagineVideoBody({
         model,
         prompt,
-        duration: Math.max(1, Math.min(15, Math.round(duration))),
-        aspect_ratio: aspect,
-        resolution: ["480p", "720p", "1080p"].includes(resolution) ? resolution : "720p",
+        ...(duration !== undefined ? { duration } : {}),
+        ...(aspect ? { aspect_ratio: aspect } : {}),
+        ...(resolution && ["480p", "720p", "1080p"].includes(resolution) ? { resolution } : {}),
         ...(first ? { image: { url: first } } : {}),
         ...(last ? { last_frame_image: { url: last } } : {}),
-        image_urls: stills,
+        image_urls: official ? references : stills,
+        profile: official ? "official" : "relay",
     });
     try {
         const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";

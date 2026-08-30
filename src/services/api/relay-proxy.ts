@@ -6,6 +6,12 @@ import {
     reconcileApiRelayModelAssignments,
     type ApiRelayProvider,
 } from "@/stores/api-relay-config";
+import {
+    buildAuthHeaders,
+    rejectUnsupportedCustomRelayProxy,
+} from "@/stores/api-relay-model-inference";
+
+export { buildAuthHeaders } from "@/stores/api-relay-model-inference";
 
 export const LOCAL_RELAY_PROXY_PREFIX = "/local-relay-proxy";
 export const LOCAL_RELAY_BASE_URL_HEADER = "x-local-relay-base-url";
@@ -124,21 +130,23 @@ export function buildLocalRelayProxyUrl(path: string) {
 }
 
 export function buildProviderProxyHeaders(provider: { proxyMode?: unknown; proxyUrl?: string }) {
-    if (provider.proxyMode !== "custom") return {};
-    const proxyUrl = String(provider.proxyUrl || "").trim();
-    let parsed: URL;
-    try {
-        parsed = new URL(proxyUrl);
-    } catch {
-        throw new Error("已开启中转专属代理，但代理 URL 不是有效的 HTTP(S) 地址");
-    }
-    if (!parsed.host || (parsed.protocol !== "http:" && parsed.protocol !== "https:")) {
-        throw new Error("已开启中转专属代理，但代理 URL 不是有效的 HTTP(S) 地址");
-    }
-    return { [LOCAL_RELAY_PROXY_URL_HEADER]: proxyUrl };
+    rejectUnsupportedCustomRelayProxy(provider.proxyMode);
+    return {};
 }
 
-export function buildLocalRelayProxyHeaders(provider: { id?: string; baseUrl: string; apiKey: string; apiKeys?: string[]; proxyMode?: unknown; proxyUrl?: string }, contentType?: string, overrideKey?: string) {
+export function buildLocalRelayProxyHeaders(
+    provider: {
+        id?: string;
+        baseUrl: string;
+        apiKey: string;
+        apiKeys?: string[];
+        proxyMode?: unknown;
+        proxyUrl?: string;
+        authScheme?: "Bearer" | "Key" | "x-api-key";
+    },
+    contentType?: string,
+    overrideKey?: string,
+) {
     const effectiveKey = (overrideKey || rotateRelayApiKey(provider)).trim();
     let builtin: Record<string, string> = {};
     try {
@@ -151,7 +159,7 @@ export function buildLocalRelayProxyHeaders(provider: { id?: string; baseUrl: st
     return {
         [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl,
         ...buildProviderProxyHeaders(provider),
-        ...(effectiveKey ? { Authorization: `Bearer ${effectiveKey}` } : {}),
+        ...buildAuthHeaders(effectiveKey, provider.authScheme),
         ...builtin,
         ...(contentType ? { "Content-Type": contentType } : {}),
     };

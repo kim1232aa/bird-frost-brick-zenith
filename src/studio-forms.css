@@ -1,6 +1,12 @@
 /* Form stacking + dropzone overlay.
    Does not hide or remove any control — only stops overlap and native file chrome. */
 
+:root {
+  /* #15803d on #fff = 5.02:1, on #101014 = 3.78:1, on #f7f5f1 = 4.61:1 (WCAG 1.4.11).
+     Do not swap to #4ade80 under html.dark — canvas can still sit on #f7f5f1. */
+  --studio-focus: #15803d;
+}
+
 .bench-side,
 .bp-left,
 .wire-editor,
@@ -49,7 +55,10 @@
 .bp-left input:not([type="file"]):not([type="checkbox"]),
 .studio-form textarea,
 .studio-form select,
-.studio-form input:not([type="file"]):not([type="checkbox"]) {
+.studio-form input:not([type="file"]):not([type="checkbox"]),
+.wire-editor textarea,
+.wire-editor select,
+.wire-editor input:not([type="file"]):not([type="checkbox"]) {
   position: static !important;
   top: auto !important;
   left: auto !important;
@@ -63,7 +72,9 @@
   min-width: 0 !important;
   margin: 0;
   box-sizing: border-box;
-  border: 1px solid #e7e5df;
+  /* #78716c on #fff is 4.80:1 — meets WCAG 1.4.11 3:1 for component boundaries.
+     html prefix + !important beats later brand.css border: 1px solid #e2e8f0. */
+  border: 1px solid #78716c !important;
   background: #fff;
   color: #1c1917;
   border-radius: 12px;
@@ -71,6 +82,111 @@
   font: inherit;
   line-height: 1.45;
   resize: vertical;
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+  scroll-margin-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+}
+
+html .studio-field textarea,
+html .studio-field select,
+html .studio-field input:not([type="file"]):not([type="checkbox"]),
+html .bench-side textarea,
+html .bp-left textarea,
+html .bench-side select,
+html .bp-left select,
+html .bench-side input:not([type="file"]):not([type="checkbox"]),
+html .bp-left input:not([type="file"]):not([type="checkbox"]),
+html .studio-form textarea,
+html .studio-form select,
+html .studio-form input:not([type="file"]):not([type="checkbox"]),
+html .wire-editor textarea,
+html .wire-editor select,
+html .wire-editor input:not([type="file"]):not([type="checkbox"]) {
+  border: 1px solid #78716c !important;
+}
+
+.studio-field textarea:focus-visible,
+.studio-field select:focus-visible,
+.studio-field input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.bench-side textarea:focus-visible,
+.bp-left textarea:focus-visible,
+.bench-side select:focus-visible,
+.bp-left select:focus-visible,
+.bench-side input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.bp-left input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.studio-form textarea:focus-visible,
+.studio-form select:focus-visible,
+.studio-form input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.wire-editor textarea:focus-visible,
+.wire-editor select:focus-visible,
+.wire-editor input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.studio-field input[type="checkbox"]:focus-visible,
+.bench-side input[type="checkbox"]:focus-visible,
+.bp-left input[type="checkbox"]:focus-visible,
+.wire-editor input[type="checkbox"]:focus-visible,
+.studio-form input[type="checkbox"]:focus-visible,
+.studio-primary:focus-visible,
+.bp-generate:focus-visible,
+.studio-ghost:focus-visible,
+.chip-row button:focus-visible,
+.studio-seg button:focus-visible,
+.aspect-grid button:focus-visible,
+.wire-add-btn:focus-visible,
+.wire-item:focus-visible,
+.wire-item-del:focus-visible,
+.studio-menu-btn:focus-visible,
+.studio-userchip:focus-visible,
+.model-menu-trigger:focus-visible,
+.result-actions a:focus-visible,
+.result-actions button:focus-visible,
+.acct-alt a:focus-visible,
+.acct-alt button:focus-visible,
+.acct-card input:focus-visible,
+.acct-card select:focus-visible,
+.acct-card textarea:focus-visible,
+.login-card input:focus-visible {
+  /* Previous #22c55e on #fff was 2.28:1 and failed WCAG 1.4.11. */
+  outline: 2px solid var(--studio-focus);
+  outline-offset: 2px;
+}
+
+.studio-field textarea:focus-visible,
+.studio-field select:focus-visible,
+.studio-field input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.bench-side textarea:focus-visible,
+.bp-left textarea:focus-visible,
+.bench-side select:focus-visible,
+.bp-left select:focus-visible,
+.bench-side input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.bp-left input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.studio-form textarea:focus-visible,
+.studio-form select:focus-visible,
+.studio-form input:not([type="file"]):not([type="checkbox"]):focus-visible,
+.wire-editor textarea:focus-visible,
+.wire-editor select:focus-visible,
+.wire-editor input:not([type="file"]):not([type="checkbox"]):focus-visible {
+  border-color: var(--studio-focus) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-field textarea,
+  .studio-field select,
+  .studio-field input:not([type="file"]):not([type="checkbox"]),
+  .bench-side textarea,
+  .bp-left textarea,
+  .bench-side select,
+  .bp-left select,
+  .bench-side input:not([type="file"]):not([type="checkbox"]),
+  .bp-left input:not([type="file"]):not([type="checkbox"]),
+  .studio-form textarea,
+  .studio-form select,
+  .studio-form input:not([type="file"]):not([type="checkbox"]),
+  .wire-editor textarea,
+  .wire-editor select,
+  .wire-editor input:not([type="file"]):not([type="checkbox"]) {
+    transition: none;
+  }
 }
 
 .dropzone {
@@ -82,10 +198,46 @@
   overflow: hidden;
   min-height: 96px;
   padding: 14px 16px;
-  border: 1.5px dashed #86efac;
+  border: 1.5px dashed #047857;
   border-radius: 16px;
   background: #ecfdf3;
   color: #14532d;
+  transition:
+    border-color 150ms,
+    background-color 150ms;
+}
+
+html:not(.dark) .dropzone {
+  border-color: #047857 !important;
+  background: #ecfdf3 !important;
+  color: #14532d;
+}
+
+html:not(.dark) .dropzone:focus-within,
+html.dark .dropzone:focus-within,
+.dropzone:focus-within {
+  border-color: var(--studio-focus) !important;
+  outline: 2px solid var(--studio-focus);
+  outline-offset: 2px;
+}
+
+html:not(.dark) .dropzone:focus-within {
+  background: #dcfce7 !important;
+}
+
+html.dark .dropzone:focus-within {
+  background: #17171d !important;
+}
+
+label:has(input[type="file"].sr-only:focus-visible) {
+  outline: 2px solid var(--studio-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropzone {
+    transition: none;
+  }
 }
 
 .dropzone > span,
@@ -96,19 +248,47 @@
   pointer-events: none;
 }
 
+/* Visually hidden, kept in the a11y tree.
+   clip-path is current; clip is the fallback. Do not un-hide file inputs on
+   :focus — native file chrome would pop in. Dropzone uses :focus-within. */
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Overlay the control on the dropzone. Must undo .sr-only clip or the hit
+   target collapses to 1px and the file control is not operable. */
 .dropzone input[type="file"] {
   position: absolute !important;
   inset: 0 !important;
   width: 100% !important;
   height: 100% !important;
+  min-width: 0 !important;
+  min-height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
   opacity: 0 !important;
-  font-size: 0 !important;
+  font-size: 16px !important;
+  color: transparent !important;
   cursor: pointer;
   z-index: 3;
   margin: 0 !important;
   padding: 0 !important;
   border: 0 !important;
   background: transparent !important;
+  overflow: hidden !important;
+  clip: auto !important;
+  clip-path: none !important;
+  white-space: nowrap !important;
+  pointer-events: auto !important;
 }
 
 .dropzone .ref-thumb {
@@ -117,15 +297,9 @@
   border-radius: 12px;
 }
 
-html:not(.dark) .dropzone {
-  border-color: #86efac;
-  background: #ecfdf3;
-  color: #14532d;
-}
-
 html.dark .dropzone {
-  border-color: #3a3a44;
-  background: #17171d;
+  border-color: #a8a29e !important;
+  background: #17171d !important;
   color: #c8c2b6;
 }
 
@@ -149,6 +323,22 @@ html:not(.dark) .story-logline .studio-kicker {
   gap: 2px;
   min-height: 48px;
   line-height: 1.2;
+  transition:
+    background-color 150ms,
+    transform 100ms;
+}
+
+.studio-primary:active {
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-primary {
+    transition: none;
+  }
+  .studio-primary:active {
+    transform: none;
+  }
 }
 
 .studio-primary small {
