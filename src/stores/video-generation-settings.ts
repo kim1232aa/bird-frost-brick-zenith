@@ -5,7 +5,7 @@ import {
     type VideoGenerationDimensions,
     type VideoGenerationParameterName,
     type VideoGenerationParameters,
-} from "../services/api/video-model-capabilities.mjs";
+} from "../services/api/video-model-capabilities.ts";
 
 export type VideoGenerationOperation =
     | "text-to-video"

@@ -2,7 +2,6 @@ import type { StudioAdapter } from "./types";
 import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
 import { collectImageRefs } from "@/studio/image-refs";
 import {
-  assertRefCount,
   buildOpenAiOfficialImageBody,
   isOfficialOpenAiHost,
   OFFICIAL_OPENAI_IMAGE_REF_CAP,
@@ -13,7 +12,9 @@ import {
   studioEndpoint,
 } from "./contracts";
 
-function openaiImageRefCap(baseUrl: string, protocol?: string) {
+function openaiImageRefCap(baseUrl: string, protocol?: string, model?: string) {
+  // GPT image models officially accept up to 16 refs; relay proxy should not cap at 5.
+  if (/gpt-image|chatgpt-image/i.test(String(model || "").trim())) return OFFICIAL_OPENAI_IMAGE_REF_CAP;
   return openaiVideoWireKind(baseUrl, protocol) === "openai-official" ? OFFICIAL_OPENAI_IMAGE_REF_CAP : SAFE_IMAGE_REF_CAP;
 }
 
@@ -23,7 +24,7 @@ export const openaiCompatAdapter: StudioAdapter = {
   docs: "https://platform.openai.com/docs/api-reference",
   async generateImage(ctx, input) {
     const official = isOfficialOpenAiHost(ctx.provider.baseUrl) || ctx.provider.protocol === "openai-official";
-    const refs = collectImageRefs(input, openaiImageRefCap(ctx.provider.baseUrl, ctx.provider.protocol));
+    const refs = collectImageRefs(input, openaiImageRefCap(ctx.provider.baseUrl, ctx.provider.protocol, input.model));
     const editing = input.operation === "edit" || refs.length > 0;
     if (editing && !refs.length) {
       throw new Error("改图至少需要 1 张参考图");
@@ -71,8 +72,6 @@ export const openaiCompatAdapter: StudioAdapter = {
       if (extras.length || input.lastFrameUrl) {
         throw new Error("OpenAI 官方 Videos 只接受 1 个 input_reference，不发送 last_frame / image_urls。");
       }
-    } else {
-      assertRefCount((input.imageUrls || []).filter(Boolean).length);
     }
     const planned = planOpenAiCompatCreateVideo({
       model: input.model,
@@ -86,6 +85,27 @@ export const openaiCompatAdapter: StudioAdapter = {
       first_frame: input.imageUrl,
       last_frame: input.lastFrameUrl,
       image_urls: (input.imageUrls || []).filter(Boolean),
+      seed: input.seed,
+      steps: input.steps,
+      guidance: input.guidance,
+      modelVariant: input.modelVariant,
+      watermark: input.watermark,
+      promptExpansion: input.promptExpansion,
+      returnLastFrame: input.returnLastFrame,
+      audioUrl: input.audioUrl,
+      width: input.width,
+      height: input.height,
+      frames: input.frames,
+      audioMode: input.audioMode,
+      quantity: input.quantity,
+      mode: input.mode,
+      frameGuideStrength: input.frameGuideStrength,
+      safetyChecker: input.safetyChecker,
+      shift: input.shift,
+      turbo: input.turbo,
+      sampler: input.sampler,
+      scheduler: input.scheduler,
+      usePro: input.usePro,
       baseUrl: ctx.provider.baseUrl,
       protocol: ctx.provider.protocol,
       endpoints: ctx.provider.endpoints,

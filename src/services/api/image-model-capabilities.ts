@@ -292,7 +292,9 @@ export type ImageCapabilityProfileId =
     | "openai-dall-e-3-generate"
     | "openai-responses-image-tool"
     | "xai-grok-image-generate"
+    | "xai-grok-imagine-2-generate"
     | "xai-grok-imagine-edit"
+    | "xai-grok-imagine-2-edit"
     | "google-gemini-chat-image-generate"
     | "google-gemini-chat-image-edit"
     | "agnes-image-2.1-generate"
@@ -440,8 +442,10 @@ export type ImageOutputRequestPlan = {
 
 const VERIFIED_AT = "2026-08-03";
 
-const OPENAI_IMAGE_GUIDE = evidence("official-doc", "https://developers.openai.com/api/docs/guides/image-generation", `OpenAI image guide, checked ${VERIFIED_AT}`);
+const OPENAI_IMAGE_GUIDE = evidence("official-doc", "https://developers.openai.com/api/docs/guides/image-generation", `OpenAI image guide, checked ${VERIFIED_AT}; n generates multiple images in one request; GPT Image 2 size/quality rechecked 2026-08-30`);
 const OPENAI_IMAGE_API = evidence("official-openapi", "https://developers.openai.com/api/reference/resources/images", `OpenAI Images API, checked ${VERIFIED_AT}`);
+const OPENAI_IMAGE_GENERATE_API = evidence("official-openapi", "https://developers.openai.com/api/reference/resources/images/methods/generate", "POST /images/generations: n 1-10 (dall-e-3 only n=1); GPT Image 2 arbitrary WIDTHxHEIGHT; quality auto|low|medium|high; output_format png|jpeg|webp; models include gpt-image-2 and gpt-image-2-2026-04-21, checked 2026-08-30");
+const OPENAI_IMAGE_EDIT_API = evidence("official-openapi", "https://developers.openai.com/api/reference/resources/images/methods/edit", "POST /images/edits: n 1-10; GPT image models including gpt-image-2 / gpt-image-2-2026-04-21 / chatgpt-image-latest accept up to 16 input images; mask applies to the first image, checked 2026-08-30");
 const OPENAI_DEPRECATIONS = evidence("official-doc", "https://developers.openai.com/api/docs/deprecations", "DALL-E 2 and DALL-E 3 were removed from the OpenAI API on 2026-05-12");
 const AGNES_21_DOC = evidence("official-doc", "https://agnes-ai.com/zh-Hans/docs/agnes-image-21-flash", `Agnes Image 2.1 guide, checked ${VERIFIED_AT}`);
 const AGNES_20_DOC = evidence("official-doc", "https://agnes-ai.com/en/docs/agnes-image-20-flash", `Agnes Image 2.0 guide, checked ${VERIFIED_AT}`);
@@ -456,10 +460,11 @@ const ARK_SEEDREAM_GUIDE = evidence("official-doc", "https://www.volcengine.com/
 const SENSENOVA_U1_DOC = evidence("official-doc", "https://platform.sensenova.cn/docs#model-u1", `SenseNova U1 Fast contract, checked ${VERIFIED_AT}`);
 const SENSENOVA_MIAOHUA_DOC = evidence("official-doc", "https://largemodel.sensetime.com/product/APIService/document/96/", `SenseTime Miaohua API, checked ${VERIFIED_AT}`);
 const CIVITAI_IMAGE_OPENAPI = evidence("live-openapi", "https://orchestration.civitai.com/v2/consumer/recipes/imageGen/openapi.yaml", `Civitai imageGen live OpenAPI, checked ${VERIFIED_AT}`);
-const XAI_IMAGE_API = evidence("official-openapi", "https://docs.x.ai/api-reference", "xAI Images API /v1/images/generations: n 1-10, response_format url|b64_json; size/quality/style are not request fields, checked 2026-08-14");
-const XAI_IMAGINE_GUIDE = evidence("official-doc", "https://docs.x.ai/docs/guides/image-generations", "xAI Imagine guide: grok-imagine-image generation; the edit contract (up to 3 references) uses the Imagine JSON image_url shape, not OpenAI multipart edits, checked 2026-08-14");
+const XAI_IMAGE_API = evidence("official-openapi", "https://docs.x.ai/developers/rest-api-reference/inference/images", "xAI Images REST: POST /v1/images/generations and /v1/images/edits; generations example includes n and response_format, checked 2026-08-30");
+const XAI_IMAGINE_GUIDE = evidence("official-doc", "https://docs.x.ai/developers/model-capabilities/images/generation", "xAI Imagine generation: n 1-10; aspect_ratio enum including auto; resolution 1k|2k; quality low|medium only on grok-imagine-image-2.0, checked 2026-08-30");
+const XAI_IMAGINE_OVERVIEW = evidence("official-doc", "https://docs.x.ai/developers/model-capabilities/imagine", "Imagine overview: generation output count up to 10; editing up to 3 reference images, checked 2026-08-30");
 const XAI_IMAGINE_EDIT_OPENAPI = evidence("official-openapi", "https://docs.x.ai/openapi.json", "xAI EditImageRequest on POST /v1/images/edits: JSON body (not multipart); prompt required; image {url} and images [{url}] are mutually exclusive, images max 3; url accepts base64 data URI (JPEG/PNG/WebP); n and response_format documented, checked 2026-08-15");
-const XAI_IMAGINE_MULTI_EDIT_GUIDE = evidence("official-doc", "https://docs.x.ai/developers/model-capabilities/images/multi-image-editing", "xAI multi-image editing guide: up to 3 reference images, aspect_ratio only valid for multi-image edits, checked 2026-08-15");
+const XAI_IMAGINE_MULTI_EDIT_GUIDE = evidence("official-doc", "https://docs.x.ai/developers/model-capabilities/images/multi-image-editing", "xAI multi-image editing guide: up to 3 reference images, aspect_ratio only valid for multi-image edits, checked 2026-08-30");
 const GEMINI_IMAGE_GUIDE = evidence("official-doc", "https://ai.google.dev/gemini-api/docs/image-generation", "Gemini image models (Nano Banana family): gemini-3.1-flash-image / gemini-3-pro-image (GA) and gemini-3.1-flash-image-preview / gemini-3-pro-image-preview (legacy preview IDs); text+image input editing; up to 14 input images depending on tier, checked 2026-08-15");
 const GEMINI_OPENAI_COMPAT_DOC = evidence("official-doc", "https://ai.google.dev/gemini-api/docs/openai", "Google first-party OpenAI-compatible layer exposes Gemini image models on /v1beta/openai/images/generations; chat/completions is documented for text models only, checked 2026-08-15");
 const KLONG_GEMINI_CHAT_IMAGE_LIVE = evidence("live-api", "https://api.klong.lat/v1", "Live probe 2026-08-15: /images/generations rejects gemini-*-image* models (\"only imagen models are supported\"); chat/completions returns ![image](data:image/jpeg;base64,...) for text-to-image and for text+image_url editing with 1 and 2 references on gemini-3-pro-image-preview-c and gemini-3.1-flash-image-preview-c");
@@ -482,11 +487,42 @@ const GPT_IMAGE_2_SIZE = dimensions({
         multipleOf: 16,
         maxAspectRatio: 3,
     },
-    note: "GPT Image 2 arbitrary dimensions: both edges are 16-aligned, aspect ratio <= 3:1",
+    examples: ["1024x1024", "1536x1024", "1024x1536", "2048x2048", "2048x1152", "3840x2160", "2160x3840"],
+    note: "GPT Image 2 arbitrary dimensions: both edges are 16-aligned, aspect ratio <= 3:1, longest edge <= 3840; resolutions above 2560x1440 are experimental",
 });
 const GPT_IMAGE_LEGACY_SIZES = enumSize(["auto", "1024x1024", "1536x1024", "1024x1536"]);
 const GPT_IMAGE_QUALITY = enumField(["auto", "low", "medium", "high"]);
 const GPT_IMAGE_FORMAT = enumField(["png", "jpeg", "webp"]);
+const GPT_IMAGE_2_EDIT_REFERENCES = references(
+    1,
+    16,
+    "Official Images Edit JSON: GPT image models including gpt-image-2 accept up to 16 input images; input order is preserved and a mask applies to the first image",
+);
+const XAI_IMAGINE_2_RATIOS = [
+    "auto",
+    "1:1",
+    "16:9",
+    "9:16",
+    "4:3",
+    "3:4",
+    "3:2",
+    "2:3",
+    "2:1",
+    "1:2",
+    "19.5:9",
+    "9:19.5",
+    "20:9",
+    "9:20",
+    "21:9",
+    "5:2",
+] as const;
+const XAI_IMAGINE_2_SIZE = tierAndRatio(["1k", "2k"], XAI_IMAGINE_2_RATIOS, {
+    required: false,
+    defaultTier: "1k",
+    defaultRatio: "auto",
+    note: "Official Imagine 2.0 generation uses aspect_ratio plus resolution 1k|2k; quality is a separate request field",
+});
+const XAI_IMAGINE_2_QUALITY = enumField(["low", "medium"], { note: "Official Imagine 2.0 quality; omitted defaults to medium" });
 const RESPONSES_IMAGE_TOOL_SIZES = enumSize(["auto", "1024x1024", "1536x1024", "1024x1536"]);
 const DALL_E_2_SIZES = enumSize(["256x256", "512x512", "1024x1024"]);
 const AGNES_21_SIZE = tierAndRatio(
@@ -577,6 +613,16 @@ const CIVITAI_OPENAI_GPT1_SIZES = ["1024x1024", "1536x1024", "1024x1536"] as con
 const CIVITAI_OPENAI_DALLE2_SIZES = ["256x256", "512x512", "1024x1024"] as const;
 const CIVITAI_OPENAI_DALLE3_SIZES = ["1024x1024", "1792x1024", "1024x1792"] as const;
 
+const CIVITAI_SDCPP_SAMPLE_METHOD_ENUM = [
+    "euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v",
+    "ddim_trailing", "euler_a", "lcm", "res_multistep", "res_2s", "tcd", "er_sde",
+] as const;
+
+const CIVITAI_SDCPP_SCHEDULE_ENUM = [
+    "simple", "discrete", "karras", "exponential", "ays", "bong_tangent", "gits", "sgm_uniform",
+    "smoothstep", "kl_optimal", "lcm",
+] as const;
+
 const CIVITAI_Z_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
     negativePrompt: { state: "supported", kind: "string", wireName: "negativePrompt", maxLength: 10_000 },
     steps: { state: "supported", kind: "number", wireName: "steps", min: 1, max: 150, integer: true },
@@ -586,13 +632,13 @@ const CIVITAI_Z_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
         state: "supported",
         kind: "enum",
         wireName: "sampleMethod",
-        values: ["euler", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v", "ddim_trailing", "euler_a", "lcm", "res_multistep", "res_2s", "tcd", "er_sde"],
+        values: [...CIVITAI_SDCPP_SAMPLE_METHOD_ENUM],
     },
     scheduler: {
         state: "supported",
         kind: "enum",
         wireName: "schedule",
-        values: ["simple", "discrete", "karras", "exponential", "ays", "bong_tangent", "gits", "sgm_uniform", "smoothstep", "kl_optimal", "lcm"],
+        values: [...CIVITAI_SDCPP_SCHEDULE_ENUM],
         note: "capitanZiT is not in the live OpenAPI enum",
     },
     sequential: unknown("sequential mode is not part of this Civitai service contract"),
@@ -695,7 +741,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         quality: GPT_IMAGE_QUALITY,
         outputFormat: GPT_IMAGE_FORMAT,
         serialization: OPENAI_GENERATE_SERIALIZATION,
-        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_API],
+        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_GENERATE_API, OPENAI_IMAGE_API],
     }),
     "openai-gpt-image-2-edit": profile({
         id: "openai-gpt-image-2-edit",
@@ -703,13 +749,13 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         label: "OpenAI GPT Image 2 edit",
         operation: "edit",
         outputCount: nativeBatch(1, 10),
-        referenceCount: references(1, null, "The official guide documents multiple gpt-image-2 inputs, but the current Images Edit model enum omits gpt-image-2 from the models covered by the published 16-image limit; preserve every reference and warn that the maximum is unpublished. Input order is preserved; a mask applies to the first image."),
+        referenceCount: GPT_IMAGE_2_EDIT_REFERENCES,
         mask: supportedMask("first-reference", "OpenAI applies the mask to the first image when multiple images are supplied"),
         size: GPT_IMAGE_2_SIZE,
         quality: GPT_IMAGE_QUALITY,
         outputFormat: GPT_IMAGE_FORMAT,
         serialization: OPENAI_EDIT_SERIALIZATION,
-        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_API],
+        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_EDIT_API, OPENAI_IMAGE_API],
     }),
     "openai-gpt-image-legacy-generate": profile({
         id: "openai-gpt-image-legacy-generate",
@@ -724,7 +770,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         quality: GPT_IMAGE_QUALITY,
         outputFormat: GPT_IMAGE_FORMAT,
         serialization: OPENAI_GENERATE_SERIALIZATION,
-        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_API],
+        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_GENERATE_API, OPENAI_IMAGE_API],
     }),
     "openai-gpt-image-legacy-edit": profile({
         id: "openai-gpt-image-legacy-edit",
@@ -739,7 +785,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         quality: GPT_IMAGE_QUALITY,
         outputFormat: GPT_IMAGE_FORMAT,
         serialization: OPENAI_EDIT_SERIALIZATION,
-        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_API],
+        evidence: [OPENAI_IMAGE_GUIDE, OPENAI_IMAGE_EDIT_API, OPENAI_IMAGE_API],
     }),
     "openai-dall-e-2-generate": profile({
         id: "openai-dall-e-2-generate",
@@ -847,17 +893,38 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
             quantityField: "n",
             responseEncodingField: "response_format",
         }),
-        evidence: [XAI_IMAGE_API, XAI_IMAGINE_GUIDE],
+        evidence: [XAI_IMAGE_API, XAI_IMAGINE_GUIDE, XAI_IMAGINE_OVERVIEW],
+    }),
+    "xai-grok-imagine-2-generate": profile({
+        id: "xai-grok-imagine-2-generate",
+        provider: "openai",
+        label: "xAI Grok Imagine 2.0 generation",
+        operation: "generate",
+        outputCount: nativeBatch(1, 10, "Official Imagine generation: n 1-10 on /v1/images/generations"),
+        referenceCount: UNSUPPORTED_REFERENCES,
+        mask: UNSUPPORTED_MASK,
+        size: XAI_IMAGINE_2_SIZE,
+        quality: XAI_IMAGINE_2_QUALITY,
+        outputFormat: enumField(["jpg"], { requestable: false, note: "xAI image output is JPG; response_format only selects url vs b64_json transport" }),
+        serialization: serialization({
+            kind: "openai-images-generate",
+            endpoint: "/images/generations",
+            quantityField: "n",
+            sizeField: "aspectRatio+resolution",
+            qualityField: "quality",
+            responseEncodingField: "response_format",
+        }),
+        evidence: [XAI_IMAGINE_GUIDE, XAI_IMAGINE_OVERVIEW, XAI_IMAGE_API],
     }),
     "xai-grok-imagine-edit": profile({
         id: "xai-grok-imagine-edit",
         provider: "openai",
         label: "xAI Grok Imagine image edit (JSON contract)",
         operation: "edit",
-        outputCount: nativeBatch(1, null, "xAI documents n on /v1/images/edits without an explicit upper bound"),
+        outputCount: nativeBatch(1, 10, "Official Imagine overview documents output count up to 10; REST edits also accept n"),
         referenceCount: references(1, 3, "xAI multi-image editing guide: up to 3 reference images; single-image edit uses the mutually exclusive image field"),
         mask: unsupported("xAI EditImageRequest 没有 mask 字段（OpenAPI 已核实）"),
-        size: unsupported("xAI edits 不接受 size；aspect_ratio 仅多图编辑有效，当前合同不自动下发"),
+        size: unsupported("xAI single-image edits 不接受 size；aspect_ratio 仅多图编辑有效"),
         quality: unsupported("xAI edits 不接受 quality 请求字段"),
         outputFormat: enumField(["jpg", "png", "webp"], { requestable: false, note: "xAI GeneratedImage.mime_type 可为 jpeg/png/webp；response_format 只选择 url vs b64_json 传输" }),
         serialization: serialization({
@@ -867,7 +934,33 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
             referenceField: "images[].url",
             responseEncodingField: "response_format",
         }),
-        evidence: [XAI_IMAGINE_EDIT_OPENAPI, XAI_IMAGINE_MULTI_EDIT_GUIDE],
+        evidence: [XAI_IMAGINE_EDIT_OPENAPI, XAI_IMAGINE_MULTI_EDIT_GUIDE, XAI_IMAGINE_OVERVIEW],
+    }),
+    "xai-grok-imagine-2-edit": profile({
+        id: "xai-grok-imagine-2-edit",
+        provider: "openai",
+        label: "xAI Grok Imagine 2.0 image edit (JSON contract)",
+        operation: "edit",
+        outputCount: nativeBatch(1, 10, "Official Imagine overview documents output count up to 10"),
+        referenceCount: references(1, 3, "xAI multi-image editing guide: up to 3 reference images; single-image edit uses the mutually exclusive image field"),
+        mask: unsupported("xAI EditImageRequest 没有 mask 字段（OpenAPI 已核实）"),
+        size: tierAndRatio(["1k", "2k"], XAI_IMAGINE_2_RATIOS, {
+            required: false,
+            defaultTier: "1k",
+            defaultRatio: "auto",
+            note: "Official EditImageRequest 接受 aspect_ratio 与 resolution 1k|2k；单图编辑默认沿用输入图比例",
+        }),
+        quality: unsupported("xAI Imagine 2.0 edits 不接受 quality 请求字段"),
+        outputFormat: enumField(["jpg", "png", "webp"], { requestable: false, note: "xAI GeneratedImage.mime_type 可为 jpeg/png/webp；response_format 只选择 url vs b64_json 传输" }),
+        serialization: serialization({
+            kind: "xai-imagine-edit",
+            endpoint: "/images/edits",
+            quantityField: "n",
+            referenceField: "images[].url",
+            sizeField: "aspectRatio+resolution",
+            responseEncodingField: "response_format",
+        }),
+        evidence: [XAI_IMAGINE_EDIT_OPENAPI, XAI_IMAGINE_MULTI_EDIT_GUIDE, XAI_IMAGINE_GUIDE],
     }),
     "google-gemini-chat-image-generate": profile({
         id: "google-gemini-chat-image-generate",
@@ -1125,10 +1218,10 @@ export function nativeImageAdapterType(provider?: ImageCapabilityProvider): Imag
         if (explicit === "xai-imagine" || explicit === "xai") return "openai";
         if (explicit === "agnes") return "agnes";
         if (explicit === "dashscope") return "dashscope";
-        if (explicit === "ark") return "ark";
+        if (explicit === "ark" || explicit === "ark-plan") return "ark";
         if (explicit === "sensenova") return "sensenova";
         if (explicit === "sensenova-miaohua" || explicit === "sensetime-miaohua") return "sensenova-miaohua";
-        if (explicit === "civitai-orchestration") return "civitai";
+        if (explicit === "civitai" || explicit === "civitai-orchestration") return "civitai";
         return "";
     }
     const host = urlHostname(provider.baseUrl);
@@ -1178,7 +1271,8 @@ export function resolveImageModelCapability(options: {
     const provider = options.provider;
     const configured = configuredImageProfile(provider?.imageCapabilityProfiles, model, options.operation);
     if (configured.kind === "resolved") {
-        const compatibility = imageCapabilityProfileCompatibility(provider, configured.id);
+        const specializedId = specializeXaiImagineProfile(configured.id, model);
+        const compatibility = imageCapabilityProfileCompatibility(provider, specializedId);
         if (!compatibility.compatible) {
             return resolvedDynamic(
                 unavailableProfile(options.operation, "profile-adapter-mismatch", compatibility.reason),
@@ -1188,7 +1282,15 @@ export function resolveImageModelCapability(options: {
                 "configured profile adapter mismatch",
             );
         }
-        return resolvedProfile(configured.id, model, provider, true, "explicit imageCapabilityProfiles mapping");
+        return resolvedProfile(
+            specializedId,
+            model,
+            provider,
+            true,
+            specializedId === configured.id
+                ? "explicit imageCapabilityProfiles mapping"
+                : "explicit imageCapabilityProfiles mapping specialized to Imagine 2.0 official fields",
+        );
     }
     if (configured.kind === "mismatch") {
         return resolvedDynamic(
@@ -1375,7 +1477,9 @@ function resolveOpenAI(model: string, operation: ImageOperation, provider?: Imag
     }
     // Relay-only variants (gpt-image-2-high/-vip/-c) are verified on
     // OpenAI-compatible relays but do not exist on the official OpenAI host.
-    if (key === "gpt-image-2" || (urlHostname(provider?.baseUrl) !== "api.openai.com" && GPT_IMAGE_2_RELAY_VARIANTS.has(key))) {
+    // Official snapshot IDs (gpt-image-2-2026-04-21) and chatgpt-image-latest
+    // share the GPT Image 2 Images API contract.
+    if (isGptImage2ModelKey(key) || (urlHostname(provider?.baseUrl) !== "api.openai.com" && GPT_IMAGE_2_RELAY_VARIANTS.has(key))) {
         const id = operation === "generate" ? "openai-gpt-image-2-generate" : operation === "edit" ? "openai-gpt-image-2-edit" : undefined;
         return id ? resolvedProfile(id, model, provider, false, "OpenAI model ID") : unsupportedResolved(operation, model, provider, "GPT Image 2 不支持该 operation");
     }
@@ -1387,10 +1491,26 @@ function resolveOpenAI(model: string, operation: ImageOperation, provider?: Imag
     // recognize them on OpenAI-compatible relays/passthrough endpoints.
     if (urlHostname(provider?.baseUrl) !== "api.openai.com") {
         if (isXaiImageModelKey(key)) {
-            if (operation === "generate") return resolvedProfile("xai-grok-image-generate", model, provider, false, "xAI Grok image model ID on an OpenAI-compatible endpoint");
+            if (operation === "generate") {
+                return resolvedProfile(
+                    isXaiImagine2ModelKey(key) ? "xai-grok-imagine-2-generate" : "xai-grok-image-generate",
+                    model,
+                    provider,
+                    false,
+                    isXaiImagine2ModelKey(key)
+                        ? "xAI Imagine 2.0 generation: n 1-10, aspect_ratio, resolution 1k|2k, quality low|medium"
+                        : "xAI Grok image model ID on an OpenAI-compatible endpoint",
+                );
+            }
             if (operation === "edit") {
                 if (key.startsWith("grok-imagine-image")) {
-                    return resolvedProfile("xai-grok-imagine-edit", model, provider, false, "xAI Grok Imagine edit uses the official JSON /images/edits contract (not OpenAI multipart)");
+                    return resolvedProfile(
+                        isXaiImagine2ModelKey(key) ? "xai-grok-imagine-2-edit" : "xai-grok-imagine-edit",
+                        model,
+                        provider,
+                        false,
+                        "xAI Grok Imagine edit uses the official JSON /images/edits contract (not OpenAI multipart)",
+                    );
                 }
                 return unsupportedResolved(operation, model, provider, "grok-2-image 已被 xAI 官方模型清单移除，其编辑合同未经官方发布；grok-imagine-image* 才支持编辑");
             }
@@ -1472,6 +1592,36 @@ function resolveMiaohua(model: string, operation: ImageOperation, provider?: Ima
     return unsupportedResolved(operation, model, provider, "秒画标准生图端点不支持该 operation；inpaint 等能力使用独立端点/profile");
 }
 
+export function isExactCivitaiOpenAIGptImage2Service(service: ImageCapabilityService | undefined) {
+    if (!service?.id) return false;
+    const id = service.id.trim().toLowerCase();
+    const engine = String(service.parameters?.engine || "").trim().toLowerCase();
+    const model = String(service.parameters?.model || "").trim().toLowerCase();
+    const operation = String(service.parameters?.operation || "").trim().toLowerCase();
+    if (engine !== "openai" || model !== "gpt-image-2") return false;
+    return (operation === "createimage" && id === "image/openai/gpt-image-2/createimage")
+        || (operation === "editimage" && id === "image/openai/gpt-image-2/editimage");
+}
+
+const CIVITAI_Z_IMAGE_CREATE_SERVICE = /^image\/sdcpp\/zimage\/(turbo|base)\/createimage$/;
+
+function isExactCivitaiZImageCreateService(id: string, service: ImageCapabilityService | undefined) {
+    const match = CIVITAI_Z_IMAGE_CREATE_SERVICE.exec(id);
+    if (!match) return false;
+    if (!service) return true;
+    const engine = String(service.parameters?.engine || "").trim().toLowerCase();
+    const ecosystem = String(service.parameters?.ecosystem || "").trim().toLowerCase();
+    const model = String(service.parameters?.model || "").trim().toLowerCase();
+    const operation = String(service.parameters?.operation || "").trim().toLowerCase();
+    return engine === "sdcpp" && ecosystem === "zimage" && model === match[1] && operation === "createimage";
+}
+
+function isCivitaiZImageFamily(id: string, service: ImageCapabilityService | undefined) {
+    const engine = String(service?.parameters?.engine || "").trim().toLowerCase();
+    const ecosystem = String(service?.parameters?.ecosystem || "").trim().toLowerCase();
+    return id.startsWith("image/sdcpp/zimage/") || (engine === "sdcpp" && ecosystem === "zimage");
+}
+
 function resolveCivitai(
     model: string,
     operation: ImageOperation,
@@ -1489,9 +1639,12 @@ function resolveCivitai(
         }
         return resolvedCivitaiServiceProfile("civitai-generic-generate", model, provider, service, "Civitai Krea FAL createImage service");
     }
-    if ((id.includes("/zimage/") || engine === "zimage") && declaredOperation === "createimage") {
+    if (isCivitaiZImageFamily(id, service)) {
+        if (!isExactCivitaiZImageCreateService(id, service) || declaredOperation !== "createimage") {
+            return unsupportedResolved(operation, model, provider, "Civitai Z-Image 仅有 Turbo/Base createImage 目录合同，不支持编辑或变体路径");
+        }
         return operation === "generate"
-            ? resolvedProfile("civitai-z-image-generate", model, provider, false, "Civitai Z-Image service discriminator")
+            ? resolvedProfile("civitai-z-image-generate", model, provider, false, "exact Civitai Z-Image Turbo/Base createImage service")
             : unsupportedResolved(operation, model, provider, "Civitai Z-Image 仅声明 createImage");
     }
     if (declaredOperation === "createvariant") {
@@ -1967,7 +2120,7 @@ function civitaiImageSizeCapability(
     const haystack = `${id} ${model} ${ecosystem} ${version}`;
 
     if (engine === "qwen") {
-        return widthHeight(civitaiRequiredDimensionSize(0, 2048));
+        return widthHeight(civitaiDimensionSize(512, 2048, { width: 1024, height: 1024 }));
     }
     if (engine === "openai") {
         if (haystack.includes("dall-e-3") || haystack.includes("dalle-3")) {
@@ -2078,10 +2231,7 @@ function civitaiImageSizeCapability(
     }
     if (engine === "sdcpp") {
         if (ecosystem === "qwen" || id.includes("/qwen/20b/")) {
-            if (operation === "edit" || operation === "variation") {
-                return widthHeight(civitaiRequiredDimensionSize(0, 2048));
-            }
-            return widthHeight(civitaiDimensionSize(64, 2048, { width: 1024, height: 1024 }));
+            return widthHeight(civitaiDimensionSize(64, 2048, { width: 1024, height: 1024 }, { multipleOf: 8 }));
         }
         if (ecosystem === "sd1" || id.includes("/sd1/")) {
             return widthHeight(civitaiDimensionSize(64, 2048, { width: 512, height: 512 }));
@@ -2111,6 +2261,10 @@ function resolvedCivitaiServiceProfile(
     if (!service?.id) return base;
     const id = service.id.toLowerCase();
     const engine = String(service.parameters?.engine || "").toLowerCase();
+    const ecosystem = String(service.parameters?.ecosystem || "").toLowerCase();
+    const serviceOperation = String(service.parameters?.operation || "").toLowerCase();
+    const isFlux2KleinVariant = engine === "sdcpp" && ecosystem === "flux2klein" && serviceOperation === "createvariant";
+    const isFlux2DevVariant = engine === "sdcpp" && ecosystem === "flux2dev" && serviceOperation === "createvariant";
     let outputCount = base.outputCount;
     let referenceCount = base.referenceCount;
     let mask = base.mask;
@@ -2132,7 +2286,8 @@ function resolvedCivitaiServiceProfile(
     }
 
     if (base.operation === "variation") {
-        outputCount = nativeBatch(1, 12);
+        outputCount = nativeBatch(1, isFlux2KleinVariant || isFlux2DevVariant ? 4 : 12);
+        referenceField = "image";
     }
     if ((id.includes("/comfy/anima/") || id.includes("/comfy/krea2/") || id.includes("/sdcpp/anima/")) && base.operation === "generate") {
         outputCount = nativeBatch(1, 12);
@@ -2143,7 +2298,7 @@ function resolvedCivitaiServiceProfile(
         referenceField = "imageStyleReferences[]";
     }
     if (id.includes("/comfy/krea2/") && base.operation === "edit") {
-        outputCount = nativeBatch(1, 12);
+        outputCount = nativeBatch(1, 4, "Civitai Comfy krea2 editImage quantity max 4 per live OpenAPI");
         referenceCount = references(1, 2, "Civitai Comfy krea2 editImage accepts 1-2 images");
         referenceField = "images[]";
     }
@@ -2176,16 +2331,27 @@ function resolvedCivitaiServiceProfile(
         outputCount = nativeBatch(1, 4);
         if (base.operation === "edit") referenceCount = references(1, 3);
     }
-    if (id.includes("/openai/gpt-image-2/")) {
+    if (isExactCivitaiOpenAIGptImage2Service(service)) {
         outputCount = nativeBatch(1, 4);
         if (base.operation === "edit") {
             referenceCount = references(1, null, "Civitai live schema requires images but does not publish maxItems");
             mask = supportedMask("first-reference", "Civitai maskImage applies to the first input image");
         }
     }
-    if ((id.includes("/sdcpp/qwen/20b/") || engine === "qwen") && base.operation === "edit") {
+    if (id.includes("/sdcpp/qwen/20b/") && base.operation === "generate") {
         outputCount = nativeBatch(1, 12);
-        referenceCount = references(1, 10);
+    }
+    if (id.includes("/sdcpp/qwen/20b/") && base.operation === "edit") {
+        outputCount = nativeBatch(1, 12);
+        referenceCount = references(1, 10, "Qwen20b live schema edit images maxItems=10");
+        referenceField = "images[]";
+    }
+    if (engine === "qwen" && base.operation === "generate") {
+        outputCount = nativeBatch(1, 6);
+    }
+    if (engine === "qwen" && base.operation === "edit") {
+        outputCount = nativeBatch(1, 6);
+        referenceCount = references(1, 3, "Qwen API live schema edit images maxItems=3");
         referenceField = "images[]";
     }
     if (engine === "seedream" || id.includes("/seedream/")) {
@@ -2207,11 +2373,23 @@ function resolvedCivitaiServiceProfile(
     // sdcpp → sampleMethod/schedule; comfy → sampler/scheduler. 其它 engine
     // （seedream/google/flux/openai/grok 等）参数合同未覆盖，保持 fail-closed。
     // clipSkip 仅 SD1 ecosystem 开放（SDXL 上游会 400）。
-    const engineAdvanced = engine === "comfy"
-        ? CIVITAI_COMFY_ADVANCED_FIELDS
-        : engine === "sdcpp"
-          ? CIVITAI_SDCPP_ADVANCED_FIELDS
-          : overlayCivitaiLoraAdvancedFields(id, engine, base.advancedFields);
+    const engineAdvanced = isFlux2DevVariant
+        ? {
+            ...CIVITAI_SDCPP_ADVANCED_FIELDS,
+            loras: {
+                state: "supported" as const,
+                kind: "number-map" as const,
+                wireName: "loras",
+                min: 0,
+                max: 4,
+                note: "Flux2 Dev createVariant UI uses an AIR→strength map; the serializer emits the official {air,strength}[] wire shape",
+            },
+        }
+        : engine === "comfy"
+          ? CIVITAI_COMFY_ADVANCED_FIELDS
+          : engine === "sdcpp"
+            ? CIVITAI_SDCPP_ADVANCED_FIELDS
+            : overlayCivitaiLoraAdvancedFields(id, engine, base.advancedFields);
     const advancedFields = (engine === "comfy" || engine === "sdcpp") && service?.parameters?.ecosystem === "sd1"
         ? { ...engineAdvanced, clipSkip: CIVITAI_SD1_CLIP_SKIP }
         : engineAdvanced;
@@ -2282,8 +2460,29 @@ function overlayCivitaiLoraAdvancedFields(
     base: ImageAdvancedFieldsCapability,
 ): ImageAdvancedFieldsCapability {
     if (engine === "flux2" && serviceId.includes("/flux2/klein")) {
+        // Live Flux2KleinImageGenInput: negativePrompt, cfgScale 1-20, steps 4-50,
+        // sampleMethod/schedule (SdCpp), seed, loras map. https://orchestration.civitai.com/openapi/v2-consumers.json
         return {
-            ...base,
+            negativePrompt: { state: "supported", kind: "string", wireName: "negativePrompt" },
+            steps: { state: "supported", kind: "number", wireName: "steps", min: 4, max: 50, integer: true },
+            cfgScale: { state: "supported", kind: "number", wireName: "cfgScale", min: 1, max: 20 },
+            seed: { state: "supported", kind: "int64", wireName: "seed" },
+            sampler: {
+                state: "supported",
+                kind: "enum",
+                wireName: "sampleMethod",
+                values: [...CIVITAI_SDCPP_SAMPLE_METHOD_ENUM],
+                note: "Flux2 Klein 用 sdcpp 风格 sampleMethod",
+            },
+            scheduler: {
+                state: "supported",
+                kind: "enum",
+                wireName: "schedule",
+                values: [...CIVITAI_SDCPP_SCHEDULE_ENUM],
+                note: "Flux2 Klein 用 sdcpp 风格 schedule",
+            },
+            sequential: unknown("sequential mode 不属于 Flux2 Klein 合同"),
+            clipSkip: unknown("clipSkip 仅 Civitai SD1 ecosystem 服务可用"),
             loras: {
                 state: "supported",
                 kind: "number-map",
@@ -2292,7 +2491,29 @@ function overlayCivitaiLoraAdvancedFields(
             },
         };
     }
-    if (engine === "wan" || (engine === "flux2" && serviceId.includes("/flux2/dev"))) {
+    if (engine === "flux2" && serviceId.includes("/flux2/dev")) {
+        // Live Flux2DevImageGenInput: guidanceScale 0-20, numInferenceSteps 4-50,
+        // seed, loras array ({air,strength}, strength 0-4). No negativePrompt/sampler/scheduler.
+        return {
+            negativePrompt: unsupported("Flux2 Dev live schema 没有 negativePrompt 字段"),
+            steps: unsupported("Flux2 Dev 用 numInferenceSteps，不用 steps；请用 guidanceScale/numInferenceSteps"),
+            cfgScale: unsupported("Flux2 Dev 用 guidanceScale，不用 cfgScale"),
+            seed: { state: "supported", kind: "int64", wireName: "seed" },
+            sampler: unsupported("Flux2 Dev live schema 没有 sampler 字段"),
+            scheduler: unsupported("Flux2 Dev live schema 没有 scheduler 字段"),
+            sequential: unknown("sequential mode 不属于 Flux2 Dev 合同"),
+            clipSkip: unknown("clipSkip 仅 Civitai SD1 ecosystem 服务可用"),
+            loras: {
+                state: "supported",
+                kind: "number-map",
+                wireName: "loras",
+                min: 0,
+                max: 4,
+                note: "Live ImageGenInputLora array {air,strength}; UI keeps an AIR→strength map and the serializer emits the official array",
+            },
+        };
+    }
+    if (engine === "wan") {
         return {
             ...base,
             loras: {
@@ -2349,6 +2570,7 @@ function isVerifiedCivitaiImageService(service: ImageCapabilityService | undefin
     const engine = String(service?.parameters?.engine || "").trim().toLowerCase();
     if (!service?.step || service.step !== "imageGen" || !VERIFIED_CIVITAI_IMAGE_ENGINES.has(engine)) return false;
     if (engine === "fal") return isVerifiedCivitaiFalModel(service);
+    if (engine === "openai") return isExactCivitaiOpenAIGptImage2Service(service);
     return true;
 }
 
@@ -2459,9 +2681,13 @@ function validateSize(
             if (capability.dimensions) {
                 validateDimensionRules(parsed.width, parsed.height, capability.dimensions.rules, subject, addError);
                 if (!capability.dimensions.boundsPublished) addWarning("size_unverified", "size", `${subject} 接受精确尺寸，但官方未公布完整边界；请求值不会被改写`);
+            } else {
+                addError("size_invalid", "size", `${subject} 使用档位/比例合同，不接受精确尺寸 ${parsed.width}x${parsed.height}`);
             }
         } else if (rawSize && !enumIncludes(capability.tiers, rawSize) && !enumIncludes(capability.ratios, rawSize)) {
-            addError("size_invalid", "size", `${subject} 的 size 必须是 ${capability.tiers.join("/")}、已发布宽高比或合法 WIDTHxHEIGHT`);
+            addError("size_invalid", "size", capability.tiers.length
+                ? `${subject} 的 size 必须是 ${capability.tiers.join("/")}、已发布宽高比${capability.dimensions ? "或合法 WIDTHxHEIGHT" : ""}`
+                : `${subject} 的 size 必须是已发布宽高比`);
         }
         if (capability.ratioRequired && !request.aspectRatio && !parsed && !enumIncludes(capability.ratios, rawSize)) {
             addError("size_required", "size", `${subject} 必须提供 aspectRatio`);
@@ -2510,9 +2736,7 @@ function validateEnumField(
     const value = String(rawValue || "").trim();
     if (!value) return;
     if (capability.state === "unsupported") {
-        // Leftover scoped values from another model (for example quality=1k) must
-        // not block a contract that has no such request field. Serialization
-        // already omits the field.
+        addError("field_unsupported", field, `${subject} 不支持 ${field}=${value}；不会静默丢弃该字段`);
         return;
     }
     if (capability.state === "unknown") {
@@ -2696,7 +2920,7 @@ function isKnownOpenAIImageModel(model: string) {
     const key = normalizeModelKey(model);
     // Relay variants pass the empty-adapter passthrough gate here; the
     // official-host restriction is enforced inside resolveOpenAI.
-    return key === "gpt-image-2"
+    return isGptImage2ModelKey(key)
         || GPT_IMAGE_2_RELAY_VARIANTS.has(key)
         || key === "gpt-image-1"
         || key === "gpt-image-1-5"
@@ -2705,6 +2929,23 @@ function isKnownOpenAIImageModel(model: string) {
         || key === "dalle-2"
         || key === "dall-e-3"
         || key === "dalle-3";
+}
+
+function isGptImage2ModelKey(key: string) {
+    return key === "gpt-image-2"
+        || /^gpt-image-2-\d{4}-\d{2}-\d{2}$/.test(key)
+        || key === "chatgpt-image-latest";
+}
+
+function isXaiImagine2ModelKey(key: string) {
+    return key === "grok-imagine-image-2-0" || key.startsWith("grok-imagine-image-2-0-");
+}
+
+function specializeXaiImagineProfile(id: ImageCapabilityProfileId, model: string): ImageCapabilityProfileId {
+    if (!isXaiImagine2ModelKey(normalizeModelKey(model))) return id;
+    if (id === "xai-grok-image-generate") return "xai-grok-imagine-2-generate";
+    if (id === "xai-grok-imagine-edit") return "xai-grok-imagine-2-edit";
+    return id;
 }
 
 /** xAI Grok image models: grok-2-image* (legacy) and grok-imagine-image* (Imagine). */

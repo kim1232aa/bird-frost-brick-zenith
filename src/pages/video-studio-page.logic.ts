@@ -10,8 +10,12 @@ import {
 } from "../studio/civitai-ui-options.ts";
 import { isOfficialXaiHost, openaiVideoWireKind } from "../studio/adapters/contracts.ts";
 import {
+  describeVideoGenerationParameters,
   resolveVideoModelCapability,
+  validateVideoGenerationParameters,
   type VideoCapabilityProvider,
+  type VideoGenerationParameterName,
+  type VideoGenerationParameterValue,
 } from "../services/api/video-model-capabilities.ts";
 import { normalizeVideoDuration, videoDurationOptions } from "../studio/video-duration-options.ts";
 
@@ -293,10 +297,33 @@ export function buildVideoStudioGenerateFields(input: {
   mode: VideoStudioMode;
   duration: number;
   ratio: string;
+  resolution?: string;
   firstFrame?: string;
   lastFrame?: string;
-  audio: boolean;
+  audio?: boolean;
   fps: number;
+  negativePrompt?: string;
+  seed?: number;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  generationMode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
   loras: ReadonlyArray<{ resource: string; weight: number }>;
   isArk: boolean;
   host?: string;
@@ -306,32 +333,152 @@ export function buildVideoStudioGenerateFields(input: {
 }) {
   const controls = videoStudioCivitaiControls(input.adapterType, input.model, input.providerId);
   const referenceControls = videoStudioReferenceControls(input);
-  const capability = resolveVideoModelCapability({ model: input.model, provider: capabilityProvider(input) });
-  const xaiGenerateAudio = capability.id === "xai-imagine-video"
-    && capability.generationParameters.audio.status === "supported"
-    && capability.generationParameters.audio.valueType === "boolean";
+  const provider = capabilityProvider(input);
+  const capabilityModel = isCivitaiStudioAdapter(input.adapterType, input.providerId) && String(input.model || "").trim().toLowerCase() === "ltx2.3"
+    ? (input.mode === "flf" ? "video/ltx2.3/firstLastFrameToVideo" : "video/ltx2.3/createVideo")
+    : input.model;
+  const capability = resolveVideoModelCapability({ model: capabilityModel, provider });
+  const adapterType = String(input.provider?.adapterType || input.adapterType || "").trim().toLowerCase();
+  const host = String(input.provider?.baseUrl || input.host || "").trim();
+  const protocol = providerProtocol(input.provider, input.protocol);
+  const officialOpenAi = openaiVideoWireKind(host, protocol) === "openai-official";
+  const genericCompatibilityRelay = adapterType === "openai-compat" && !officialOpenAi;
   const civitai = isCivitaiStudioAdapter(input.adapterType, input.providerId);
   const civitaiDurations = civitai ? civitaiVideoDurationOptions(input.model) : undefined;
-  const durationOptions = civitaiDurations || videoDurationOptions(input.host, input.protocol);
-  const duration = civitaiDurations
-    ? snapDuration(input.duration, civitaiDurations)
-    : normalizeVideoDuration(input.duration, input.host, input.protocol);
-  const error = videoStudioModeError(input);
-  const fps = controls.fpsSpec ? snapVideoStudioFps(input.model, input.fps) : undefined;
+  const durationOptions = civitaiDurations || videoDurationOptions(host, protocol);
+  const validationErrors: string[] = [];
+  const isProvided = (value: unknown) => value !== undefined
+    && value !== null
+    && (typeof value !== "string" || Boolean(value.trim()));
+  const validateParameter = <T extends VideoGenerationParameterValue>(
+    name: VideoGenerationParameterName,
+    value: T | undefined,
+  ): T | undefined => {
+    if (!isProvided(value)) return undefined;
+    if (genericCompatibilityRelay) {
+      if (typeof value === "number" && !Number.isFinite(value)) {
+        validationErrors.push(`兼容 relay 视频参数 ${name} 必须是有限数字；不会静默丢弃。`);
+        return undefined;
+      }
+      if (name === "dimensions") {
+        const dimensions = value as { width?: unknown; height?: unknown };
+        if (
+          !Number.isInteger(dimensions.width)
+          || !Number.isInteger(dimensions.height)
+          || Number(dimensions.width) <= 0
+          || Number(dimensions.height) <= 0
+        ) {
+          validationErrors.push("兼容 relay 视频 width 和 height 必须同时为正整数；不会静默丢弃。");
+          return undefined;
+        }
+      }
+      return value;
+    }
+    try {
+      validateVideoGenerationParameters(capability, { [name]: value } as Partial<Record<VideoGenerationParameterName, VideoGenerationParameterValue>>);
+      return value;
+    } catch (error) {
+      validationErrors.push(error instanceof Error ? error.message : String(error));
+      return undefined;
+    }
+  };
+
+  const duration = input.duration;
+  const normalizedModel = String(input.model || "").trim().toLowerCase();
+  if (civitai && normalizedModel === "ltx2.3") {
+    if (!Number.isInteger(duration) || duration < 3 || duration > 20) {
+      validationErrors.push(`Civitai LTX 2.3 视频 duration 必须是 3–20 的整数，收到 ${String(duration)}；不会静默改值。`);
+    }
+  } else if (officialOpenAi || isOfficialXaiHost(host)) {
+    try {
+      normalizeVideoDuration(duration, host, protocol);
+    } catch (error) {
+      validationErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  } else if (capability.generationParameters.duration.derivedFrom?.includes("frames") && isProvided(input.frames)) {
+    // Official Agnes duration is UI-only; explicit num_frames wins and is not
+    // re-derived from the displayed seconds. https://agnes-ai.com/en/docs/agnes-video-v20
+  } else {
+    validateParameter("duration", duration);
+  }
+
+  const modeError = videoStudioModeError(input);
+  const fps = controls.fpsSpec || genericCompatibilityRelay || capability.generationParameters.fps.status === "supported"
+    ? validateParameter("fps", input.fps) as number | undefined
+    : undefined;
+  const resolution = validateParameter("resolution", input.resolution) as string | undefined;
+  const negativePrompt = validateParameter("negativePrompt", input.negativePrompt) as string | undefined;
+  const seed = validateParameter("seed", input.seed) as number | undefined;
+  const watermark = validateParameter("watermark", input.watermark) as boolean | undefined;
+  const promptExpansion = validateParameter("promptExpansion", input.promptExpansion) as boolean | undefined;
+  const returnLastFrame = validateParameter("returnLastFrame", input.returnLastFrame) as boolean | undefined;
+  const capabilityAudioBoolean = capability.generationParameters.audio.status === "supported"
+    && capability.generationParameters.audio.valueType === "boolean";
+  const showGenerateAudio = input.isArk || controls.showGenerateAudio || capabilityAudioBoolean || genericCompatibilityRelay;
+  let generateAudio: boolean | undefined;
+  if (showGenerateAudio && typeof input.audio === "boolean") {
+    if (input.isArk && !capabilityAudioBoolean && !genericCompatibilityRelay) generateAudio = input.audio;
+    else generateAudio = validateParameter("audio", input.audio) as boolean | undefined;
+  }
+  const audioUrl = validateParameter("audio", input.audioUrl) as string | undefined;
+  const steps = validateParameter("steps", input.steps) as number | undefined;
+  const guidance = validateParameter("guidance", input.guidance) as number | undefined;
+  const modelVariant = validateParameter("modelVariant", input.modelVariant) as string | undefined;
+  const frames = validateParameter("frames", input.frames) as number | undefined;
+  const audioMode = validateParameter("audioMode", input.audioMode) as string | undefined;
+  const quantity = validateParameter("quantity", input.quantity) as number | undefined;
+  const generationMode = validateParameter("mode", input.generationMode) as string | undefined;
+  const frameGuideStrength = validateParameter("frameGuideStrength", input.frameGuideStrength) as number | undefined;
+  const safetyChecker = validateParameter("safetyChecker", input.safetyChecker) as boolean | undefined;
+  const shift = validateParameter("shift", input.shift) as number | undefined;
+  const turbo = validateParameter("turbo", input.turbo) as boolean | undefined;
+  const sampler = validateParameter("sampler", input.sampler) as string | undefined;
+  const scheduler = validateParameter("scheduler", input.scheduler) as string | undefined;
+  const usePro = validateParameter("usePro", input.usePro) as boolean | undefined;
+  const dimensions = input.width !== undefined || input.height !== undefined
+    ? validateParameter("dimensions", { width: input.width as number, height: input.height as number }) as { width: number; height: number } | undefined
+    : undefined;
+  const error = modeError || validationErrors[0] || "";
+  const parameterDescriptors = describeVideoGenerationParameters(capability);
   const hunyuanT2v = civitai && input.model === "hunyuan";
   const t2v = input.mode === "t2v" || hunyuanT2v;
   const ltxI2v = civitai && input.model === "ltx2.3" && input.mode === "i2v";
-  const showGenerateAudio = input.isArk || controls.showGenerateAudio || xaiGenerateAudio;
   return {
     error: error || undefined,
     controls,
+    capability,
+    parameterDescriptors,
     referenceControls,
     duration,
     durationOptions,
+    ratio: input.ratio,
+    resolution,
     fps,
     loras: error ? undefined : buildVideoStudioLoras(controls.showLora, input.loras),
     showGenerateAudio,
-    generateAudio: showGenerateAudio ? input.audio : undefined,
+    generateAudio: showGenerateAudio ? generateAudio : undefined,
+    negativePrompt,
+    seed,
+    watermark,
+    promptExpansion,
+    returnLastFrame,
+    audioUrl,
+    width: dimensions?.width,
+    height: dimensions?.height,
+    steps,
+    guidance,
+    modelVariant,
+    frames,
+    audioMode,
+    quantity,
+    generationMode,
+    frameGuideStrength,
+    safetyChecker,
+    shift,
+    turbo,
+    sampler,
+    scheduler,
+    usePro,
     imageUrl: t2v ? undefined : input.firstFrame || undefined,
     lastFrameUrl: t2v || ltxI2v ? undefined : input.lastFrame || undefined,
   };

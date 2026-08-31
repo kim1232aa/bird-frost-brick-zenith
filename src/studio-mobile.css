@@ -6,8 +6,7 @@
 
 @media (max-width: 759px) {
   html,
-  body,
-  #app {
+  body {
     overflow-x: hidden;
     max-width: 100%;
   }
@@ -107,10 +106,17 @@
     padding: 16px 12px calc(28px + env(safe-area-inset-bottom, 0px));
   }
 
-  .studio-page.studio-flush,
-  .studio-page.studio-flush-scroll {
+  .studio-page.studio-flush:not(.studio-flush-scroll) {
     height: auto;
-    overflow: visible;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .studio-page.studio-flush-scroll {
+    overflow: auto !important;
+    height: 0;
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 0;
   }
 
@@ -130,6 +136,7 @@
     min-height: 0;
     margin: 0 !important;
     border-radius: 16px;
+    overflow: visible;
   }
 
   .bp-left,
@@ -262,6 +269,29 @@
     min-height: 0;
     max-height: none;
     overflow: visible;
+  }
+
+  /* Desktop clips the wire desk to a fixed two-pane grid; on narrow screens
+     that would trap settings behind the 100vh studio-root. Make the page the
+     scrollport and let the stacked desk grow naturally. Must match brand.css
+     selector-for-selector so the later mobile rule wins the cascade. */
+  .studio-page:not(.studio-flush):has(.wire-desk) {
+    overflow: auto;
+    height: auto;
+    min-height: 0;
+  }
+
+  .studio-page:not(.studio-flush):has(.wire-desk) > .wire-desk {
+    height: auto;
+    margin: 0;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .wire-list,
+  .wire-editor {
+    overscroll-behavior: auto;
   }
 
   .wire-list {

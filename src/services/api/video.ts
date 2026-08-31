@@ -644,7 +644,7 @@ async function createXaiImagineVideoTask(
     generationParameters: VideoGenerationParameters,
 ): Promise<VideoGenerationTask> {
     const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent);
-    const stills = Array.from(new Set(videoReferenceIntentItems(publicIntent).map((url) => String(url || "").trim()).filter(Boolean))).slice(0, 5);
+    const stills = Array.from(new Set(videoReferenceIntentItems(publicIntent).map((url) => String(url || "").trim()).filter(Boolean)));
     const official = route.mode === "local" && isOfficialXaiHost(route.provider.baseUrl);
     if (official && (publicIntent.kind === "first_last_frame" || publicIntent.kind === "last_frame" || publicIntent.kind === "reference_set_with_frames" || publicIntent.kind === "reference_set_with_first")) {
         throw new Error("xAI 官方视频没有静帧尾帧字段，且 I2V 的 image 不能与 R2V 的 reference_images 混用。延长请走 POST /v1/videos/extensions。");
@@ -671,16 +671,20 @@ async function createXaiImagineVideoTask(
         if (last && last === first) last = stills.find((url) => url !== first) || "";
     }
     const providedDuration = typeof generationParameters.duration === "number" ? generationParameters.duration : Number(config.videoSeconds);
-    const duration = Number.isFinite(providedDuration) && providedDuration > 0 ? Math.max(1, Math.min(15, Math.round(providedDuration))) : undefined;
+    const duration = Number.isFinite(providedDuration) && providedDuration > 0 ? providedDuration : undefined;
     const providedResolution = String(generationParameters.resolution || (!official ? config.vquality : "") || "").trim();
-    const resolution = providedResolution ? `${providedResolution.replace(/p$/i, "")}p` : "";
+    const resolution = official && providedResolution
+        ? `${providedResolution.replace(/p$/i, "")}p`
+        : providedResolution;
     const aspect = String(generationParameters.aspectRatio || (!official ? "16:9" : "")).trim();
+    const generateAudio = typeof generationParameters.audio === "boolean" ? generationParameters.audio : undefined;
     const body = buildXaiImagineVideoBody({
         model,
         prompt,
         ...(duration !== undefined ? { duration } : {}),
         ...(aspect ? { aspect_ratio: aspect } : {}),
-        ...(resolution && ["480p", "720p", "1080p"].includes(resolution) ? { resolution } : {}),
+        ...(resolution ? { resolution } : {}),
+        ...(generateAudio !== undefined ? { generateAudio } : {}),
         ...(first ? { image: { url: first } } : {}),
         ...(last ? { last_frame_image: { url: last } } : {}),
         image_urls: official ? references : stills,

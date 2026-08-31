@@ -31,7 +31,7 @@ mock.module(new URL("../server/relay-vault.ts", import.meta.url).href, {
   },
 });
 
-const { createStudioVideo, pollStudioVideo } = await import("./video.ts");
+const { buildStudioVideoCreateInput, createStudioVideo, pollStudioVideo } = await import("./video.ts");
 const { studioRelays } = await import("../wiring.ts");
 
 function restoredKlingRelay() {
@@ -39,6 +39,69 @@ function restoredKlingRelay() {
   assert.ok(relay);
   return { ...relay, apiKey: "synthetic-kling-key", enabled: true };
 }
+
+test("pure Studio video input assembly preserves all configured fields", () => {
+  const input = buildStudioVideoCreateInput({
+    adapterId: "openai-compat",
+    model: "relay-video",
+    prompt: "p",
+    duration: 16,
+    aspectRatio: "21:9",
+    resolution: "2k",
+    imageUrl: "https://example.test/first.png",
+    lastFrameUrl: "https://example.test/last.png",
+    imageUrls: ["https://example.test/ref.png"],
+    width: 2048,
+    height: 858,
+    generateAudio: false,
+    negativePrompt: "blur",
+    fps: 48,
+    seed: 9,
+    steps: 33,
+    guidance: 7.5,
+    modelVariant: "relay-v2",
+    watermark: false,
+    promptExpansion: false,
+    returnLastFrame: true,
+    audioUrl: "https://example.test/audio.mp3",
+    loras: { "urn:air:test:lora:1@1": 0.7 },
+    frames: 121,
+    audioMode: "origin",
+    quantity: 3,
+    mode: "professional",
+    frameGuideStrength: 0.8,
+    safetyChecker: false,
+    shift: 5,
+    turbo: true,
+    sampler: "euler",
+    scheduler: "simple",
+    usePro: false,
+  });
+  assert.equal(input.resolution, "2k");
+  assert.equal(input.aspectRatio, "21:9");
+  assert.equal(input.width, 2048);
+  assert.equal(input.height, 858);
+  assert.equal(input.negativePrompt, "blur");
+  assert.equal(input.seed, 9);
+  assert.equal(input.steps, 33);
+  assert.equal(input.guidance, 7.5);
+  assert.equal(input.modelVariant, "relay-v2");
+  assert.equal(input.watermark, false);
+  assert.equal(input.promptExpansion, false);
+  assert.equal(input.returnLastFrame, true);
+  assert.equal(input.audioUrl, "https://example.test/audio.mp3");
+  assert.equal(input.frames, 121);
+  assert.equal(input.audioMode, "origin");
+  assert.equal(input.quantity, 3);
+  assert.equal(input.mode, "professional");
+  assert.equal(input.frameGuideStrength, 0.8);
+  assert.equal(input.safetyChecker, false);
+  assert.equal(input.shift, 5);
+  assert.equal(input.turbo, true);
+  assert.equal(input.sampler, "euler");
+  assert.equal(input.scheduler, "simple");
+  assert.equal(input.usePro, false);
+});
 
 test("video generation refuses an explicitly unconnected provider before adapter dispatch", async () => {
   const relay = restoredKlingRelay();

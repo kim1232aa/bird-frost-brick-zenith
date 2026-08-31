@@ -180,7 +180,16 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   flex-direction: column;
 }
 
+.studio-page.studio-flush-scroll {
+  overflow: auto;
+}
+
 .studio-page:not(.studio-flush) {
+  overflow: auto;
+  min-height: 0;
+}
+
+.studio-page:not(.studio-flush):has(.wire-desk) {
   overflow: hidden;
   min-height: 0;
 }
@@ -209,6 +218,10 @@ html:not(.dark) .canvas-home-shell .bg-white\/\[0\.02\] {
   grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
   min-height: calc(100vh - 64px);
   height: 100%;
+  overflow: visible;
+  transform: none;
+  filter: none;
+  perspective: none;
 }
 
 .bp-left {
@@ -344,7 +357,7 @@ html:not(.dark) .model-menu-group button:hover {
     display: flex;
     flex-direction: column;
     height: auto;
-    overflow: auto;
+    overflow: visible;
   }
   .bp-right {
     order: -1;

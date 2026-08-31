@@ -46,13 +46,13 @@ test("normalizeVideoDuration keeps valid OpenAI official durations", () => {
   assert.equal(normalizeVideoDuration(12, "https://api.openai.com/v1"), 12);
 });
 
-test("normalizeVideoDuration snaps invalid duration to closest OpenAI official value", () => {
-  assert.equal(normalizeVideoDuration(5, "https://api.openai.com/v1"), 4);
-  assert.equal(normalizeVideoDuration(6, "https://api.openai.com/v1"), 4);
-  assert.equal(normalizeVideoDuration(7, "https://api.openai.com/v1"), 8);
-  assert.equal(normalizeVideoDuration(10, "https://api.openai.com/v1"), 8);
-  assert.equal(normalizeVideoDuration(11, "https://api.openai.com/v1"), 12);
-  assert.equal(normalizeVideoDuration(15, "https://api.openai.com/v1"), 12);
+test("normalizeVideoDuration rejects invalid OpenAI official values instead of snapping", () => {
+  for (const duration of [5, 6, 7, 10, 11, 15]) {
+    assert.throws(
+      () => normalizeVideoDuration(duration, "https://api.openai.com/v1"),
+      /4 \/ 8 \/ 12|非法|只接受/,
+    );
+  }
 });
 
 test("normalizeVideoDuration keeps all generic provider durations", () => {
@@ -71,4 +71,13 @@ test("normalizeVideoDuration snaps invalid generic duration to closest", () => {
   assert.equal(normalizeVideoDuration(9, host), 8);
   assert.equal(normalizeVideoDuration(11, host), 10);
   assert.equal(normalizeVideoDuration(15, host), 10);
+});
+
+test("normalizeVideoDuration rejects out-of-range official xAI values instead of snapping", () => {
+  for (const duration of [0, 16, 99]) {
+    assert.throws(
+      () => normalizeVideoDuration(duration, "https://api.x.ai/v1"),
+      /xAI 官方视频.*1.?15|只接受|不会静默/,
+    );
+  }
 });

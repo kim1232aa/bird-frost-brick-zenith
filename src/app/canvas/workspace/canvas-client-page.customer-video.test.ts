@@ -384,6 +384,36 @@ test("page still hands first_frame/last_frame to buildCustomerVideoStudioRequest
   );
 });
 
+test("customer request forwards every validated scalar setting from wirePayload to the provider builder", () => {
+  const source = pageSource();
+  for (const field of [
+    "resolution",
+    "fps",
+    "generateAudio",
+    "seed",
+    "steps",
+    "guidance",
+    "modelVariant",
+    "watermark",
+    "promptExpansion",
+    "returnLastFrame",
+    "audioUrl",
+    "width",
+    "height",
+  ]) {
+    assert.match(source, new RegExp(`${field}:\\s*wirePayload\\.${field}`));
+  }
+  assert.match(source, /negative_prompt:\s*wirePayload\.negative_prompt/);
+  assert.match(source, /ratio:\s*wirePayload\.ratio/);
+  assert.match(source, /duration:\s*wirePayload\.duration/);
+  assert.match(source, /operation:\s*wirePayload\.mode/);
+  assert.match(source, /first_frame:\s*payload\.first_frame/);
+  assert.match(source, /last_frame:\s*payload\.last_frame/);
+  assert.doesNotMatch(source, /image_urls:\s*wirePayload\.image_urls/);
+  assert.doesNotMatch(source, /payload\.duration \|\| 5/);
+  assert.doesNotMatch(source, /payload\.ratio \|\| ["']16:9["']/);
+});
+
 test("Fal customer builder remains refused rather than relaxing validation", () => {
   assert.throws(
     () =>

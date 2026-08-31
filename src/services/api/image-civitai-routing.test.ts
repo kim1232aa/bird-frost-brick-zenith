@@ -72,11 +72,12 @@ mock.module("@/services/api/civitai-client", {
 
 mock.module("@/studio/generate/image", {
   namedExports: {
-    generateStudioImage: async (input: { model: string }) => {
+    generateStudioImage: async (input: { model: string; n?: number }) => {
       studioCalls.push(input);
+      const urls = Array.from({ length: input.n || 1 }, () => "https://example.test/legacy.png");
       return {
-        url: "https://example.test/legacy.png",
-        urls: ["https://example.test/legacy.png"],
+        url: urls[0],
+        urls,
         model: input.model,
         providerId: "preset-civitai",
       };
@@ -84,7 +85,7 @@ mock.module("@/studio/generate/image", {
   },
 });
 
-const { requestGeneration } = await import("./image.ts");
+const { requestEdit, requestGeneration } = await import("./image.ts");
 
 test("dynamic Civitai image service uses workflow serializer before legacy preset adapter", async () => {
   const model = dynamicService.id;
@@ -238,4 +239,104 @@ test("static Studio image model still uses the legacy Studio adapter", async () 
   assert.deepEqual(images.map((image) => image.dataUrl), ["https://example.test/legacy.png"]);
   assert.equal(studioCalls.length, 1);
   assert.equal((studioCalls[0] as { model: string }).model, model);
+});
+
+
+test("static GPT Studio edit forwards operation, settings, count, and every reference", async () => {
+  const model = "gpt-image-2";
+  const provider = {
+    id: "preset-openai",
+    name: "OpenAI",
+    baseUrl: "https://api.example.test/v1",
+    apiKey: "token",
+    adapterType: "openai-compat",
+    proxyMode: "direct" as const,
+    proxyUrl: "",
+    enabled: true,
+    capabilities: ["image" as const],
+    models: [model],
+    textModels: [],
+    imageModels: [model],
+    videoModels: [],
+    audioModels: [],
+    timeoutMs: 360_000,
+    remark: "",
+    createdAt: "2026-08-30T00:00:00.000Z",
+    updatedAt: "2026-08-30T00:00:00.000Z",
+    imageCapabilityProfiles: {
+      [model]: {
+        generate: "openai-gpt-image-2-generate" as const,
+        edit: "openai-gpt-image-2-edit" as const,
+      },
+    },
+  };
+  const config = {
+    channelMode: "local" as const,
+    baseUrl: provider.baseUrl,
+    apiKey: provider.apiKey,
+    model: "",
+    imageModel: model,
+    videoModel: "",
+    textModel: "",
+    audioModel: "",
+    audioVoice: "alloy",
+    audioFormat: "mp3",
+    audioSpeed: "1",
+    audioInstructions: "",
+    videoSeconds: "6",
+    vquality: "720",
+    videoGenerateAudio: "true",
+    videoWatermark: "false",
+    imageHostBaseUrl: "",
+    imageHostApiKey: "",
+    systemPrompt: "",
+    models: [model],
+    imageModels: [model],
+    videoModels: [],
+    textModels: [],
+    audioModels: [],
+    quality: "high",
+    size: "1536x864",
+    count: "3",
+    canvasImageCount: "3",
+    imageRequestBasicSettings: true as const,
+    imageAdvancedSettingsByScope: {},
+    videoGenerationSettingsByScope: {},
+    apiRelays: [provider],
+    apiRouting: {
+      text: { source: "relay" as const, providerId: "", model: "" },
+      image: { source: "relay" as const, providerId: provider.id, model },
+      video: { source: "relay" as const, providerId: "", model: "" },
+      audio: { source: "relay" as const, providerId: "", model: "" },
+    },
+    apiBoardRouting: {} as import("@/stores/use-config-store").AiConfig["apiBoardRouting"],
+    apiPlatformBoardRouting: {} as import("@/stores/use-config-store").AiConfig["apiPlatformBoardRouting"],
+    apiRelayAdvanced: { allowCustomModel: false, defaultTimeoutMs: 360_000, showDisabledProviders: false },
+  };
+  const references = Array.from({ length: 16 }, (_, index) => ({
+    id: `ref-${index}`,
+    name: `ref-${index}.png`,
+    type: "image/png",
+    dataUrl: `data:image/png;base64,${Buffer.from(`ref-${index}`).toString("base64")}`,
+  }));
+
+  const before = studioCalls.length;
+  const images = await requestEdit(config, "edit all refs", references, undefined, undefined, { useReferenceLabels: false });
+
+  assert.equal(images.length, 3);
+  assert.equal(studioCalls.length, before + 1);
+  const input = studioCalls.at(-1) as {
+    operation?: string;
+    size?: string;
+    quality?: string;
+    n?: number;
+    imageUrl?: string;
+    imageUrls?: string[];
+  };
+  assert.equal(input.operation, "edit");
+  assert.equal(input.size, "1536x864");
+  assert.equal(input.quality, "high");
+  assert.equal(input.n, 3);
+  assert.equal(input.imageUrl, references[0].dataUrl);
+  assert.deepEqual(input.imageUrls, references.map((reference) => reference.dataUrl));
 });

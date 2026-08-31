@@ -1,4 +1,4 @@
-# Civitai LoRA AIR resolution (verified 2026-08-03)
+# Civitai LoRA AIR resolution (verified 2026-08-03; ecosystem map rechecked 2026-08-30)
 
 本文只记录 Civitai 官方一手资料（官方 API 实测、Civitai 官方 GitHub 仓库）及可复现的只读请求。未使用 token、生成/付费端点或私人资源。
 
@@ -28,6 +28,25 @@ Civitai 官方 `civitai_comfy_nodes` README 将 AIR 定义为 AI Resource、遵�
 ## 生态/兼容性字段
 
 `baseModel` 是版本级生态标签（实测 LoRA 为 `Pony`，checkpoint 为 `SDXL 1.0`），`baseModelType` 实测为 `Standard`；模型级 `type`/版本级 `model.type` 区分 `LORA`、`Checkpoint` 等。API 还返回 `files[].metadata.format`（如 `SafeTensor`）及哈希。`baseModel` 是兼容性提示，不是 AIR 的 `type`：LoRA AIR 的 type 来自 `model.type=LORA`，生态来自 AIR 中的 `sdxl`；不要把 `baseModel` 字符串直接当作 AIR ecosystem，需保留未知值并向用户提示兼容性。
+
+当前公开 LoRA 的 site-API `air` 生态段与 `baseModel` 对照（2026-08-30 只读 `GET /api/v1/model-versions/{id}`）：
+
+| `baseModel` | AIR ecosystem | 对应 imageGen 服务 |
+| --- | --- | --- |
+| `ZImageTurbo` | `zimageturbo` | `image/sdcpp/zImage/turbo/*` |
+| `ZImageBase` | `zimagebase` | `image/sdcpp/zImage/base/*` |
+| `Anima` | `anima` | `image/*/anima/*` |
+| `Ernie` | `ernie` | `image/*/ernie/*` |
+| `Qwen` | `qwen` | `image/sdcpp/qwen/20b/*` |
+| `Pony` / `Illustrious` / `NoobAI` / `SDXL Lightning` / `SDXL Hyper` | `sdxl` | `image/*/sdxl/*` |
+| `Flux.2 D` / `Flux.2 Klein 4B` / `Flux.2 Klein 4B-base` / `Flux.2 Klein 9B` / `Flux.2 Klein 9B-base` | `flux2` | `image/flux2/klein/*` 与 `image/sdcpp/flux2Klein/*` |
+| `Flux.1 D` / `Flux.1 S` | `flux1` | `image/comfy/flux1/*` |
+| `Krea 2` | `krea2` | `image/comfy/krea2/*`（FAL Krea 无 `loras`） |
+| `HiDream` | `hidream` | `image/comfy/hidream/*` |
+| `HiDream-O1` | `hidream-o1` | `image/comfy/hidream-o1/*` |
+| `Wan Image 2.7` | `wanimage27` | WAN image 走 array `{air,strength}`，不按 ecosystem 猜测 |
+
+recipe 占位 `urn:air:zImage:lora:...` 不是 live Turbo/Base AIR。官方 AIR 文档允许可选 `+fileId` 与 `.format` 后缀，解析后必须原样作为 `loras` key。当前 site 文档：[AIR identifiers](https://developer.civitai.com/site/guide/air.md)、[Model versions](https://developer.civitai.com/site/reference/model-versions.md)。
 
 ## 认证、CORS、限流与错误
 

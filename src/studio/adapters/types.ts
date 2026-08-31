@@ -25,7 +25,7 @@ export type ImageGenInput = {
   height?: number;
   seed?: number;
   imageUrl?: string;
-  /** Up to 5 reference images. Adapters must submit the whole list, not only the first. */
+  /** All reference images for this request. Adapters must submit the whole list, not only the first. */
   imageUrls?: string[];
   negativePrompt?: string;
   quality?: string;
@@ -53,7 +53,7 @@ export type VideoCreateInput = {
   resolution?: string;
   imageUrl?: string;
   lastFrameUrl?: string;
-  /** Extra stills beyond first/last. Submit up to the model's reference capacity (Grok Imagine: 5). */
+  /** Extra stills beyond first/last. Official xAI R2V accepts up to 7 `reference_images`. */
   imageUrls?: string[];
   /** Verified pixel dimensions for adapters whose wire contract requires them. */
   width?: number;
@@ -61,8 +61,49 @@ export type VideoCreateInput = {
   generateAudio?: boolean;
   fps?: number;
   negativePrompt?: string;
+  seed?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  /** Official audio URL fields such as DashScope input.audio_url / driving_audio. */
+  audioUrl?: string;
   /** Civitai LTX 2.3 (map) / Hunyuan (array). Other models must not send this. */
   loras?: Record<string, number> | Readonly<Record<string, number>>;
+  /**
+   * Official frame count. Agnes V2.0 sends this as `num_frames` (8n+1, ≤441).
+   * https://agnes-ai.com/en/docs/agnes-video-v20
+   */
+  frames?: number;
+  /** DashScope video-edit `parameters.audio_setting`: auto | origin. */
+  audioMode?: string;
+  /** Civitai LTX 2.3 live schema `quantity` (1–10). */
+  quantity?: number;
+  /**
+   * Provider-specific quality/motion mode.
+   * Civitai Kling live schema: standard | professional.
+   * Civitai Vidu live schema: movementAmplitude auto | small | medium | large.
+   */
+  mode?: string;
+  /** Civitai LTX firstLastFrameToVideo `frameGuideStrength` (0–1). */
+  frameGuideStrength?: number;
+  /** Civitai Wan live schema `enableSafetyChecker`. */
+  safetyChecker?: boolean;
+  /** Civitai Wan v2.2 FAL live schema `shift` (1–10). */
+  shift?: number;
+  /**
+   * Turbo switch. Civitai Wan v2.2 FAL sends `useTurbo`;
+   * Civitai Vidu Q3 sends `turbo`.
+   */
+  turbo?: boolean;
+  /** Official sampler name when a video model publishes one. */
+  sampler?: string;
+  /** Official scheduler name when a video model publishes one. */
+  scheduler?: string;
+  /** Civitai Sora live schema `usePro`. */
+  usePro?: boolean;
 };
 
 export type VideoPollResult = {

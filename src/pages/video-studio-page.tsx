@@ -26,8 +26,52 @@ import {
 } from "@/pages/video-studio-page.logic";
 import { videoStudioModeFromQuery, videoStudioModeLocation } from "@/pages/studio-mode-routes";
 import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
+import {
+  VIDEO_GENERATION_PARAMETER_NAMES,
+  type VideoGenerationParameterDescriptor,
+} from "@/services/api/video-model-capabilities";
 
 type VideoMode = "t2v" | "i2v" | "flf" | "extract";
+type VideoStudioDescriptor = VideoGenerationParameterDescriptor;
+
+const DEFAULT_RATIO_OPTIONS = ["16:9", "9:16", "1:1"] as const;
+
+function uniqueStrings(values: readonly (string | number | boolean)[]) {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const value of values) {
+    const text = String(value);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    next.push(text);
+  }
+  return next;
+}
+
+function descriptorNamed(descriptors: readonly VideoStudioDescriptor[], name: VideoStudioDescriptor["name"]) {
+  return descriptors.find((item) => item.name === name);
+}
+
+function parseOptionalNumber(raw: string): number | undefined {
+  const text = raw.trim();
+  if (!text) return undefined;
+  return Number(text);
+}
+
+function parseDimensionPair(value: string) {
+  const match = /^(\d+)\s*[x×*]\s*(\d+)$/.exec(value.trim());
+  if (!match) return undefined;
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+function aspectPreviewBox(item: string) {
+  const [w, h] = item.split(":").map(Number);
+  if (!w || !h) return undefined;
+  const max = 22;
+  return w >= h
+    ? { width: max, height: Math.max(8, Math.round((max * h) / w)) }
+    : { width: Math.max(8, Math.round((max * w) / h)), height: max };
+}
 
 const TEMPLATE_GROUPS = (() => {
   const map = new Map<string, typeof VIDEO_TEMPLATES>();
@@ -74,6 +118,29 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const [frameCount, setFrameCount] = useState(6);
   const [fps, setFps] = useState(24);
   const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
+  const [resolution, setResolution] = useState("");
+  const [negativePrompt, setNegativePrompt] = useState("");
+  const [seed, setSeed] = useState("");
+  const [watermark, setWatermark] = useState<boolean | undefined>(undefined);
+  const [promptExpansion, setPromptExpansion] = useState<boolean | undefined>(undefined);
+  const [returnLastFrame, setReturnLastFrame] = useState<boolean | undefined>(undefined);
+  const [audioUrl, setAudioUrl] = useState("");
+  const [width, setWidth] = useState("");
+  const [height, setHeight] = useState("");
+  const [steps, setSteps] = useState("");
+  const [guidance, setGuidance] = useState("");
+  const [modelVariant, setModelVariant] = useState("");
+  const [generationFrames, setGenerationFrames] = useState("");
+  const [audioMode, setAudioMode] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [generationMode, setGenerationMode] = useState("");
+  const [frameGuideStrength, setFrameGuideStrength] = useState("");
+  const [safetyChecker, setSafetyChecker] = useState<boolean | undefined>(undefined);
+  const [shift, setShift] = useState("");
+  const [turbo, setTurbo] = useState<boolean | undefined>(undefined);
+  const [sampler, setSampler] = useState("");
+  const [scheduler, setScheduler] = useState("");
+  const [usePro, setUsePro] = useState<boolean | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -96,24 +163,168 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const videoModel = card?.model || selectedModel || "";
   const videoControls = videoStudioCivitaiControls(selectedRelay?.adapterType, videoModel, providerId || card?.providerId);
   const { showLora: showVideoLora, loraShape: videoLoraShape, fpsSpec, fpsOptions } = videoControls;
-  const generatePreview = buildVideoStudioGenerateFields({
+  const generateFieldInput = {
     adapterType: selectedRelay?.adapterType,
     providerId: providerId || card?.providerId,
     model: videoModel,
     mode,
     duration,
     ratio,
+    resolution: resolution || undefined,
     firstFrame,
     lastFrame,
     audio,
     fps,
+    negativePrompt: negativePrompt || undefined,
+    seed: parseOptionalNumber(seed),
+    watermark,
+    promptExpansion,
+    returnLastFrame,
+    audioUrl: audioUrl || undefined,
+    width: parseOptionalNumber(width),
+    height: parseOptionalNumber(height),
+    steps: parseOptionalNumber(steps),
+    guidance: parseOptionalNumber(guidance),
+    modelVariant: modelVariant || undefined,
+    frames: parseOptionalNumber(generationFrames),
+    audioMode: audioMode || undefined,
+    quantity: parseOptionalNumber(quantity),
+    generationMode: generationMode || undefined,
+    frameGuideStrength: parseOptionalNumber(frameGuideStrength),
+    safetyChecker,
+    shift: parseOptionalNumber(shift),
+    turbo,
+    sampler: sampler || undefined,
+    scheduler: scheduler || undefined,
+    usePro,
     loras,
     isArk,
     host: selectedRelay?.baseUrl,
     protocol: selectedRelay?.protocol,
     provider: selectedRelay,
-  });
+  };
+  const generatePreview = buildVideoStudioGenerateFields(generateFieldInput);
   const durationOptions = generatePreview.durationOptions;
+  const parameterDescriptors = generatePreview.parameterDescriptors;
+  const resolutionField = descriptorNamed(parameterDescriptors, "resolution");
+  const aspectField = descriptorNamed(parameterDescriptors, "aspectRatio");
+  const dimensionsField = descriptorNamed(parameterDescriptors, "dimensions");
+  const audioField = descriptorNamed(parameterDescriptors, "audio");
+  const negativePromptField = descriptorNamed(parameterDescriptors, "negativePrompt");
+  const seedField = descriptorNamed(parameterDescriptors, "seed");
+  const stepsField = descriptorNamed(parameterDescriptors, "steps");
+  const guidanceField = descriptorNamed(parameterDescriptors, "guidance");
+  const modelVariantField = descriptorNamed(parameterDescriptors, "modelVariant");
+  const framesField = descriptorNamed(parameterDescriptors, "frames");
+  const audioModeField = descriptorNamed(parameterDescriptors, "audioMode");
+  const quantityField = descriptorNamed(parameterDescriptors, "quantity");
+  const generationModeField = descriptorNamed(parameterDescriptors, "mode");
+  const frameGuideStrengthField = descriptorNamed(parameterDescriptors, "frameGuideStrength");
+  const safetyCheckerField = descriptorNamed(parameterDescriptors, "safetyChecker");
+  const shiftField = descriptorNamed(parameterDescriptors, "shift");
+  const turboField = descriptorNamed(parameterDescriptors, "turbo");
+  const samplerField = descriptorNamed(parameterDescriptors, "sampler");
+  const schedulerField = descriptorNamed(parameterDescriptors, "scheduler");
+  const useProField = descriptorNamed(parameterDescriptors, "usePro");
+  const watermarkField = descriptorNamed(parameterDescriptors, "watermark");
+  const promptExpansionField = descriptorNamed(parameterDescriptors, "promptExpansion");
+  const returnLastFrameField = descriptorNamed(parameterDescriptors, "returnLastFrame");
+  const showResolution = resolutionField?.status === "supported";
+  const showDimensions = dimensionsField?.status === "supported";
+  const showNegativePrompt = negativePromptField?.status === "supported";
+  const showSeed = seedField?.status === "supported";
+  const showSteps = stepsField?.status === "supported";
+  const showGuidance = guidanceField?.status === "supported";
+  const showModelVariant = modelVariantField?.status === "supported";
+  const showFrames = framesField?.status === "supported";
+  const showAudioMode = audioModeField?.status === "supported";
+  const showQuantity = quantityField?.status === "supported";
+  const showGenerationMode = generationModeField?.status === "supported";
+  const showFrameGuideStrength = frameGuideStrengthField?.status === "supported";
+  const showSafetyChecker = safetyCheckerField?.status === "supported";
+  const showShift = shiftField?.status === "supported";
+  const showTurbo = turboField?.status === "supported";
+  const showSampler = samplerField?.status === "supported";
+  const showScheduler = schedulerField?.status === "supported";
+  const showUsePro = useProField?.status === "supported";
+  const showWatermark = watermarkField?.status === "supported";
+  const showPromptExpansion = promptExpansionField?.status === "supported";
+  const showReturnLastFrame = returnLastFrameField?.status === "supported";
+  const showAudioUrl = audioField?.status === "supported" && audioField.valueType === "string";
+  const resolutionOptions = uniqueStrings((resolutionField?.options || []).map((item) => item.value));
+  const ratioOptions = uniqueStrings([
+    ...(aspectField?.status === "supported" ? (aspectField.options || []).map((item) => item.value) : []),
+    ...DEFAULT_RATIO_OPTIONS,
+    ratio,
+  ]);
+  const dimensionPresets = uniqueStrings((dimensionsField?.options || []).map((item) => item.value));
+  const modelVariantOptions = uniqueStrings((modelVariantField?.options || []).map((item) => item.value));
+  const audioModeOptions = uniqueStrings((audioModeField?.options || []).map((item) => item.value));
+  const generationModeOptions = uniqueStrings((generationModeField?.options || []).map((item) => item.value));
+  const samplerOptions = uniqueStrings((samplerField?.options || []).map((item) => item.value));
+  const schedulerOptions = uniqueStrings((schedulerField?.options || []).map((item) => item.value));
+  const fpsField = descriptorNamed(parameterDescriptors, "fps");
+  const showDescriptorFps = !fpsSpec && fpsField?.status === "supported" && generatePreview.fps !== undefined;
+  const fpsChipOptions = fpsSpec
+    ? fpsOptions
+    : uniqueStrings((fpsField?.options || []).map((item) => item.value)).map(Number).filter((item) => Number.isFinite(item));
+  const renderedParameterNames = new Set<string>(["duration", "aspectRatio"]);
+  if (generatePreview.showGenerateAudio || showAudioUrl) renderedParameterNames.add("audio");
+  if (fpsSpec || showDescriptorFps) renderedParameterNames.add("fps");
+  if (showResolution) renderedParameterNames.add("resolution");
+  if (showDimensions) renderedParameterNames.add("dimensions");
+  if (showNegativePrompt) renderedParameterNames.add("negativePrompt");
+  if (showSeed) renderedParameterNames.add("seed");
+  if (showSteps) renderedParameterNames.add("steps");
+  if (showGuidance) renderedParameterNames.add("guidance");
+  if (showModelVariant) renderedParameterNames.add("modelVariant");
+  if (showFrames) renderedParameterNames.add("frames");
+  if (showAudioMode) renderedParameterNames.add("audioMode");
+  if (showQuantity) renderedParameterNames.add("quantity");
+  if (showGenerationMode) renderedParameterNames.add("mode");
+  if (showFrameGuideStrength) renderedParameterNames.add("frameGuideStrength");
+  if (showSafetyChecker) renderedParameterNames.add("safetyChecker");
+  if (showShift) renderedParameterNames.add("shift");
+  if (showTurbo) renderedParameterNames.add("turbo");
+  if (showSampler) renderedParameterNames.add("sampler");
+  if (showScheduler) renderedParameterNames.add("scheduler");
+  if (showUsePro) renderedParameterNames.add("usePro");
+  if (showWatermark) renderedParameterNames.add("watermark");
+  if (showPromptExpansion) renderedParameterNames.add("promptExpansion");
+  if (showReturnLastFrame) renderedParameterNames.add("returnLastFrame");
+  const leftoverFields = VIDEO_GENERATION_PARAMETER_NAMES
+    .map((name) => descriptorNamed(parameterDescriptors, name))
+    .filter((field): field is VideoStudioDescriptor => {
+      if (!field) return false;
+      return field.status === "supported" && !renderedParameterNames.has(field.name);
+    });
+  const leftoverNotice = leftoverFields.length
+    ? `当前模型还有未接线官方字段：${leftoverFields.map((field) => `${field.label}（${field.transportName || field.name}）`).join("、")}。这些字段不会画假控件，也不会静默丢弃。`
+    : "";
+  const staleUnsupportedValues = [
+    !showResolution && resolution.trim() ? "分辨率档位" : "",
+    !showDimensions && (width.trim() || height.trim()) ? "宽高" : "",
+    !showNegativePrompt && negativePrompt.trim() ? "负面提示词" : "",
+    !showSeed && seed.trim() ? "随机种子" : "",
+    !showSteps && steps.trim() ? "推理步数" : "",
+    !showGuidance && guidance.trim() ? "引导强度" : "",
+    !showModelVariant && modelVariant.trim() ? "模型变体" : "",
+    !showFrames && generationFrames.trim() ? "帧数" : "",
+    !showAudioMode && audioMode.trim() ? "音频处理" : "",
+    !showQuantity && quantity.trim() ? "生成数量" : "",
+    !showGenerationMode && generationMode.trim() ? "生成模式" : "",
+    !showFrameGuideStrength && frameGuideStrength.trim() ? "帧引导强度" : "",
+    !showSafetyChecker && safetyChecker !== undefined ? "安全检查器" : "",
+    !showShift && shift.trim() ? "Shift" : "",
+    !showTurbo && turbo !== undefined ? "Turbo" : "",
+    !showSampler && sampler.trim() ? "采样器" : "",
+    !showScheduler && scheduler.trim() ? "调度器" : "",
+    !showUsePro && usePro !== undefined ? "Pro" : "",
+    !showWatermark && watermark !== undefined ? "水印" : "",
+    !showPromptExpansion && promptExpansion !== undefined ? "提示词扩写" : "",
+    !showReturnLastFrame && returnLastFrame !== undefined ? "返回尾帧" : "",
+    !showAudioUrl && audioUrl.trim() ? "音频 URL" : "",
+  ].filter(Boolean);
   const generateBlockReason = generatePreview.error || "";
   const referenceControls = generatePreview.referenceControls;
   const modeReason = (next: "i2v" | "flf") => next === "i2v" ? referenceControls.i2vReason : referenceControls.flfReason;
@@ -185,21 +396,9 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     }
     const { providerId, model } = splitModel(selection);
     const payload = buildVideoStudioGenerateFields({
-      adapterType: selectedRelay?.adapterType,
+      ...generateFieldInput,
       providerId,
       model: videoModel || model,
-      mode,
-      duration,
-      ratio,
-      firstFrame,
-      lastFrame,
-      audio,
-      fps,
-      loras,
-      isArk,
-      host: selectedRelay?.baseUrl,
-      protocol: selectedRelay?.protocol,
-      provider: selectedRelay,
     });
     if (payload.error) {
       setError(payload.error);
@@ -219,7 +418,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         relays,
         prompt,
         duration: payload.duration,
-        aspectRatio: ratio,
+        aspectRatio: payload.ratio,
+        resolution: payload.resolution,
         providerId,
         model: videoModel || model,
         imageUrl: payload.imageUrl,
@@ -227,6 +427,28 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
         generateAudio: payload.generateAudio,
         fps: payload.fps,
         loras: payload.loras,
+        negativePrompt: payload.negativePrompt,
+        seed: payload.seed,
+        watermark: payload.watermark,
+        promptExpansion: payload.promptExpansion,
+        returnLastFrame: payload.returnLastFrame,
+        audioUrl: payload.audioUrl,
+        width: payload.width,
+        height: payload.height,
+        steps: payload.steps,
+        guidance: payload.guidance,
+        modelVariant: payload.modelVariant,
+        frames: payload.frames,
+        audioMode: payload.audioMode,
+        quantity: payload.quantity,
+        mode: payload.generationMode,
+        frameGuideStrength: payload.frameGuideStrength,
+        safetyChecker: payload.safetyChecker,
+        shift: payload.shift,
+        turbo: payload.turbo,
+        sampler: payload.sampler,
+        scheduler: payload.scheduler,
+        usePro: payload.usePro,
       });
       const videoUrl = await waitStudioVideo({
         relays,
@@ -591,7 +813,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           </div>
         ))}
         <p className="studio-kicker">时长 / 画幅</p>
-        <div className="studio-seg">
+        <div className="chip-row">
           {durationOptions.map((item) => (
             <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
               {item}s
@@ -602,42 +824,498 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           <small className="studio-hint">LTX 2.3 时长按 live OpenAPI 为 3–20 秒（默认 5）。菜谱写「仅 3 或 20」与 schema 冲突，页面跟 schema。</small>
         ) : videoModel === "hunyuan" ? (
           <small className="studio-hint">Hunyuan 时长按 live OpenAPI 为 1–30 秒（默认 5），不是 OpenAI 的 4/8/12。</small>
+        ) : aspectField?.status === "supported" && aspectField.description ? (
+          <small className="studio-hint">{aspectField.description}</small>
         ) : null}
         <div className="aspect-grid">
-          {["16:9", "9:16", "1:1"].map((item) => {
-            const [w, h] = item.split(":").map(Number);
-            const max = 22;
-            const box = w >= h ? { width: max, height: Math.max(8, Math.round((max * h) / w)) } : { width: Math.max(8, Math.round((max * w) / h)), height: max };
+          {ratioOptions.map((item) => {
+            const box = aspectPreviewBox(item);
             return (
               <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
-                <span className="aspect-preview" style={box} />
+                {box ? <span className="aspect-preview" style={box} /> : null}
                 {item}
               </button>
             );
           })}
         </div>
+        {showResolution ? (
+          <>
+            <p className="studio-kicker">{resolutionField?.label || "分辨率档位"}</p>
+            {resolutionOptions.length ? (
+              <div className="chip-row">
+                {resolutionOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={resolution === item ? "is-active" : undefined}
+                    onClick={() => setResolution(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {resolutionField?.label || "分辨率档位"}
+                <input
+                  value={resolution}
+                  onChange={(event) => setResolution(event.target.value)}
+                  placeholder={resolutionField?.defaultValue === undefined ? "可空，使用模型默认" : String(resolutionField.defaultValue)}
+                />
+              </label>
+            )}
+            {resolutionField?.description ? <small className="studio-hint">{resolutionField.description}</small> : null}
+          </>
+        ) : null}
+        {showDimensions ? (
+          <>
+            <p className="studio-kicker">{dimensionsField?.label || "宽高"}</p>
+            {dimensionPresets.length ? (
+              <div className="chip-row">
+                {dimensionPresets.map((item) => {
+                  const pair = parseDimensionPair(item);
+                  const active = pair
+                    ? Number(width) === pair.width && Number(height) === pair.height
+                    : false;
+                  return (
+                    <button
+                      key={item}
+                      type="button"
+                      className={active ? "is-active" : undefined}
+                      onClick={() => {
+                        if (!pair) return;
+                        setWidth(String(pair.width));
+                        setHeight(String(pair.height));
+                      }}
+                    >
+                      {item}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            <div className="lora-row">
+              <label>
+                宽
+                <input
+                  type="number"
+                  min={dimensionsField?.minimum}
+                  max={dimensionsField?.maximum}
+                  step={1}
+                  value={width}
+                  onChange={(event) => setWidth(event.target.value)}
+                  placeholder={dimensionsField?.required ? "必填" : "可空"}
+                />
+              </label>
+              <label>
+                高
+                <input
+                  type="number"
+                  min={dimensionsField?.minimum}
+                  max={dimensionsField?.maximum}
+                  step={1}
+                  value={height}
+                  onChange={(event) => setHeight(event.target.value)}
+                  placeholder={dimensionsField?.required ? "必填" : "可空"}
+                />
+              </label>
+            </div>
+            {dimensionsField?.description ? <small className="studio-hint">{dimensionsField.description}</small> : null}
+          </>
+        ) : null}
+        {showNegativePrompt ? (
+          <label>
+            {negativePromptField?.label || "负面提示词"}
+            <textarea
+              rows={2}
+              maxLength={negativePromptField?.maxLength}
+              value={negativePrompt}
+              onChange={(event) => setNegativePrompt(event.target.value)}
+              placeholder="不要出现的内容，可空"
+            />
+          </label>
+        ) : null}
+        {showSeed ? (
+          <label>
+            {seedField?.label || "随机种子"}
+            <input
+              type="number"
+              step={1}
+              min={seedField?.minimum}
+              max={seedField?.maximum}
+              value={seed}
+              onChange={(event) => setSeed(event.target.value)}
+              placeholder="可空"
+            />
+          </label>
+        ) : null}
+        {showSteps ? (
+          <label>
+            {stepsField?.label || "推理步数"}
+            <input
+              type="number"
+              step={1}
+              min={stepsField?.minimum}
+              max={stepsField?.maximum}
+              value={steps}
+              onChange={(event) => setSteps(event.target.value)}
+              placeholder={stepsField?.defaultValue === undefined ? "可空" : String(stepsField.defaultValue)}
+            />
+          </label>
+        ) : null}
+        {showGuidance ? (
+          <label>
+            {guidanceField?.label || "引导强度"}
+            <input
+              type="number"
+              step="any"
+              min={guidanceField?.minimum}
+              max={guidanceField?.maximum}
+              value={guidance}
+              onChange={(event) => setGuidance(event.target.value)}
+              placeholder={guidanceField?.defaultValue === undefined ? "可空" : String(guidanceField.defaultValue)}
+            />
+          </label>
+        ) : null}
+        {showModelVariant ? (
+          <>
+            <p className="studio-kicker">{modelVariantField?.label || "模型变体"}</p>
+            {modelVariantOptions.length ? (
+              <div className="chip-row">
+                {modelVariantOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={modelVariant === item ? "is-active" : undefined}
+                    onClick={() => setModelVariant(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {modelVariantField?.label || "模型变体"}
+                <input
+                  value={modelVariant}
+                  onChange={(event) => setModelVariant(event.target.value)}
+                  placeholder="可空，使用模型默认"
+                />
+              </label>
+            )}
+          </>
+        ) : null}
+        {showAudioUrl ? (
+          <label>
+            {audioField?.label || "音频"}
+            <input
+              value={audioUrl}
+              onChange={(event) => setAudioUrl(event.target.value)}
+              placeholder="音频 URL，可空"
+            />
+            {audioField?.description ? <small className="studio-hint">{audioField.description}</small> : null}
+          </label>
+        ) : null}
+        {showWatermark ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={watermark === true}
+              onChange={(event) => setWatermark(event.target.checked)}
+            />
+            {watermarkField?.label || "水印"}
+          </label>
+        ) : null}
+        {showPromptExpansion ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={promptExpansion === true}
+              onChange={(event) => setPromptExpansion(event.target.checked)}
+            />
+            {promptExpansionField?.label || "提示词扩写"}
+          </label>
+        ) : null}
+        {showReturnLastFrame ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={returnLastFrame === true}
+              onChange={(event) => setReturnLastFrame(event.target.checked)}
+            />
+            {returnLastFrameField?.label || "返回尾帧"}
+          </label>
+        ) : null}
         {generatePreview.showGenerateAudio ? (
           <label className="flow-check">
             <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
             {videoModel === "ltx2.3" ? "生成原声（generateAudio，可开可关）" : "生成原声"}
           </label>
         ) : null}
-        {fpsSpec ? (
+        {showFrames ? (
+          <label>
+            {framesField?.label || "帧数"}
+            <input
+              type="number"
+              min={framesField?.minimum}
+              max={framesField?.maximum}
+              step={1}
+              value={generationFrames}
+              onChange={(event) => setGenerationFrames(event.target.value)}
+              placeholder={framesField?.defaultValue === undefined ? "可空；不填则按时长推导" : String(framesField.defaultValue)}
+            />
+            {framesField?.description ? <small className="studio-hint">{framesField.description}</small> : null}
+          </label>
+        ) : null}
+        {showQuantity ? (
+          <label>
+            {quantityField?.label || "生成数量"}
+            <input
+              type="number"
+              min={quantityField?.minimum}
+              max={quantityField?.maximum}
+              step={1}
+              value={quantity}
+              onChange={(event) => setQuantity(event.target.value)}
+              placeholder={quantityField?.defaultValue === undefined ? "可空" : String(quantityField.defaultValue)}
+            />
+            {quantityField?.description ? <small className="studio-hint">{quantityField.description}</small> : null}
+          </label>
+        ) : null}
+        {showGenerationMode ? (
           <>
-            <p className="studio-kicker">帧率 fps</p>
-            <div className="studio-seg">
-              {fpsOptions.map((item) => (
-                <button key={item} type="button" className={fps === item ? "is-active" : undefined} onClick={() => setFps(item)}>
-                  {item} fps
-                </button>
-              ))}
-            </div>
+            <p className="studio-kicker">{generationModeField?.label || "生成模式"}</p>
+            {generationModeOptions.length ? (
+              <div className="chip-row">
+                {generationModeOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={generationMode === item ? "is-active" : undefined}
+                    onClick={() => setGenerationMode((current) => (current === item ? "" : item))}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {generationModeField?.label || "生成模式"}
+                <input value={generationMode} onChange={(event) => setGenerationMode(event.target.value)} placeholder="可空" />
+              </label>
+            )}
+            {generationModeField?.description ? <small className="studio-hint">{generationModeField.description}</small> : null}
+          </>
+        ) : null}
+        {showAudioMode ? (
+          <>
+            <p className="studio-kicker">{audioModeField?.label || "音频处理"}</p>
+            {audioModeOptions.length ? (
+              <div className="chip-row">
+                {audioModeOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={audioMode === item ? "is-active" : undefined}
+                    onClick={() => setAudioMode((current) => (current === item ? "" : item))}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {audioModeField?.label || "音频处理"}
+                <input value={audioMode} onChange={(event) => setAudioMode(event.target.value)} placeholder="auto / origin" />
+              </label>
+            )}
+            {audioModeField?.description ? <small className="studio-hint">{audioModeField.description}</small> : null}
+          </>
+        ) : null}
+        {showFrameGuideStrength ? (
+          <label>
+            {frameGuideStrengthField?.label || "帧引导强度"}
+            <input
+              type="number"
+              min={frameGuideStrengthField?.minimum}
+              max={frameGuideStrengthField?.maximum}
+              step="any"
+              value={frameGuideStrength}
+              onChange={(event) => setFrameGuideStrength(event.target.value)}
+              placeholder={frameGuideStrengthField?.defaultValue === undefined ? "可空" : String(frameGuideStrengthField.defaultValue)}
+            />
+            {frameGuideStrengthField?.description ? <small className="studio-hint">{frameGuideStrengthField.description}</small> : null}
+          </label>
+        ) : null}
+        {showShift ? (
+          <label>
+            {shiftField?.label || "Shift"}
+            <input
+              type="number"
+              min={shiftField?.minimum}
+              max={shiftField?.maximum}
+              step="any"
+              value={shift}
+              onChange={(event) => setShift(event.target.value)}
+              placeholder={shiftField?.defaultValue === undefined ? "可空" : String(shiftField.defaultValue)}
+            />
+            {shiftField?.description ? <small className="studio-hint">{shiftField.description}</small> : null}
+          </label>
+        ) : null}
+        {showSampler ? (
+          <>
+            <p className="studio-kicker">{samplerField?.label || "采样器"}</p>
+            {samplerOptions.length ? (
+              <div className="chip-row">
+                {samplerOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={sampler === item ? "is-active" : undefined}
+                    onClick={() => setSampler((current) => (current === item ? "" : item))}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {samplerField?.label || "采样器"}
+                <input value={sampler} onChange={(event) => setSampler(event.target.value)} placeholder="可空" />
+              </label>
+            )}
+          </>
+        ) : null}
+        {showScheduler ? (
+          <>
+            <p className="studio-kicker">{schedulerField?.label || "调度器"}</p>
+            {schedulerOptions.length ? (
+              <div className="chip-row">
+                {schedulerOptions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className={scheduler === item ? "is-active" : undefined}
+                    onClick={() => setScheduler((current) => (current === item ? "" : item))}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {schedulerField?.label || "调度器"}
+                <input value={scheduler} onChange={(event) => setScheduler(event.target.value)} placeholder="可空" />
+              </label>
+            )}
+          </>
+        ) : null}
+        {showSafetyChecker ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={safetyChecker === true}
+              onChange={(event) => setSafetyChecker(event.target.checked)}
+            />
+            {safetyCheckerField?.label || "安全检查器"}
+          </label>
+        ) : null}
+        {showTurbo ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={turbo === true}
+              onChange={(event) => setTurbo(event.target.checked)}
+            />
+            {turboField?.label || "Turbo"}
+          </label>
+        ) : null}
+        {showUsePro ? (
+          <label className="flow-check">
+            <input
+              type="checkbox"
+              checked={usePro === true}
+              onChange={(event) => setUsePro(event.target.checked)}
+            />
+            {useProField?.label || "Pro"}
+          </label>
+        ) : null}
+        {fpsSpec || showDescriptorFps ? (
+          <>
+            <p className="studio-kicker">{fpsField?.label || "帧率 fps"}</p>
+            {fpsChipOptions.length ? (
+              <div className="chip-row">
+                {fpsChipOptions.map((item) => (
+                  <button key={item} type="button" className={fps === item ? "is-active" : undefined} onClick={() => setFps(item)}>
+                    {item} fps
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <label>
+                {fpsField?.label || "帧率"}
+                <input
+                  type="number"
+                  min={fpsField?.minimum}
+                  max={fpsField?.maximum}
+                  step={fpsField?.valueType === "integer" || fpsField?.integer ? 1 : "any"}
+                  value={Number.isFinite(fps) ? fps : ""}
+                  onChange={(event) => setFps(Number(event.target.value))}
+                  placeholder={fpsField?.defaultValue === undefined ? "可空" : String(fpsField.defaultValue)}
+                />
+              </label>
+            )}
             <small className="studio-hint">
               {videoModel === "hunyuan"
                 ? "Hunyuan 常见取值 24 / 25 / 30，默认 25。页面把该值作为 fps 传给 generate。"
-                : "LTX 2.3 官方字段是 fps，默认 24。"}
+                : videoModel === "ltx2.3"
+                  ? "LTX 2.3 官方字段是 fps，默认 24。"
+                  : fpsField?.description || "仅在当前模型 capability 支持时提交 fps。"}
             </small>
           </>
+        ) : null}
+        {leftoverNotice ? (
+          <p className="studio-hint" role="status">
+            {leftoverNotice}
+          </p>
+        ) : null}
+        {staleUnsupportedValues.length ? (
+          <p className="studio-error" role="alert">
+            当前模型不支持已填写的 {staleUnsupportedValues.join("、")}，提交会被明确拒绝，不会静默丢弃。
+            <button
+              type="button"
+              className="studio-ghost"
+              onClick={() => {
+                if (!showResolution) setResolution("");
+                if (!showDimensions) {
+                  setWidth("");
+                  setHeight("");
+                }
+                if (!showNegativePrompt) setNegativePrompt("");
+                if (!showSeed) setSeed("");
+                if (!showSteps) setSteps("");
+                if (!showGuidance) setGuidance("");
+                if (!showModelVariant) setModelVariant("");
+                if (!showFrames) setGenerationFrames("");
+                if (!showAudioMode) setAudioMode("");
+                if (!showQuantity) setQuantity("");
+                if (!showGenerationMode) setGenerationMode("");
+                if (!showFrameGuideStrength) setFrameGuideStrength("");
+                if (!showSafetyChecker) setSafetyChecker(undefined);
+                if (!showShift) setShift("");
+                if (!showTurbo) setTurbo(undefined);
+                if (!showSampler) setSampler("");
+                if (!showScheduler) setScheduler("");
+                if (!showUsePro) setUsePro(undefined);
+                if (!showWatermark) setWatermark(undefined);
+                if (!showPromptExpansion) setPromptExpansion(undefined);
+                if (!showReturnLastFrame) setReturnLastFrame(undefined);
+                if (!showAudioUrl) setAudioUrl("");
+              }}
+            >
+              清除不支持的已填值
+            </button>
+          </p>
         ) : null}
         {showVideoLora ? (
           <div className="lora-stack">

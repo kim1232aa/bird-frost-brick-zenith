@@ -41,6 +41,13 @@ export function normalizeVideoDuration(duration: number, host?: string, protocol
     if (duration === opt) return duration;
   }
 
+  if (isOpenAiOfficial(host, protocol)) {
+    throw new Error(`OpenAI 官方 Videos 的 seconds 只接受 4 / 8 / 12，收到 ${duration}；不会静默改成相邻档位。`);
+  }
+  if (isOfficialXai(host)) {
+    throw new Error(`xAI 官方视频 duration 只接受 1–15 秒，收到 ${duration}；不会静默改成相邻档位。`);
+  }
+
   // Find closest valid duration
   let closest = options[0];
   let minDiff = Math.abs(duration - closest);

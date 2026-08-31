@@ -56,6 +56,7 @@ export async function generateStudioImage(input: {
     quantity: input.quantity,
     checkpointAir: input.checkpointAir,
     loras: input.loras,
+    operation: input.operation,
   });
   const count = civitai.n;
   const refs = collectImageRefs(input);

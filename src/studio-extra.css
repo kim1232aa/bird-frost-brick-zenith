@@ -57,6 +57,12 @@
   border-radius: 12px;
   background: #16161c;
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  /* Stay viewport-fixed: a non-none transform/filter on this overlay would
+     make it its own containing block. CSS Positioned Layout / MDN position.
+     https://developer.mozilla.org/en-US/docs/Web/CSS/position */
+  transform: none;
+  filter: none;
+  perspective: none;
 }
 
 .model-menu-group p {
@@ -227,6 +233,10 @@
   grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  overflow: visible;
+  transform: none;
+  filter: none;
+  perspective: none;
 }
 
 .bp-left {
@@ -697,7 +707,7 @@
   display: flex !important;
 }
 
-.studio-page.studio-flush {
+.studio-page.studio-flush:not(.studio-flush-scroll) {
   max-width: none;
   margin: 0;
   padding: 0;
@@ -859,6 +869,7 @@
   .bp-work {
     grid-template-columns: minmax(300px, 380px) minmax(0, 1fr) !important;
     height: 100% !important;
+    overflow: visible;
   }
   .studio-flush .bench,
   .bench {
@@ -867,14 +878,15 @@
 }
 
 @media (max-width: 759px) {
-  .studio-page.studio-flush {
+  .studio-page.studio-flush:not(.studio-flush-scroll) {
     height: auto;
-    overflow: visible;
+    overflow: hidden;
   }
   .bp-work,
   .studio-flush .bench {
     grid-template-columns: 1fr !important;
     height: auto !important;
+    overflow: visible;
   }
   .flow-shell,
   .flow-board {

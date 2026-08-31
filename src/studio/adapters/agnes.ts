@@ -36,6 +36,43 @@ function validateAgnesFrameRate(value: unknown) {
   return value;
 }
 
+function validateAgnesNumFrames(value: unknown) {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw new Error(`Agnes V2.0 的 num_frames 必须是整数，收到 ${String(value)}。`);
+  }
+  if (value < 1 || value > 441) {
+    throw new Error(`Agnes V2.0 的 num_frames 必须是 1–441，收到 ${value}。`);
+  }
+  if ((value - 1) % 8 !== 0) {
+    throw new Error(`Agnes V2.0 的 num_frames 必须满足 8n+1，收到 ${value}。`);
+  }
+  return value;
+}
+
+function hasProvidedVideoValue(value: unknown) {
+  return value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()));
+}
+
+function rejectUnsupportedAgnesVideoFields(input: VideoCreateInput) {
+  const fields: ReadonlyArray<[string, unknown]> = [
+    ["audioMode", input.audioMode],
+    ["quantity", input.quantity],
+    ["mode", input.mode],
+    ["frameGuideStrength", input.frameGuideStrength],
+    ["safetyChecker", input.safetyChecker],
+    ["shift", input.shift],
+    ["turbo", input.turbo],
+    ["sampler", input.sampler],
+    ["scheduler", input.scheduler],
+    ["usePro", input.usePro],
+  ];
+  for (const [name, value] of fields) {
+    if (hasProvidedVideoValue(value)) {
+      throw new Error(`Agnes V2.0 官方视频不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+}
+
 export function agnesVideoFrameParams(duration: number, frameRate = AGNES_VIDEO_DEFAULT_FRAME_RATE) {
   const rate = validateAgnesFrameRate(frameRate);
   if (typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0) {
@@ -77,6 +114,7 @@ export function buildAgnesImageBody(input: ImageGenInput): Record<string, unknow
 
 export function buildAgnesVideoBody(input: VideoCreateInput): Record<string, unknown> {
   const model = assertAgnesVideoV20Model(input.model);
+  rejectUnsupportedAgnesVideoFields(input);
   const explicitFrameRate = input.fps === undefined ? undefined : validateAgnesFrameRate(input.fps);
   const extras = (input.imageUrls || []).map((item) => String(item || "").trim()).filter(Boolean);
   const first = String(input.imageUrl || "").trim();
@@ -92,12 +130,26 @@ export function buildAgnesVideoBody(input: VideoCreateInput): Record<string, unk
   } else if (first) {
     body.image = first;
   }
-  if (input.duration !== undefined) {
+  const explicitFrames = input.frames === undefined ? undefined : validateAgnesNumFrames(input.frames);
+  if (explicitFrames !== undefined) {
+    body.num_frames = explicitFrames;
+    if (explicitFrameRate !== undefined) body.frame_rate = explicitFrameRate;
+    else if (input.duration !== undefined) body.frame_rate = AGNES_VIDEO_DEFAULT_FRAME_RATE;
+  } else if (input.duration !== undefined) {
     const frameParams = agnesVideoFrameParams(input.duration, explicitFrameRate || AGNES_VIDEO_DEFAULT_FRAME_RATE);
     body.num_frames = frameParams.num_frames;
     body.frame_rate = frameParams.frame_rate;
   } else if (explicitFrameRate !== undefined) {
     body.frame_rate = explicitFrameRate;
+  }
+  if (typeof input.width === "number" && Number.isFinite(input.width) && input.width > 0) body.width = input.width;
+  if (typeof input.height === "number" && Number.isFinite(input.height) && input.height > 0) body.height = input.height;
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) body.seed = input.seed;
+  if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
+    if (!Number.isInteger(input.steps) || input.steps < 1) {
+      throw new Error(`Agnes V2.0 的 num_inference_steps 必须是正整数，收到 ${input.steps}。`);
+    }
+    body.num_inference_steps = input.steps;
   }
   if (input.negativePrompt) body.negative_prompt = input.negativePrompt;
   return body;

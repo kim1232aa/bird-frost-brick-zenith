@@ -65,19 +65,31 @@ type CachedRequest = {
 const CIVITAI_API_BASE_URL = "https://civitai.com/api/v1";
 const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-const FULL_LORA_AIR_PATTERN = /^urn:air:([a-z0-9][a-z0-9._-]*):lora:civitai:(\d+)@(\d+)$/i;
+/**
+ * Official Civitai model-version AIR pattern (live OpenAPI 2026-08-30):
+ *   urn:air:<ecosystem>:lora:civitai:<modelId>@<versionId>[+<fileId>][.<format>]
+ * The `urn:` and `air:` prefixes are optional on the wire; the resolver accepts
+ * both and normalizes the `air` field to the canonical `urn:air:` form.
+ * Auto-generated `air` values from the site API always carry the full `urn:air:` prefix.
+ * https://orchestration.civitai.com/openapi/v2-consumers.json
+ */
+const FULL_LORA_AIR_PATTERN = /^(?:urn:)?(?:air:)?([a-z0-9][a-z0-9._-]*):lora:civitai:(\d+)@(\d+)(?:\+\d+)?(?:\.[a-z0-9_-]+)?$/i;
 const MAP_LORA_PREFIX_EXAMPLE = "urn:air:zimageturbo:lora:civitai:<id>@<ver>";
 const ARRAY_LORA_MESSAGE = "需要 array {air,strength}，当前不会改成 map 乱发";
 
 /**
- * Resolve only ecosystems verified for the selected Civitai service.
- * Live Turbo LoRA AIR uses `zimageturbo`; the recipe placeholder `zImage` is
- * not a live Turbo ecosystem, and Z-Image Base remains unmapped.
+ * Map a Civitai imageGen service id to the live site-API LoRA identity.
+ * Ecosystem comes from GET /api/v1/model-versions/{id}.air, never from the
+ * recipe discriminator (zImage ≠ zimageturbo / zimagebase; hidream ≠ hidream-o1).
+ * baseModel values are the site ActiveBaseModel labels observed on those AIRs.
  */
 export function resolveCivitaiLoraCompatibilityTarget(targetModel: string): CivitaiLoraCompatibilityTarget | undefined {
     const normalized = String(targetModel || "").trim().toLowerCase();
     if (/\/(?:zimage|z-image)\/turbo(?:\/|$)/.test(normalized)) {
         return { label: "Z-Image Turbo", ecosystems: ["zimageturbo"], baseModels: ["ZImageTurbo"] };
+    }
+    if (/\/(?:zimage|z-image)\/base(?:\/|$)/.test(normalized)) {
+        return { label: "Z-Image Base", ecosystems: ["zimagebase"], baseModels: ["ZImageBase"] };
     }
     if (/\/anima(?:\/|$)/.test(normalized)) {
         return { label: "Anima", ecosystems: ["anima"], baseModels: ["Anima"] };
@@ -89,15 +101,25 @@ export function resolveCivitaiLoraCompatibilityTarget(targetModel: string): Civi
         return { label: "Qwen 20B", ecosystems: ["qwen"], baseModels: ["Qwen"] };
     }
     if (/\/sdxl(?:\/|$)/.test(normalized)) {
-        return { label: "SDXL", ecosystems: ["sdxl"], baseModels: ["SDXL 1.0", "Pony", "Illustrious", "NoobAI"] };
+        return { label: "SDXL", ecosystems: ["sdxl"], baseModels: ["SDXL 1.0", "SDXL Lightning", "SDXL Hyper", "Pony", "Illustrious", "NoobAI"] };
     }
-    if (/\/flux2\/klein(?:\/|$)/.test(normalized)) {
-        return { label: "Flux 2 Klein", ecosystems: ["flux2"], baseModels: ["Flux.2 D", "Flux.2 Klein 4B", "Flux.2 Klein 9B"] };
+    if (/\/flux2\/klein(?:\/|$)/.test(normalized) || /\/flux2klein(?:\/|$)/.test(normalized)) {
+        return {
+            label: "Flux 2 Klein",
+            ecosystems: ["flux2"],
+            baseModels: ["Flux.2 D", "Flux.2 Klein 4B", "Flux.2 Klein 4B-base", "Flux.2 Klein 9B", "Flux.2 Klein 9B-base"],
+        };
     }
-    if (/\/krea2(?:\/|$)/.test(normalized)) {
+    if (/\/comfy\/flux1(?:\/|$)/.test(normalized) || /\/flux1(?:\/|$)/.test(normalized)) {
+        return { label: "Flux 1", ecosystems: ["flux1"], baseModels: ["Flux.1 D", "Flux.1 S"] };
+    }
+    if (/\/comfy\/krea2(?:\/|$)/.test(normalized) || (/\/krea2(?:\/|$)/.test(normalized) && !/\/fal\/krea2(?:\/|$)/.test(normalized))) {
         return { label: "Krea 2", ecosystems: ["krea2"], baseModels: ["Krea 2"] };
     }
-    if (/\/hidream(?:-o1)?(?:\/|$)/.test(normalized)) {
+    if (/\/hidream-o1(?:\/|$)/.test(normalized)) {
+        return { label: "HiDream-O1", ecosystems: ["hidream-o1"], baseModels: ["HiDream-O1"] };
+    }
+    if (/\/hidream(?:\/|$)/.test(normalized)) {
         return { label: "HiDream", ecosystems: ["hidream"], baseModels: ["HiDream"] };
     }
     return undefined;
@@ -105,7 +127,9 @@ export function resolveCivitaiLoraCompatibilityTarget(targetModel: string): Civi
 
 export function isCivitaiArrayLoraService(targetModel: string) {
     const normalized = String(targetModel || "").trim().toLowerCase();
-    return /\/flux2\/dev(?:\/|$)/.test(normalized) || /\/wan\//.test(normalized);
+    return /\/flux2\/dev(?:\/|$)/.test(normalized)
+        || /\/sdcpp\/flux2dev(?:\/|$)/.test(normalized)
+        || /\/wan\//.test(normalized);
 }
 
 export function civitaiLoraUnsupportedMessage(targetModel: string) {
@@ -113,7 +137,7 @@ export function civitaiLoraUnsupportedMessage(targetModel: string) {
     if (isCivitaiArrayLoraService(service)) {
         return `Civitai / ${service} 的 loras ${ARRAY_LORA_MESSAGE}`;
     }
-    return `该服务不接受 LoRA。已验证 map 服务请使用完整 AIR，例如 ${MAP_LORA_PREFIX_EXAMPLE}（anima、ernie、qwen、sdxl、flux2 Klein、krea2、hidream 把生态段换成对应值）；Flux2 Dev / WAN ${ARRAY_LORA_MESSAGE}`;
+    return `该服务不接受 LoRA。已验证 map 服务请使用完整 AIR，例如 ${MAP_LORA_PREFIX_EXAMPLE}（zimagebase、anima、ernie、qwen、sdxl、flux1、flux2 Klein、krea2、hidream、hidream-o1 把生态段换成对应值）；Flux2 Dev / WAN ${ARRAY_LORA_MESSAGE}`;
 }
 
 function civitaiLoraMismatchMessage(
@@ -136,10 +160,13 @@ export function parseCivitaiLoraAir(value: string): ParsedCivitaiLoraAir | undef
     const modelId = normalizePositiveIntegerString(match[2]);
     const modelVersionId = normalizePositiveIntegerString(match[3]);
     if (!modelId || !modelVersionId) return undefined;
+    // Shorthand (missing urn:/air: prefix) is accepted and normalized to the
+    // canonical on-wire form; full site-API AIR strings stay verbatim.
+    const canonical = /^urn:air:/i.test(air)
+        ? air
+        : `urn:air:${match[1]}:lora:civitai:${modelId}@${modelVersionId}${/(?:\+\d+)?(?:\.[a-z0-9_-]+)?$/.exec(air)?.[0] || ""}`;
     return {
-        // This is a wire identifier, not a value to reconstruct or normalize.
-        // In particular, `air` from model-versions/{id} must reach loras intact.
-        air,
+        air: canonical,
         ecosystem,
         modelId,
         modelVersionId,

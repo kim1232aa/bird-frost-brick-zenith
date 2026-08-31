@@ -28,16 +28,14 @@
 }
 
 html,
-body,
-#app {
+body {
   min-height: 100%;
   background: var(--bp-bg) !important;
   color: var(--bp-text) !important;
 }
 
 html:has(.studio-root.is-canvas),
-html:has(.studio-root.is-canvas) body,
-html:has(.studio-root.is-canvas) #app {
+html:has(.studio-root.is-canvas) body {
   background: #f7f5f1 !important;
   color: #1c1917 !important;
 }
@@ -45,7 +43,11 @@ html:has(.studio-root.is-canvas) #app {
 .studio-root {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* Definite viewport height, not a percentage against body's auto height:
+     percentages resolve to auto unless the parent has an explicit height, which
+     left the shell indefinite and broke flex-scroll sizing. CSS Sizing L3:
+     https://drafts.csswg.org/css-sizing-3/#percentage-sizing */
+  height: 100vh;
   min-height: 100vh;
   overflow: hidden;
   background: var(--bp-bg);
@@ -194,8 +196,13 @@ html:has(.studio-root.is-canvas) #app {
 .studio-page.studio-flush {
   max-width: none;
   padding: 0;
-  overflow: hidden;
   background: #f7f5f1;
+}
+
+/* Only the canvas workspace (flush, not flush-scroll) may lock the page
+   scrollport. Document and flush-scroll pages keep overflow:auto above. */
+.studio-page.studio-flush:not(.studio-flush-scroll) {
+  overflow: hidden;
 }
 
 .studio-root.is-canvas .studio-page.studio-flush:not(.studio-flush-scroll) {
@@ -205,7 +212,12 @@ html:has(.studio-root.is-canvas) #app {
 
 .studio-page.studio-flush-scroll {
   overflow: auto !important;
-  height: auto !important;
+  /* Flex item needs a definite size so overflow:auto can form a scrollport.
+     An unconstrained auto height grew with content, then studio-root
+     (overflow:hidden; 100vh) clipped it. See CSS Overflow L3 overflow:auto.
+     https://drafts.csswg.org/css-overflow-3/#overflow-properties */
+  height: 0;
+  flex: 1 1 auto;
   min-height: 0;
   background: #f7f5f1;
 }
@@ -355,7 +367,17 @@ html:has(.studio-root.is-canvas) #app {
   margin: 0 !important;
   border: 1px solid var(--bp-border);
   border-radius: var(--bp-radius-card);
-  overflow: hidden;
+  /* overflow:hidden clips descendants at the padding box (CSS Overflow L3)
+     and, with transform/filter/perspective on an ancestor, retargets
+     position:fixed (e.g. .model-menu-pop) to that box so the menu is cut
+     by the card. Keep overflow visible; pane scroll lives on .bp-left/.bp-right.
+     https://www.w3.org/TR/css-overflow-3/#overflow-properties
+     https://developer.mozilla.org/en-US/docs/Web/CSS/overflow
+     https://developer.mozilla.org/en-US/docs/Web/CSS/position */
+  overflow: visible;
+  transform: none;
+  filter: none;
+  perspective: none;
   background: var(--bp-card);
   box-shadow: var(--bp-shadow);
 }
@@ -878,6 +900,7 @@ html:has(.studio-root.is-canvas) #app {
   .studio-flush .bench {
     grid-template-columns: 1fr !important;
     height: auto !important;
+    overflow: visible;
   }
 
   .bp-left,

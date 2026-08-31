@@ -24,6 +24,53 @@ import {
   studioVideoSize,
 } from "./civitai-ui-options.ts";
 
+test("service IDs resolve the same LoRA shape and quantity as short engine ids", () => {
+  assert.equal(civitaiImageLoraShape("image/flux2/klein/editImage/9b"), "map");
+  assert.equal(civitaiImageLoraShape("image/flux2/dev/createImage"), "array");
+  assert.equal(civitaiImageLoraShape("image/comfy/krea2/turbo/createImage"), "map");
+  assert.equal(civitaiImageLoraShape("image/comfy/krea2/edit/editImage"), "map");
+  assert.equal(civitaiImageLoraShape("image/fal/krea2/createImage"), undefined);
+  assert.equal(civitaiImageLoraShape("image/wan/v2.7/fal/createImage"), "array");
+  assert.equal(civitaiImageLoraShape("image/sdcpp/zImage/turbo/createImage"), "map");
+  assert.equal(civitaiImageLoraShape("image/sdcpp/zimage/turbo/createimage"), "map");
+  assert.equal(civitaiImageLoraShape("image/sdcpp/sdxl/createImage"), "map");
+  assert.equal(civitaiImageLoraShape("image/sdcpp/anima/createImage"), "map");
+  assert.equal(civitaiImageLoraShape("image/sdcpp/qwen/20b/editImage"), "map");
+  assert.equal(civitaiImageQuantityMax("image/comfy/krea2/edit/editImage"), 4);
+  assert.equal(civitaiImageQuantityMax("image/comfy/krea2/turbo/createImage"), 12);
+  assert.equal(civitaiImageQuantityMax("image/sdcpp/qwen/20b/editImage"), 12);
+  assert.equal(civitaiImageQuantityMax("image/qwen/editImage/3.0-pro"), 6);
+  assert.equal(civitaiImageQuantityMax("image/flux2/klein/createImage/4b"), 4);
+  assert.equal(civitaiImageQuantityMax("image/wan/v2.7/fal/createImage"), 10);
+  assert.equal(studioImageQuantityMax("civitai", "image/comfy/krea2/edit/editImage", "edit"), 4);
+  assert.equal(studioImageQuantityMax("civitai", "image/comfy/krea2/turbo/createImage"), 12);
+  assert.equal(civitaiVideoLoraShape("video/ltx2.3/createVideo"), "map");
+  assert.equal(civitaiVideoLoraShape("video/hunyuan/createVideo"), "array");
+  assert.equal(civitaiVideoLoraShape("video/wan/v2.2/comfy"), "array");
+});
+
+test("sdcpp Flux2 variant service IDs keep the official family-specific LoRA shape and cap", () => {
+  const klein = "image/sdcpp/flux2Klein/createVariant/9b";
+  const dev = "image/sdcpp/flux2Dev/createVariant";
+  assert.equal(civitaiImageLoraShape(klein), "map");
+  assert.equal(civitaiImageLoraShape(dev), "array");
+  assert.equal(civitaiImageQuantityMax(klein), 4);
+  assert.equal(civitaiImageQuantityMax(dev), 4);
+  assert.deepEqual(civitaiImageLoraStrengthRange(dev), { min: 0, max: 4 });
+});
+
+test("unknown and fabricated Civitai services never inherit UI capability", () => {
+  assert.equal(civitaiImageQuantityMax("image/unknown/engine/createImage"), null);
+  assert.equal(studioImageQuantityMax("civitai", "image/unknown/engine/createImage"), null);
+  assert.equal(civitaiImageLoraShape("image/unknown/engine/createImage"), undefined);
+  assert.equal(civitaiImageQuantityMax("image/openai/gpt-image-2-2026-04-21/editImage"), null);
+  assert.equal(civitaiImageQuantityMax("image/qwen/editImage/not-a-model"), null);
+  assert.equal(civitaiImageQuantityMax("image/sdcpp/qwen/20b/notAnOperation"), null);
+  assert.equal(civitaiImageQuantityMax("image/sdcpp/zImage/unknown/createImage"), null);
+  assert.equal(civitaiImageLoraShape("image/sdcpp/zImage/unknown/createImage"), undefined);
+  assert.deepEqual(studioImageQuantityOptions(null), [1, 2, 4, 6, 8, 10]);
+});
+
 test("image LoRA is shown only for official map/array engines", () => {
   assert.equal(civitaiImageLoraShape("krea2-turbo"), "map");
   assert.equal(civitaiImageLoraShape("krea2-raw"), "map");
@@ -65,22 +112,32 @@ test("quantity maxima match official per-engine caps", () => {
   assert.equal(civitaiImageQuantityMax("flux2-dev"), 4);
 });
 
-test("non-civitai adapters keep the original 1-4 cap", () => {
-  assert.equal(studioImageQuantityMax("openai-compat", "gpt-image-2"), 4);
-  assert.equal(studioImageQuantityMax("fal", "flux-dev"), 4);
-  assert.equal(resolveStudioImageQuantity("fal", "flux-dev", 12), 4);
+test("non-civitai adapters follow published output counts instead of a hard 1-4 cap", () => {
+  assert.equal(studioImageQuantityMax("openai-compat", "gpt-image-2"), 10);
+  assert.equal(studioImageQuantityMax("xai-imagine", "grok-imagine-image"), 10);
+  assert.equal(studioImageQuantityMax("ark-plan", "doubao-seedream-5.0-lite"), null);
+  assert.equal(studioImageQuantityMax("fal", "flux-dev"), null);
+  assert.equal(resolveStudioImageQuantity("fal", "flux-dev", 12), 12);
+  assert.equal(resolveStudioImageQuantity("openai-compat", "gpt-image-2", 10), 10);
+  assert.equal(resolveStudioImageQuantity("ark-plan", "doubao-seedream-5.0-lite", 10), 10);
   assert.equal(resolveStudioImageQuantity("civitai", "krea2-turbo", 12), 12);
   assert.equal(resolveStudioImageQuantity("civitai-orchestration", "qwen-3.0-pro", 9), 6);
   assert.equal(resolveStudioImageQuantity("civitai", "civitai-grok", 5), 4);
   assert.equal(clampStudioImageQuantity(0, 12), 1);
+  assert.equal(clampStudioImageQuantity(10, null), 10);
 });
 
 test("quantity option chips stay inside the engine max", () => {
   assert.deepEqual(studioImageQuantityOptions(4), [1, 2, 4]);
   assert.deepEqual(studioImageQuantityOptions(6), [1, 2, 4, 6]);
+  assert.deepEqual(studioImageQuantityOptions(10), [1, 2, 4, 6, 8, 10]);
   assert.deepEqual(studioImageQuantityOptions(12), [1, 2, 4, 6, 8, 12]);
+  assert.deepEqual(studioImageQuantityOptions(null), [1, 2, 4, 6, 8, 10]);
+  assert.deepEqual(studioImageQuantityOptions(undefined), [1, 2, 4, 6, 8, 10]);
+  assert.deepEqual(studioImageQuantityOptions(Number.NaN), [1, 2, 4, 6, 8, 10]);
   assert.equal(snapStudioImageQuantity(12, [1, 2, 4]), 4);
   assert.equal(snapStudioImageQuantity(6, [1, 2, 4, 6]), 6);
+  assert.equal(snapStudioImageQuantity(10, [1, 2, 4, 6, 8, 10]), 10);
 });
 
 test("Flux1 and SDXL require a user-supplied checkpoint AIR hint, never a fake id", () => {
@@ -135,7 +192,8 @@ test("Civitai helpers do not rewrite non-Civitai fps/quantity/checkpoint", () =>
   assert.equal(studioVideoFps("civitai", "hunyuan", 99), 99);
   assert.equal(studioVideoFps("civitai", "kling", 24), 24);
   assert.equal(studioVideoFps("civitai", "ltx2.3"), undefined);
-  assert.equal(resolveStudioImageQuantity("fal", "krea2-turbo", 12), 4);
+  assert.equal(resolveStudioImageQuantity("fal", "krea2-turbo", 12), 12);
+  assert.equal(resolveStudioImageQuantity("openai-compat", "gpt-image-2", 10), 10);
   assert.equal(resolveStudioImageQuantity("civitai", "krea2-turbo", 12), 12);
   assert.equal(assertCivitaiCheckpointAir("openai-compat", "flux1", "urn:air:keep"), "urn:air:keep");
 });
@@ -221,7 +279,11 @@ test("image generate path keeps Civitai quantity/checkpoint/LoRA and does not re
   assert.throws(() => studioImageAdapterFields("civitai", "flux1", { n: 1 }), /AIR|checkpoint/);
 
   const fal = studioImageAdapterFields("fal", "krea2-turbo", { n: 12, loras, checkpointAir: "urn:air:keep" });
-  assert.equal(fal.n, 4);
+  assert.equal(fal.n, 12);
   assert.deepEqual(fal.loras, loras);
   assert.equal(fal.checkpointAir, "urn:air:keep");
+
+  const gpt = studioImageAdapterFields("openai-compat", "gpt-image-2", { n: 10, loras });
+  assert.equal(gpt.n, 10);
+  assert.deepEqual(gpt.loras, loras);
 });

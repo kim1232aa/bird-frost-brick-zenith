@@ -668,6 +668,16 @@ html.dark,
   height: auto;
 }
 
+/* Document/workbench card: do not clip position:fixed/absolute menus
+   (e.g. .model-menu-pop). Pane scroll is on .bp-left/.bp-right.
+   https://developer.mozilla.org/en-US/docs/Web/CSS/overflow */
+.bp-work {
+  overflow: visible;
+  transform: none;
+  filter: none;
+  perspective: none;
+}
+
 .bench {
   display: grid;
   grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);

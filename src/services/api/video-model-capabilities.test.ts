@@ -52,3 +52,51 @@ test("xAI generate_audio is supported, including false, only on the documented 1
     /音频|不支持/iu,
   );
 });
+
+test("Civitai short video ids resolve their verified generation parameter contracts", () => {
+  const ltx = resolveVideoModelCapability({
+    model: "ltx2.3",
+    provider: { id: "preset-civitai", adapterType: "civitai-orchestration" },
+  });
+  assert.equal(ltx.generationParameters.duration.status, "supported");
+  assert.equal(ltx.generationParameters.duration.minimum, 3);
+  assert.equal(ltx.generationParameters.duration.maximum, 20);
+  assert.doesNotThrow(() => validateVideoGenerationParameters(ltx, { duration: 16 }));
+  assert.throws(() => validateVideoGenerationParameters(ltx, { duration: 2 }), /最小值|3/);
+  assert.equal(ltx.generationParameters.steps.status, "supported");
+  assert.equal(ltx.generationParameters.steps.transportName, "numInferenceSteps");
+  assert.equal(ltx.generationParameters.guidance.transportName, "guidanceScale");
+  assert.deepEqual(ltx.generationParameters.modelVariant.enumValues, ["22b-dev", "22b-distilled"]);
+
+  const hunyuan = resolveVideoModelCapability({
+    model: "hunyuan",
+    provider: { id: "preset-civitai", adapterType: "civitai-orchestration" },
+  });
+  assert.equal(hunyuan.generationParameters.steps.status, "supported");
+  assert.equal(hunyuan.generationParameters.steps.transportName, "steps");
+  assert.equal(hunyuan.generationParameters.guidance.transportName, "cfgScale");
+  assert.equal(hunyuan.generationParameters.negativePrompt.status, "unsupported");
+});
+
+test("video capability mapping fails closed for unknown xAI models and incompatible adapters", () => {
+  const unknownXai = resolveVideoModelCapability({
+    model: "grok-imagine-video-9.9",
+    provider: { id: "preset-xai", adapterType: "xai-imagine", baseUrl: "https://api.x.ai/v1" },
+  });
+  assert.equal(unknownXai.id, "openai-unknown");
+  assert.equal(unknownXai.provider, "openai");
+  assert.notEqual(unknownXai.generationParameters.duration.status, "supported");
+
+  const openaiAdapter = resolveVideoModelCapability({
+    model: "grok-imagine-video-1.5",
+    provider: { id: "preset-openai", adapterType: "openai-compat", baseUrl: "https://relay.example.test/v1" },
+  });
+  assert.equal(openaiAdapter.id, "openai-unknown");
+  assert.notEqual(openaiAdapter.generationParameters.duration.status, "supported");
+
+  const arbitraryProvider = resolveVideoModelCapability({
+    model: "grok-imagine-video-1.5",
+    provider: { id: "preset-arbitrary", adapterType: "unknown-adapter", baseUrl: "https://api.x.ai/v1" },
+  });
+  assert.equal(arbitraryProvider.id, "openai-unknown");
+});

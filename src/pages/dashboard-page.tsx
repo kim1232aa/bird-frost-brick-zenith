@@ -5,8 +5,8 @@ import { GALLERY_SEED } from "@/studio/gallery-seed";
 import { CurrentModelsCard } from "@/studio/current-models";
 
 const TOOLS = [
-  { href: "/image", title: "生图", copy: "选模型、写提示、一次可出 1 / 2 / 4 张。" },
-  { href: "/edit", title: "编辑", copy: "Qwen-Image-Edit / FLUX.2-dev，1–3 张参考图全部提交。" },
+  { href: "/image", title: "生图", copy: "选模型、写提示，一次出图数量按当前模型合同。" },
+  { href: "/edit", title: "编辑", copy: "参考图上限按当前模型合同提交，不会只传第一张。" },
   { href: "/video", title: "生视频", copy: "文生视频。首尾帧走独立入口。" },
   { href: "/i2v", title: "图生视频", copy: "必填首帧，尾帧可选，火山 last_frame 已接通。" },
   { href: "/ecommerce", title: "电商套图", copy: "上传商品图，按平台一次出 4–9 张。" },

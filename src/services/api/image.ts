@@ -1282,11 +1282,16 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
             prompt: context.prompt,
             providerId: providerId || undefined,
             model: context.route.model,
+            size: context.settings.size,
+            aspectRatio: context.settings.aspectRatio,
+            width: context.settings.width,
+            height: context.settings.height,
+            quality: context.settings.quality,
+            operation: context.capability.operation === "edit" ? "edit" : "generate",
             imageUrl: context.references[0]?.dataUrl || context.references[0]?.url,
             imageUrls: context.references
                 .map((item) => item.dataUrl || item.url)
-                .filter((item): item is string => Boolean(item))
-                .slice(0, 5),
+                .filter((item): item is string => Boolean(item)),
             n: context.providerOutputCount,
             loras: context.advanced.loras,
             negativePrompt: context.advanced.negativePrompt,

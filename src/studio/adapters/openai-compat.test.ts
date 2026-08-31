@@ -74,6 +74,26 @@ test("official OpenAI video content requests a media Accept value", async () => 
   assert.equal(proxyCalls[1]?.accept, "video/mp4, application/octet-stream;q=0.9, */*");
 });
 
+test("OpenAI-compatible relay forwards more than five video references without an invented cap", async () => {
+  proxyCalls.length = 0;
+  proxyQueue = [{ id: "vid-relay" }];
+  const relayProvider = {
+    ...provider,
+    id: "relay",
+    baseUrl: "https://relay.example.com/v1",
+    protocol: "openai-compat",
+  };
+  const createVideo = openaiCompatAdapter.createVideo;
+  assert.ok(createVideo);
+  const imageUrls = Array.from({ length: 6 }, (_, index) => `https://example.test/${index}.png`);
+
+  const created = await createVideo({ provider: relayProvider }, { model: "relay-video", prompt: "p", imageUrls });
+
+  assert.deepEqual(created, { id: "vid-relay" });
+  assert.equal(proxyCalls.length, 1);
+  assert.deepEqual((proxyCalls[0]?.body as { image_urls?: string[] }).image_urls, imageUrls);
+});
+
 test("OpenAI-compatible TTS requests an audio Accept value", async () => {
   proxyCalls.length = 0;
   proxyQueue = [{ url: "blob:audio/mpeg" }];

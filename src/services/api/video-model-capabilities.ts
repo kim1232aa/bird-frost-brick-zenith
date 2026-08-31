@@ -879,6 +879,17 @@ function xaiImagineVideoGenerationParameters(includeAudio: boolean) {
 
 const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(false);
 const XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(true);
+const XAI_RELAY_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
+    "xai-compatible-relay:imagine-video",
+    ["已验证的 xAI-compatible relay /videos/generations 兼容 wire；不等同于 api.x.ai 官方枚举"],
+    "unsupported",
+    {
+        duration: supportedParameter("integer", "duration", "兼容 relay 原样接收整数 duration；不套用 api.x.ai 的 1..15 枚举", { integer: true }),
+        resolution: supportedParameter("string", "resolution", "兼容 relay 原样接收非空 resolution；不套用 api.x.ai 枚举"),
+        aspectRatio: supportedParameter("string", "aspect_ratio", "兼容 relay 原样接收非空 aspect_ratio；不套用 api.x.ai 枚举"),
+        audio: supportedParameter("boolean", "generate_audio", "兼容 relay 的 generate_audio 布尔扩展；保留 true/false"),
+    },
+);
 
 const DASHSCOPE_SEED = supportedParameter("integer", "seed", "随机种子 0..2147483647", { minimum: 0, maximum: 2_147_483_647, integer: true });
 const DASHSCOPE_WATERMARK = supportedParameter("boolean", "watermark", "是否添加 provider 水印");
@@ -1214,13 +1225,13 @@ const CIVITAI_KLING_V3_PARAMETERS = civitaiGenerationParameters("video/kling-v3"
 
 function civitaiLtx23Parameters(serviceId: string, firstLast: boolean) {
     return civitaiGenerationParameters(serviceId, {
-        duration: unavailableParameter("conflict", "live schema enum 为 3|20，但 description 写 3|5、default 为 5；冲突解除前拒绝非空 duration"),
+        duration: supportedParameter("integer", "duration", "live schema 范围 3..20", { minimum: 3, maximum: 20, integer: true, defaultValue: 5 }),
         fps: supportedParameter("number", "fps", "live schema 范围 1..60", { minimum: 1, maximum: 60, defaultValue: 24 }),
         dimensions: supportedParameter("dimensions", "width/height", "width 和 height 为 int32；live schema 未公布范围", { integer: true, defaultValue: "1280x720" }),
         audio: supportedParameter("boolean", "generateAudio", "是否生成音频", { defaultValue: true }),
         negativePrompt: supportedParameter("string", "negativePrompt", "live schema 接受 nullable negativePrompt"),
         seed: CIVITAI_INT32_SEED,
-        steps: supportedParameter("integer", "steps", "live schema 范围 8..50", { minimum: 8, maximum: 50, integer: true, defaultValue: 20 }),
+        steps: supportedParameter("integer", "numInferenceSteps", "live schema 范围 8..50", { minimum: 8, maximum: 50, integer: true, defaultValue: 20 }),
         guidance: supportedParameter("number", "guidanceScale", "live schema 范围 1..10", { minimum: 1, maximum: 10, defaultValue: 4 }),
         quantity: supportedParameter("integer", "quantity", "单作业生成数量 1..10", { minimum: 1, maximum: 10, integer: true, defaultValue: 1 }),
         modelVariant: supportedParameter("string", "model", "LTX 2.3 live 模型枚举", { enumValues: ["22b-dev", "22b-distilled"], defaultValue: "22b-dev" }),
@@ -1370,6 +1381,15 @@ const CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS: Readonly<Record<string, Vide
     "video/wan/v2.7/fal/reference-to-video": CIVITAI_WAN27_R2V_PARAMETERS,
 };
 
+function civitaiVideoGenerationParameterContract(model: string) {
+    const raw = String(model || "").trim().toLowerCase();
+    const direct = CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS[raw];
+    if (direct) return direct;
+    if (raw === "ltx2.3" || raw === "ltx2-3") return CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS["video/ltx2.3/createvideo"];
+    if (raw === "hunyuan" || raw === "hunyuanvideo") return CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS["video/hunyuan"];
+    return undefined;
+}
+
 export const CIVITAI_VIDEO_GENERATION_PARAMETER_SERVICE_IDS = Object.freeze(Object.keys(CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS));
 
 const UNKNOWN_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
@@ -1478,7 +1498,7 @@ export function resolveVideoModelCapability(options: { model: string; provider?:
     if (explicitAdapter === "openai" && isExactOpenAiVideoModel(model)) {
         return resolvedProfile("openai-video", model, provider, false);
     }
-    if (/grok-imagine-video/i.test(model) || explicitAdapter === "xai-imagine" || explicitAdapter === "xai") {
+    if ((explicitAdapter === "xai-imagine" || explicitAdapter === "xai") && isExactXaiImagineVideoModel(model)) {
         return resolvedProfile("xai-imagine-video", model, provider, false);
     }
     return resolvedProfile("openai-unknown", model, provider, false);
@@ -2166,6 +2186,10 @@ function isXaiImagineVideo15Model(model: string) {
     return normalized === "grok-imagine-video-1-5" || normalized === "grok-imagine-video-1-5-preview";
 }
 
+function isExactXaiImagineVideoModel(model: string) {
+    return isXaiImagineVideo15Model(model) || normalizeModelKey(model) === "grok-imagine-video";
+}
+
 const OPENAI_VIDEO_MODEL_KEYS = new Set([
     "sora-2",
     "sora-2-pro",
@@ -2215,7 +2239,9 @@ function resolvedProfile(id: VideoCapabilityProfileId, model: string, provider: 
         model,
         providerLabel: String(provider?.displayName || provider?.name || "").trim() || profile.label,
         profileConfigured,
-        generationParameters: videoGenerationParametersForModel(profile.provider, model),
+        generationParameters: id === "xai-imagine-video"
+            ? (isXaiImagineVideo15Model(model) ? XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS : XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS)
+            : videoGenerationParametersForModel(profile.provider, model),
     };
     if (capability.id !== "xai-imagine-video" || isOfficialXaiProvider(provider)) return capability;
     // The official profile is intentionally strict. Existing xAI-compatible
@@ -2223,6 +2249,7 @@ function resolvedProfile(id: VideoCapabilityProfileId, model: string, provider: 
     // capability without weakening the api.x.ai contract.
     return {
         ...capability,
+        generationParameters: XAI_RELAY_VIDEO_GENERATION_PARAMETERS,
         supportsFirstLastFrame: true,
         referenceImagePolicy: { supported: true, min: 1, max: 5 },
         supportsReferenceSetWithFirst: true,
@@ -2248,11 +2275,6 @@ function videoGenerationParametersForModel(provider: VideoCapabilityProfile["pro
             : unknownGenerationParameters("agnes", model);
     }
     if (provider === "openai") {
-        if (/grok-imagine-video/i.test(model) || normalized.includes("grok-imagine-video")) {
-            return isXaiImagineVideo15Model(model)
-                ? XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS
-                : XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
-        }
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);
     }
     if (provider === "ark") {
@@ -2262,7 +2284,7 @@ function videoGenerationParametersForModel(provider: VideoCapabilityProfile["pro
         return ARK_UNPUBLISHED_GENERATION_PARAMETERS;
     }
     if (provider === "civitai") {
-        return CIVITAI_VIDEO_GENERATION_PARAMETER_CONTRACTS[String(model || "").trim().toLowerCase()]
+        return civitaiVideoGenerationParameterContract(model)
             || unknownGenerationParameters("civitai", model);
     }
     if (provider === "dashscope") {

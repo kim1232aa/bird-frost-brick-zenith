@@ -13,6 +13,52 @@ function assertRunnableVideoCapability(provider: ApiRelayProvider, providerName?
   }
 }
 
+export function buildStudioVideoCreateInput(input: VideoCreateInput & { adapterId: string }): VideoCreateInput {
+  const adapterFields = studioVideoAdapterFields(input.adapterId, input.model, {
+    fps: input.fps,
+    loras: input.loras,
+    generateAudio: input.generateAudio,
+    aspectRatio: input.aspectRatio,
+    width: input.width,
+    height: input.height,
+  });
+  return {
+    model: input.model,
+    prompt: input.prompt,
+    duration: input.duration,
+    aspectRatio: adapterFields.aspectRatio,
+    resolution: input.resolution,
+    imageUrl: input.imageUrl,
+    lastFrameUrl: input.lastFrameUrl,
+    imageUrls: input.imageUrls,
+    ...(typeof adapterFields.width === "number" ? { width: adapterFields.width } : {}),
+    ...(typeof adapterFields.height === "number" ? { height: adapterFields.height } : {}),
+    generateAudio: adapterFields.generateAudio,
+    negativePrompt: input.negativePrompt,
+    fps: adapterFields.fps,
+    seed: input.seed,
+    steps: input.steps,
+    guidance: input.guidance,
+    modelVariant: input.modelVariant,
+    watermark: input.watermark,
+    promptExpansion: input.promptExpansion,
+    returnLastFrame: input.returnLastFrame,
+    audioUrl: input.audioUrl,
+    loras: adapterFields.loras,
+    frames: input.frames,
+    audioMode: input.audioMode,
+    quantity: input.quantity,
+    mode: input.mode,
+    frameGuideStrength: input.frameGuideStrength,
+    safetyChecker: input.safetyChecker,
+    shift: input.shift,
+    turbo: input.turbo,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
+    usePro: input.usePro,
+  };
+}
+
 export async function createStudioVideo(input: {
   relays: ApiRelayProvider[];
   prompt: string;
@@ -29,7 +75,26 @@ export async function createStudioVideo(input: {
   generateAudio?: boolean;
   negativePrompt?: string;
   fps?: number;
+  seed?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
   loras?: Record<string, number> | Readonly<Record<string, number>>;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 }) {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请填写视频提示词");
@@ -45,30 +110,42 @@ export async function createStudioVideo(input: {
     model,
   );
   if (!adapter.createVideo) throw new Error(`${adapter.label} 不支持生视频`);
-  const civitai = studioVideoAdapterFields(adapter.id, model, {
-    fps: input.fps,
-    loras: input.loras,
-    generateAudio: input.generateAudio,
-    aspectRatio: input.aspectRatio,
-    width: input.width,
-    height: input.height,
-  });
-  const videoInput: VideoCreateInput = {
+  const videoInput = buildStudioVideoCreateInput({
+    adapterId: adapter.id,
     model,
     prompt,
     duration: input.duration,
-    aspectRatio: civitai.aspectRatio,
+    aspectRatio: input.aspectRatio,
     resolution: input.resolution,
     imageUrl: input.imageUrl,
     lastFrameUrl: input.lastFrameUrl,
     imageUrls: input.imageUrls,
-    ...(typeof civitai.width === "number" ? { width: civitai.width } : {}),
-    ...(typeof civitai.height === "number" ? { height: civitai.height } : {}),
-    generateAudio: civitai.generateAudio,
+    width: input.width,
+    height: input.height,
+    generateAudio: input.generateAudio,
     negativePrompt: input.negativePrompt,
-    fps: civitai.fps,
-    loras: civitai.loras,
-  };
+    fps: input.fps,
+    seed: input.seed,
+    steps: input.steps,
+    guidance: input.guidance,
+    modelVariant: input.modelVariant,
+    watermark: input.watermark,
+    promptExpansion: input.promptExpansion,
+    returnLastFrame: input.returnLastFrame,
+    audioUrl: input.audioUrl,
+    loras: input.loras,
+    frames: input.frames,
+    audioMode: input.audioMode,
+    quantity: input.quantity,
+    mode: input.mode,
+    frameGuideStrength: input.frameGuideStrength,
+    safetyChecker: input.safetyChecker,
+    shift: input.shift,
+    turbo: input.turbo,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
+    usePro: input.usePro,
+  });
   const ticket = useOpsStore.getState().spend("video", model, modelPoints(key));
   try {
     const created = await adapter.createVideo({ provider }, videoInput);

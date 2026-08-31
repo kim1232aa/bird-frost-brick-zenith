@@ -68,7 +68,10 @@ function WorkCard({
             <button
               type="button"
               onClick={() => {
-                useMediaDraft.getState().setReferences(item.urls.filter(Boolean).slice(0, 3));
+                // Pass every stored image; the edit page validates the selected
+                // model's reference cap and errors explicitly instead of
+                // silently dropping extras.
+                useMediaDraft.getState().setReferences(item.urls.filter(Boolean));
                 void navigate({ to: "/edit" });
               }}
             >

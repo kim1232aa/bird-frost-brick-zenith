@@ -43,6 +43,148 @@ test("text-to-video payload stays prompt-only when no references are present", (
   assert.equal("references" in payload, false);
 });
 
+test("customer payload forwards the video generation settings snapshot without dropping fields", () => {
+  const payload = buildSeedance2CustomerVideoPayload(
+    videoNode({
+      videoGenerationSettings: {
+        duration: 10,
+        resolution: "1080p",
+        aspectRatio: "21:9",
+        fps: 30,
+        audio: false,
+        negativePrompt: "blur",
+        seed: 17,
+        watermark: false,
+        promptExpansion: true,
+        returnLastFrame: true,
+        dimensions: "2048x858",
+        steps: 32,
+        guidance: 5.5,
+        modelVariant: "v2",
+      },
+    }),
+  );
+  assert.equal(payload.duration, 10);
+  assert.equal(payload.ratio, "21:9");
+  assert.equal(payload.resolution, "1080p");
+  assert.equal(payload.fps, 30);
+  assert.equal(payload.generateAudio, false);
+  assert.equal(payload.negative_prompt, "blur");
+  assert.equal(payload.seed, 17);
+  assert.equal(payload.watermark, false);
+  assert.equal(payload.promptExpansion, true);
+  assert.equal(payload.returnLastFrame, true);
+  assert.equal(payload.width, 2048);
+  assert.equal(payload.height, 858);
+  assert.equal(payload.steps, 32);
+  assert.equal(payload.guidance, 5.5);
+  assert.equal(payload.modelVariant, "v2");
+});
+
+test("customer payload maps a string audio setting to audioUrl", () => {
+  const payload = buildSeedance2CustomerVideoPayload(
+    videoNode({
+      videoGenerationSettings: { audio: "https://example.test/audio.mp3" },
+    }),
+  );
+  assert.equal(payload.audioUrl, "https://example.test/audio.mp3");
+  assert.equal("generateAudio" in payload, false);
+});
+
+test("customer payload maps object dimensions without dropping width or height", () => {
+  const payload = buildSeedance2CustomerVideoPayload(
+    videoNode({
+      videoGenerationSettings: { dimensions: { width: 1280, height: 720 } },
+    }),
+  );
+  assert.equal(payload.width, 1280);
+  assert.equal(payload.height, 720);
+});
+
+test("customer wire payload keeps validated generation settings for the official builder", () => {
+  const payload = buildSeedance2CustomerVideoPayload(
+    videoNode({
+      videoGenerationSettings: {
+        duration: 10,
+        resolution: "1080p",
+        aspectRatio: "21:9",
+        fps: 30,
+        audio: false,
+        negativePrompt: "blur",
+        seed: 17,
+        watermark: false,
+        promptExpansion: true,
+        returnLastFrame: true,
+        dimensions: "2048x858",
+        steps: 32,
+        guidance: 5.5,
+        modelVariant: "v2",
+      },
+    }),
+  );
+  const wire = buildCustomerVideoWirePayload(payload);
+  assert.equal(wire.duration, 10);
+  assert.equal(wire.ratio, "21:9");
+  assert.equal(wire.resolution, "1080p");
+  assert.equal(wire.fps, 30);
+  assert.equal(wire.generateAudio, false);
+  assert.equal(wire.negative_prompt, "blur");
+  assert.equal(wire.seed, 17);
+  assert.equal(wire.watermark, false);
+  assert.equal(wire.promptExpansion, true);
+  assert.equal(wire.returnLastFrame, true);
+  assert.equal(wire.width, 2048);
+  assert.equal(wire.height, 858);
+  assert.equal(wire.steps, 32);
+  assert.equal(wire.guidance, 5.5);
+  assert.equal(wire.modelVariant, "v2");
+  assert.equal("audioUrl" in wire, false);
+  assert.equal("first_frame" in wire, false);
+});
+
+test("customer wire payload keeps audioUrl from a string audio setting", () => {
+  const wire = buildCustomerVideoWirePayload(
+    buildSeedance2CustomerVideoPayload(
+      videoNode({
+        videoGenerationSettings: { audio: "https://example.test/audio.mp3", seed: 0 },
+      }),
+    ),
+  );
+  assert.equal(wire.audioUrl, "https://example.test/audio.mp3");
+  assert.equal(wire.seed, 0);
+  assert.equal("generateAudio" in wire, false);
+});
+
+test("unmapped videoGenerationSettings stay fail-closed instead of being dropped", () => {
+  assert.throws(
+    () =>
+      buildSeedance2CustomerVideoPayload(
+        videoNode({
+          videoGenerationSettings: { frames: 121 },
+        }),
+      ),
+    /frames|静默丢弃/,
+  );
+  assert.throws(
+    () =>
+      buildSeedance2CustomerVideoPayload(
+        videoNode({
+          videoGenerationSettings: { audio: ["https://example.test/a.mp3", "https://example.test/b.mp3"] },
+        }),
+      ),
+    /音频数组|audio/,
+  );
+  assert.throws(
+    () =>
+      buildSeedance2CustomerVideoPayload(
+        videoNode({
+          videoGenerationSettings: { dimensions: "1080p" },
+        }),
+      ),
+    /dimensions|width x height/,
+  );
+});
+
 test("first_frame reference maps to image-to-video instead of blocking before the official builder", () => {
   const payload = buildSeedance2CustomerVideoPayload(videoNode(), [imageRef(FIRST, "first_frame")]);
   assert.equal(payload.mode, "image_to_video");

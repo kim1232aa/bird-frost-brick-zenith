@@ -10,16 +10,14 @@
 @import "./studio-mobile.css";
 
 html,
-body,
-#app {
+body {
   min-height: 100%;
   background: #f7f5f1;
   color: #1c1917;
 }
 
 html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)),
-html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)) body,
-html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)) #app {
+html.dark:not(:has(.studio-root.is-canvas)):not(:has(.bp-work)) body {
   background: #101014;
   color: #efe9dd;
 }

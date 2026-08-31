@@ -55,6 +55,28 @@ export type XaiImagineVideoRequest = {
   aspect_ratio?: string;
   resolution?: string;
   generateAudio?: boolean;
+  fps?: number;
+  negative_prompt?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
   image?: { url: string };
   last_frame_image?: { url: string };
   images?: Array<{ url: string }>;
@@ -63,14 +85,65 @@ export type XaiImagineVideoRequest = {
   profile?: XaiImagineVideoProfile;
 };
 
+const XAI_OFFICIAL_VIDEO_ASPECT_RATIOS = new Set(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]);
+const XAI_OFFICIAL_VIDEO_RESOLUTIONS = new Set(["480p", "720p", "1080p"]);
+
+function isXaiImagineVideo15Model(model: string) {
+  return /^grok-imagine-video-1\.5(?:-preview)?$/i.test(String(model || "").trim());
+}
+
 export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<string, unknown> {
+  const profile = input.profile || "official";
+  const duration = input.duration;
+  const aspectRatio = String(input.aspect_ratio || "").trim();
+  const resolution = String(input.resolution || "").trim();
+  if (duration !== undefined && (!Number.isFinite(duration) || !Number.isInteger(duration))) {
+    throw new Error(`xAI 视频 duration 必须是整数，收到 ${String(duration)}；不会静默改值。`);
+  }
+  const unsupportedFields: Array<[string, unknown]> = [
+    ["fps", input.fps],
+    ["negative_prompt", input.negative_prompt],
+    ["watermark", input.watermark],
+    ["promptExpansion", input.promptExpansion],
+    ["returnLastFrame", input.returnLastFrame],
+    ["audioUrl", input.audioUrl],
+    ["width", input.width],
+    ["height", input.height],
+    ["steps", input.steps],
+    ["guidance", input.guidance],
+    ["modelVariant", input.modelVariant],
+    ...studioVideoExtensionFields(input),
+  ];
+  for (const [name, value] of unsupportedFields) {
+    if (value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()))) {
+      throw new Error(`xAI ${profile === "relay" ? "兼容 relay" : "官方"}视频不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+  if (profile === "official") {
+    if (duration !== undefined && (duration < 1 || duration > 15)) {
+      throw new Error(`xAI 官方视频 duration 为 1–15 秒，收到 ${duration}；不会静默截断。`);
+    }
+    if (aspectRatio && !XAI_OFFICIAL_VIDEO_ASPECT_RATIOS.has(aspectRatio)) {
+      throw new Error(`xAI 官方视频 aspect_ratio 只接受 1:1 / 16:9 / 9:16 / 4:3 / 3:4 / 3:2 / 2:3，收到 ${aspectRatio}。`);
+    }
+    if (resolution && !XAI_OFFICIAL_VIDEO_RESOLUTIONS.has(resolution)) {
+      throw new Error(`xAI 官方视频 resolution 只接受 480p / 720p / 1080p，收到 ${resolution}。`);
+    }
+    if (resolution === "1080p" && !isXaiImagineVideo15Model(input.model)) {
+      throw new Error("xAI 官方视频 1080p 只适用于 grok-imagine-video-1.5 的文生视频或图生视频。当前模型不支持该值。");
+    }
+    if (typeof input.generateAudio === "boolean" && !isXaiImagineVideo15Model(input.model)) {
+      throw new Error("xAI 官方视频 generate_audio 音频开关只适用于 grok-imagine-video-1.5；不会静默丢弃该字段。");
+    }
+  }
+
   const body: Record<string, unknown> = {
     model: input.model,
     prompt: input.prompt,
   };
-  if (typeof input.duration === "number" && Number.isFinite(input.duration)) body.duration = input.duration;
-  if (input.aspect_ratio) body.aspect_ratio = input.aspect_ratio;
-  if (input.resolution) body.resolution = input.resolution;
+  if (duration !== undefined) body.duration = duration;
+  if (aspectRatio) body.aspect_ratio = aspectRatio;
+  if (resolution) body.resolution = resolution;
   if (typeof input.generateAudio === "boolean") body.generate_audio = input.generateAudio;
 
   const first = String(input.image?.url || "").trim();
@@ -84,7 +157,7 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
     .filter(Boolean);
   const extras = Array.from(new Set(listed.filter((url) => url !== first)));
 
-  if ((input.profile || "official") === "relay") {
+  if (profile === "relay") {
     if (first) body.image = { url: first };
     if (last && last !== first) body.last_frame_image = { url: last };
     const urls = Array.from(new Set([first, ...extras, last].filter(Boolean)));
@@ -99,7 +172,15 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
     throw new Error("xAI 官方视频 I2V（image）与 R2V（reference_images）互斥，不能同时发送。");
   }
   if (first) body.image = { url: first };
-  else if (extras.length) body.reference_images = extras.map((url) => ({ url }));
+  else if (extras.length) {
+    if (extras.length > 7) {
+      throw new Error(`xAI 官方 R2V 最多 7 张 reference_images，当前 ${extras.length} 张。`);
+    }
+    if (resolution === "1080p") {
+      throw new Error("xAI 官方 R2V（reference_images）最高支持 720p，不接受 1080p。");
+    }
+    body.reference_images = extras.map((url) => ({ url }));
+  }
   return body;
 }
 
@@ -200,7 +281,20 @@ export function buildArkVideoBody(input: {
   lastFrameUrl?: string;
   imageUrls?: string[];
   resolution?: string;
+  returnLastFrame?: boolean;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 }): Record<string, unknown> {
+  rejectUnsupportedStudioVideoExtensions("Ark 官方视频", input);
   const first = String(input.imageUrl || "").trim();
   const last = String(input.lastFrameUrl || "").trim();
   const extras = (input.imageUrls || [])
@@ -219,13 +313,16 @@ export function buildArkVideoBody(input: {
       content.push({ type: "image_url", image_url: { url }, role: "reference_image" });
     }
   }
+  const resolution = officialArkVideoResolution(input.resolution);
   return {
     model: input.model,
     content,
     ...(finiteNumber(input.duration) !== undefined ? { duration: input.duration } : {}),
     ...(input.ratio ? { ratio: input.ratio } : {}),
+    ...(resolution ? { resolution } : {}),
     ...(typeof input.generateAudio === "boolean" ? { generate_audio: input.generateAudio } : {}),
     ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
+    ...(typeof input.returnLastFrame === "boolean" ? { return_last_frame: input.returnLastFrame } : {}),
   };
 }
 
@@ -246,6 +343,27 @@ export type StudioVideoWirePayload = {
   last_frame?: string;
   image_urls?: string[];
   operation?: string;
+  seed?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 };
 
 const CIVITAI_LTX_VIDEO_SIZE_BY_RATIO: Record<string, { width: number; height: number }> = {
@@ -282,13 +400,99 @@ function civitaiCustomerOperation(value: unknown): "text" | "image" | "firstLast
   throw new Error(`Civitai customer 视频 operation ${String(value)} 未经过官方合同验证，已停止提交`);
 }
 
-function civitaiVideoSize(model: string, ratio?: string) {
-  const normalizedRatio = String(ratio || "").trim().replace(/\s+/g, "");
+function hasVideoPayloadValue(value: unknown) {
+  return value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()));
+}
+
+function studioVideoExtensionFields(payload: {
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
+}): ReadonlyArray<[string, unknown]> {
+  return [
+    ["frames", payload.frames],
+    ["audioMode", payload.audioMode],
+    ["quantity", payload.quantity],
+    ["mode", payload.mode],
+    ["frameGuideStrength", payload.frameGuideStrength],
+    ["safetyChecker", payload.safetyChecker],
+    ["shift", payload.shift],
+    ["turbo", payload.turbo],
+    ["sampler", payload.sampler],
+    ["scheduler", payload.scheduler],
+    ["usePro", payload.usePro],
+  ];
+}
+
+function rejectUnsupportedStudioVideoExtensions(label: string, payload: Parameters<typeof studioVideoExtensionFields>[0]) {
+  for (const [name, value] of studioVideoExtensionFields(payload)) {
+    if (hasVideoPayloadValue(value)) {
+      throw new Error(`${label} 不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+}
+
+function rejectCivitaiVideoFields(
+  model: string,
+  payload: StudioVideoWirePayload,
+  fields: ReadonlyArray<[string, unknown]>,
+) {
+  for (const [name, value] of fields) {
+    if (hasVideoPayloadValue(value)) {
+      throw new Error(`Civitai ${model} 官方视频不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+}
+
+function civitaiVideoSize(model: string, ratio?: string, width?: number, height?: number) {
+  const hasWidth = width !== undefined;
+  const hasHeight = height !== undefined;
+  if (hasWidth !== hasHeight) {
+    throw new Error(`Civitai ${model} 视频 width 和 height 必须同时提交；不会用比例替换缺失尺寸`);
+  }
+  if (hasWidth && hasHeight) {
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+      throw new Error(`Civitai ${model} 视频 width 和 height 必须是正整数；不会静默改值`);
+    }
+    return { width, height };
+  }
+  const normalizedRatio = String(ratio || "").trim().replace(/\\s+/g, "");
   const sizes = model === "hunyuan" ? CIVITAI_HUNYUAN_VIDEO_SIZE_BY_RATIO : CIVITAI_LTX_VIDEO_SIZE_BY_RATIO;
   if (!normalizedRatio) return sizes["16:9"]!;
   const size = sizes[normalizedRatio];
   if (!size) throw new Error(`Civitai ${model} 视频画幅 ${normalizedRatio} 未经过官方合同验证，已停止提交`);
   return size;
+}
+
+function civitaiVideoSeed(model: string, seed?: number) {
+  if (seed === undefined) return undefined;
+  if (!Number.isInteger(seed) || seed < 0 || seed > 2_147_483_647) {
+    throw new Error(`Civitai ${model} 视频 seed 只接受 0–2147483647 的整数，收到 ${String(seed)}`);
+  }
+  return seed;
+}
+
+function civitaiVideoNumber(
+  model: string,
+  name: string,
+  value: number | undefined,
+  minimum: number,
+  maximum: number,
+  integer = false,
+) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || (integer && !Number.isInteger(value)) || value < minimum || value > maximum) {
+    throw new Error(`Civitai ${model} 视频 ${name} 只接受 ${integer ? "整数 " : ""}${minimum}–${maximum}，收到 ${String(value)}`);
+  }
+  return value;
 }
 
 export function buildCivitaiCustomerVideoBody(model: string, payload: StudioVideoWirePayload): Record<string, unknown> {
@@ -319,19 +523,60 @@ export function buildCivitaiCustomerVideoBody(model: string, payload: StudioVide
       throw new Error("Civitai LTX createVideo 不接受尾帧；请使用 firstLastFrameToVideo");
     }
 
+    rejectCivitaiVideoFields("LTX 2.3", payload, [
+      ["resolution", payload.resolution],
+      ["watermark", payload.watermark],
+      ["promptExpansion", payload.promptExpansion],
+      ["returnLastFrame", payload.returnLastFrame],
+      ["audioUrl", payload.audioUrl],
+      ["frames", payload.frames],
+      ["audioMode", payload.audioMode],
+      ["mode", payload.mode],
+      ["safetyChecker", payload.safetyChecker],
+      ["shift", payload.shift],
+      ["turbo", payload.turbo],
+      ["sampler", payload.sampler],
+      ["scheduler", payload.scheduler],
+      ["usePro", payload.usePro],
+    ]);
+    const size = civitaiVideoSize("ltx2.3", payload.ratio, payload.width, payload.height);
+    const duration = payload.duration === undefined
+      ? 5
+      : civitaiVideoNumber("LTX 2.3", "duration", payload.duration, 3, 20, true)!;
+    const fps = payload.fps === undefined
+      ? 24
+      : civitaiVideoNumber("LTX 2.3", "fps", payload.fps, 1, 60)!;
+    const steps = civitaiVideoNumber("LTX 2.3", "numInferenceSteps", payload.steps, 8, 50, true);
+    const guidance = civitaiVideoNumber("LTX 2.3", "guidanceScale", payload.guidance, 1, 10);
+    const quantity = civitaiVideoNumber("LTX 2.3", "quantity", payload.quantity, 1, 10, true);
+    const frameGuideStrength = civitaiVideoNumber("LTX 2.3", "frameGuideStrength", payload.frameGuideStrength, 0, 1);
+    if (frameGuideStrength !== undefined && !(first && last)) {
+      throw new Error("Civitai LTX 2.3 frameGuideStrength 只属于 firstLastFrameToVideo；不会静默丢弃该字段。");
+    }
+    const seed = civitaiVideoSeed("LTX 2.3", payload.seed);
+    const modelVariant = String(payload.modelVariant || "").trim() || "22b-distilled";
+    if (modelVariant !== "22b-dev" && modelVariant !== "22b-distilled") {
+      throw new Error(`Civitai LTX 2.3 model 只接受 22b-dev / 22b-distilled，收到 ${modelVariant}`);
+    }
     const input: Record<string, unknown> = {
       engine: "ltx2.3",
       operation: first && last ? "firstLastFrameToVideo" : "createVideo",
-      model: "22b-distilled",
+      model: modelVariant,
       prompt: payload.prompt,
-      duration: finiteNumber(payload.duration) || 5,
-      ...civitaiVideoSize("ltx2.3", payload.ratio),
-      fps: finiteNumber(payload.fps) || 24,
+      duration,
+      ...size,
+      fps,
       ...(typeof payload.generateAudio === "boolean" ? { generateAudio: payload.generateAudio } : {}),
+      ...(hasVideoPayloadValue(payload.negative_prompt) ? { negativePrompt: payload.negative_prompt } : {}),
+      ...(seed !== undefined ? { seed } : {}),
+      ...(steps !== undefined ? { numInferenceSteps: steps } : {}),
+      ...(guidance !== undefined ? { guidanceScale: guidance } : {}),
+      ...(quantity !== undefined ? { quantity } : {}),
     };
     if (first && last) {
       input.firstFrame = first;
       input.lastFrame = last;
+      if (frameGuideStrength !== undefined) input.frameGuideStrength = frameGuideStrength;
     } else if (first) {
       input.images = [first];
     }
@@ -343,13 +588,46 @@ export function buildCivitaiCustomerVideoBody(model: string, payload: StudioVide
       throw new Error("Civitai Hunyuan 仅验证了 text-to-video，不接受当前 operation");
     }
     if (first || last) throw new Error("Civitai Hunyuan 是纯文本生视频，不接受首帧或尾帧");
+    rejectCivitaiVideoFields("Hunyuan", payload, [
+      ["resolution", payload.resolution],
+      ["generateAudio", payload.generateAudio],
+      ["negativePrompt", payload.negative_prompt],
+      ["modelVariant", payload.modelVariant],
+      ["watermark", payload.watermark],
+      ["promptExpansion", payload.promptExpansion],
+      ["returnLastFrame", payload.returnLastFrame],
+      ["audioUrl", payload.audioUrl],
+      ["frames", payload.frames],
+      ["audioMode", payload.audioMode],
+      ["quantity", payload.quantity],
+      ["mode", payload.mode],
+      ["frameGuideStrength", payload.frameGuideStrength],
+      ["safetyChecker", payload.safetyChecker],
+      ["shift", payload.shift],
+      ["turbo", payload.turbo],
+      ["sampler", payload.sampler],
+      ["scheduler", payload.scheduler],
+      ["usePro", payload.usePro],
+    ]);
+    const size = civitaiVideoSize("hunyuan", payload.ratio, payload.width, payload.height);
+    const duration = payload.duration === undefined
+      ? 5
+      : civitaiVideoNumber("Hunyuan", "duration", payload.duration, 1, 30, true)!;
+    const frameRate = payload.fps === undefined
+      ? 25
+      : civitaiVideoNumber("Hunyuan", "frameRate", payload.fps, -2_147_483_648, 2_147_483_647, true)!;
+    const seed = civitaiVideoSeed("Hunyuan", payload.seed);
+    const steps = civitaiVideoNumber("Hunyuan", "steps", payload.steps, 10, 50, true);
+    const guidance = civitaiVideoNumber("Hunyuan", "cfgScale", payload.guidance, 0, 100);
     return civitaiWorkflowBody({
       engine: "hunyuan",
       prompt: payload.prompt,
-      duration: finiteNumber(payload.duration) || 5,
-      ...civitaiVideoSize("hunyuan", payload.ratio),
-      frameRate: finiteNumber(payload.fps) || 25,
-      cfgScale: 4,
+      duration,
+      ...size,
+      frameRate,
+      cfgScale: guidance ?? 4,
+      ...(seed !== undefined ? { seed } : {}),
+      ...(steps !== undefined ? { steps } : {}),
     });
   }
 
@@ -371,6 +649,28 @@ export function toStudioVideoWire(
       aspect_ratio: payload.ratio,
       resolution: payload.resolution,
       generateAudio: payload.generateAudio,
+      fps: payload.fps,
+      negative_prompt: payload.negative_prompt,
+      watermark: payload.watermark,
+      promptExpansion: payload.promptExpansion,
+      returnLastFrame: payload.returnLastFrame,
+      audioUrl: payload.audioUrl,
+      width: payload.width,
+      height: payload.height,
+      steps: payload.steps,
+      guidance: payload.guidance,
+      modelVariant: payload.modelVariant,
+      frames: payload.frames,
+      audioMode: payload.audioMode,
+      quantity: payload.quantity,
+      mode: payload.mode,
+      frameGuideStrength: payload.frameGuideStrength,
+      safetyChecker: payload.safetyChecker,
+      shift: payload.shift,
+      turbo: payload.turbo,
+      sampler: payload.sampler,
+      scheduler: payload.scheduler,
+      usePro: payload.usePro,
       image: payload.first_frame ? { url: payload.first_frame } : undefined,
       last_frame_image: payload.last_frame ? { url: payload.last_frame } : undefined,
       image_urls: payload.image_urls,
@@ -388,6 +688,19 @@ export function toStudioVideoWire(
       lastFrameUrl: payload.last_frame,
       imageUrls: payload.image_urls,
       resolution: payload.resolution,
+      watermark: payload.watermark,
+      returnLastFrame: payload.returnLastFrame,
+      frames: payload.frames,
+      audioMode: payload.audioMode,
+      quantity: payload.quantity,
+      mode: payload.mode,
+      frameGuideStrength: payload.frameGuideStrength,
+      safetyChecker: payload.safetyChecker,
+      shift: payload.shift,
+      turbo: payload.turbo,
+      sampler: payload.sampler,
+      scheduler: payload.scheduler,
+      usePro: payload.usePro,
     });
   }
   if (adapter === "dashscope") {
@@ -403,6 +716,21 @@ export function toStudioVideoWire(
       imageUrl: payload.first_frame,
       lastFrameUrl: payload.last_frame,
       imageUrls: payload.image_urls,
+      seed: payload.seed,
+      watermark: payload.watermark,
+      promptExpansion: payload.promptExpansion,
+      audioUrl: payload.audioUrl,
+      audioMode: payload.audioMode,
+      frames: payload.frames,
+      quantity: payload.quantity,
+      mode: payload.mode,
+      frameGuideStrength: payload.frameGuideStrength,
+      safetyChecker: payload.safetyChecker,
+      shift: payload.shift,
+      turbo: payload.turbo,
+      sampler: payload.sampler,
+      scheduler: payload.scheduler,
+      usePro: payload.usePro,
     });
   }
   if (adapter === "agnes") {
@@ -418,6 +746,27 @@ export function toStudioVideoWire(
       generateAudio: payload.generateAudio,
       fps: payload.fps,
       negativePrompt: payload.negative_prompt,
+      width: payload.width,
+      height: payload.height,
+      seed: payload.seed,
+      steps: payload.steps,
+      frames: payload.frames,
+      audioMode: payload.audioMode,
+      quantity: payload.quantity,
+      mode: payload.mode,
+      frameGuideStrength: payload.frameGuideStrength,
+      safetyChecker: payload.safetyChecker,
+      shift: payload.shift,
+      turbo: payload.turbo,
+      sampler: payload.sampler,
+      scheduler: payload.scheduler,
+      usePro: payload.usePro,
+      watermark: payload.watermark,
+      promptExpansion: payload.promptExpansion,
+      returnLastFrame: payload.returnLastFrame,
+      audioUrl: payload.audioUrl,
+      guidance: payload.guidance,
+      modelVariant: payload.modelVariant,
     });
   }
   if (adapter === "fal") {
@@ -436,6 +785,26 @@ export function toStudioVideoWire(
       generateAudio: payload.generateAudio,
       negative_prompt: payload.negative_prompt,
       ratio: payload.ratio,
+      steps: payload.steps,
+      guidance: payload.guidance,
+      modelVariant: payload.modelVariant,
+      watermark: payload.watermark,
+      promptExpansion: payload.promptExpansion,
+      returnLastFrame: payload.returnLastFrame,
+      audioUrl: payload.audioUrl,
+      width: payload.width,
+      height: payload.height,
+      frames: payload.frames,
+      audioMode: payload.audioMode,
+      quantity: payload.quantity,
+      mode: payload.mode,
+      frameGuideStrength: payload.frameGuideStrength,
+      safetyChecker: payload.safetyChecker,
+      shift: payload.shift,
+      turbo: payload.turbo,
+      sampler: payload.sampler,
+      scheduler: payload.scheduler,
+      usePro: payload.usePro,
     });
   }
   return {
@@ -447,9 +816,30 @@ export function toStudioVideoWire(
     ...(finiteNumber(payload.fps) !== undefined ? { fps: payload.fps } : {}),
     ...(typeof payload.generateAudio === "boolean" ? { generate_audio: payload.generateAudio } : {}),
     ...(payload.negative_prompt ? { negative_prompt: payload.negative_prompt } : {}),
+    ...(finiteNumber(payload.seed) !== undefined ? { seed: payload.seed } : {}),
+    ...(finiteNumber(payload.steps) !== undefined ? { steps: payload.steps } : {}),
+    ...(finiteNumber(payload.guidance) !== undefined ? { guidance: payload.guidance } : {}),
+    ...(payload.modelVariant ? { model_variant: payload.modelVariant } : {}),
+    ...(typeof payload.watermark === "boolean" ? { watermark: payload.watermark } : {}),
+    ...(typeof payload.promptExpansion === "boolean" ? { prompt_expansion: payload.promptExpansion } : {}),
+    ...(typeof payload.returnLastFrame === "boolean" ? { return_last_frame: payload.returnLastFrame } : {}),
+    ...(payload.audioUrl ? { audio_url: payload.audioUrl } : {}),
+    ...(finiteNumber(payload.width) !== undefined ? { width: payload.width } : {}),
+    ...(finiteNumber(payload.height) !== undefined ? { height: payload.height } : {}),
     ...(payload.first_frame ? { image: { url: payload.first_frame } } : {}),
     ...(payload.last_frame ? { last_frame: payload.last_frame, last_frame_image: { url: payload.last_frame } } : {}),
     ...(payload.image_urls?.length ? { image_urls: payload.image_urls.filter(Boolean) } : {}),
+    ...(finiteNumber(payload.frames) !== undefined ? { num_frames: payload.frames, frames: payload.frames } : {}),
+    ...(payload.audioMode ? { audio_mode: payload.audioMode, audio_setting: payload.audioMode } : {}),
+    ...(finiteNumber(payload.quantity) !== undefined ? { quantity: payload.quantity, n: payload.quantity } : {}),
+    ...(payload.mode ? { mode: payload.mode } : {}),
+    ...(finiteNumber(payload.frameGuideStrength) !== undefined ? { frame_guide_strength: payload.frameGuideStrength } : {}),
+    ...(typeof payload.safetyChecker === "boolean" ? { enable_safety_checker: payload.safetyChecker } : {}),
+    ...(finiteNumber(payload.shift) !== undefined ? { shift: payload.shift } : {}),
+    ...(typeof payload.turbo === "boolean" ? { turbo: payload.turbo, use_turbo: payload.turbo } : {}),
+    ...(payload.sampler ? { sampler: payload.sampler } : {}),
+    ...(payload.scheduler ? { scheduler: payload.scheduler } : {}),
+    ...(typeof payload.usePro === "boolean" ? { use_pro: payload.usePro } : {}),
   };
 }
 
@@ -470,9 +860,47 @@ export function buildDashscopeVideoBody(input: {
   imageUrl?: string;
   lastFrameUrl?: string;
   imageUrls?: string[];
+  seed?: number;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  audioUrl?: string;
+  audioMode?: string;
+  frames?: number;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 }): Record<string, unknown> {
-  void input.fps;
   const family = dashscopeVideoFamily(input.model);
+  rejectUnsupportedStudioVideoExtensions(`DashScope ${input.model}`, {
+    frames: input.frames,
+    quantity: input.quantity,
+    mode: input.mode,
+    frameGuideStrength: input.frameGuideStrength,
+    safetyChecker: input.safetyChecker,
+    shift: input.shift,
+    turbo: input.turbo,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
+    usePro: input.usePro,
+  });
+  if (input.fps !== undefined) {
+    throw new Error(`DashScope ${input.model} 输出帧率固定，官方请求合同不支持可配置 fps；不会静默丢弃该字段。`);
+  }
+  const audioMode = String(input.audioMode || "").trim();
+  if (audioMode) {
+    if (audioMode !== "auto" && audioMode !== "origin") {
+      throw new Error(`DashScope ${input.model} 的 audioMode / parameters.audio_setting 只接受 auto / origin，收到 ${audioMode}。`);
+    }
+    if (!/videoedit|video-edit/i.test(input.model)) {
+      throw new Error(`DashScope ${input.model} 不支持 parameters.audio_setting；该字段仅属于 wan2.7-videoedit / happyhorse-*-video-edit。`);
+    }
+  }
   const first = String(input.imageUrl || "").trim();
   const last = String(input.lastFrameUrl || "").trim();
   const extras = (input.imageUrls || [])
@@ -482,62 +910,115 @@ export function buildDashscopeVideoBody(input: {
   const resolution = normalizeDashscopeVideoResolution(input.resolution);
   const ratio = String(input.ratio || "").trim();
   const negative = String(input.negativePrompt || "").trim();
+  const audioUrl = String(input.audioUrl || "").trim();
+  const extrasParameters = dashscopeOfficialVideoParameters({ ...input, audioMode: audioMode || undefined });
 
   if (family === "wan26") {
     const i2v = /i2v/i.test(input.model);
+    const r2v = /r2v/i.test(input.model);
+    const flash = /flash/i.test(input.model);
     if (i2v && last) {
       throw new Error(
         `DashScope ${input.model} 不支持尾帧 lastFrameUrl；官方 Wan2.6 I2V 仅支持首帧 input.img_url，请切换到支持首尾帧的 wan2.7-i2v。`,
       );
     }
+    if (i2v && ratio) {
+      throw new Error(`DashScope ${input.model} 的画幅跟随首帧，不支持 ratio；不会静默丢弃 ${ratio}。`);
+    }
+    if (r2v && negative) {
+      throw new Error(`DashScope ${input.model} 不支持 negativePrompt / negative_prompt；不会静默丢弃该字段。`);
+    }
+    if (typeof input.generateAudio === "boolean" && !(flash && (i2v || r2v))) {
+      throw new Error(`DashScope ${input.model} 不支持 parameters.audio 布尔 generateAudio；该开关仅属于 Wan2.6 I2V/R2V flash 模型。`);
+    }
+    const size = !i2v && (ratio || resolution) ? wan26Size(ratio, resolution) : undefined;
     return {
       model: input.model,
       input: {
         prompt: input.prompt,
         ...(i2v && first ? { img_url: first } : {}),
+        ...(r2v && extras.length ? { reference_urls: extras } : {}),
+        ...((i2v || !r2v) && audioUrl ? { audio_url: audioUrl } : {}),
+        ...(negative ? { negative_prompt: negative } : {}),
       },
       parameters: {
         ...(duration !== undefined ? { duration } : {}),
-        ...(i2v ? (resolution ? { resolution } : {}) : ratio ? { size: wan26Size(ratio, resolution) } : {}),
-        ...(negative ? { negative_prompt: negative } : {}),
+        ...(i2v ? (resolution ? { resolution } : {}) : size ? { size } : {}),
+        ...(flash && (i2v || r2v) && typeof input.generateAudio === "boolean"
+          ? { audio: input.generateAudio }
+          : {}),
+        ...extrasParameters,
       },
     };
   }
 
   if (family === "happyhorse") {
+    if (negative) {
+      throw new Error(`DashScope HappyHorse ${input.model} 不支持 negativePrompt / negative_prompt；不会静默丢弃该字段。`);
+    }
+    if (typeof input.generateAudio === "boolean") {
+      throw new Error(`DashScope HappyHorse ${input.model} 不支持 generateAudio；不会静默丢弃该字段。`);
+    }
+    const i2v = /i2v/i.test(input.model);
     const refs = Array.from(new Set([first, ...extras, last].filter(Boolean)));
-    return {
-      model: input.model,
-      input: {
-        prompt: input.prompt,
-        ...(refs.length ? { media: refs.map((url) => ({ type: "reference_image", url })) } : {}),
-      },
-      parameters: {
-        ...(duration !== undefined ? { duration } : {}),
-        ...(ratio ? { ratio } : {}),
-        ...(resolution ? { resolution } : {}),
-      },
-    };
-  }
-
-  if (family === "wan27") {
-    const i2v = /i2v/i.test(input.model) || Boolean(first || last);
-    const media = i2v ? dashscopeFrameMedia(first, last) : [];
+    const media = i2v && first
+      ? [{ type: "first_frame" as const, url: first }]
+      : refs.map((url) => ({ type: "reference_image" as const, url }));
     return {
       model: input.model,
       input: {
         prompt: input.prompt,
         ...(media.length ? { media } : {}),
+      },
+      parameters: {
+        ...(duration !== undefined ? { duration } : {}),
+        ...(!i2v && ratio ? { ratio } : {}),
+        ...(resolution ? { resolution } : {}),
+        ...extrasParameters,
+      },
+    };
+  }
+
+  if (family === "wan27") {
+    const r2v = /r2v/i.test(input.model);
+    const i2v = /i2v/i.test(input.model) || Boolean(!r2v && (first || last));
+    if (typeof input.generateAudio === "boolean") {
+      throw new Error(`DashScope ${input.model} 不支持 parameters.audio 布尔 generateAudio；音频输入请使用已验证的 audioUrl 字段。`);
+    }
+    if (i2v && ratio) {
+      throw new Error(`DashScope ${input.model} 的画幅跟随首帧或首段视频，不支持 ratio；不会静默丢弃 ${ratio}。`);
+    }
+    const media = r2v
+      ? extras.map((url) => ({ type: "reference_image" as const, url }))
+      : i2v
+        ? [
+            ...dashscopeFrameMedia(first, last),
+            ...(audioUrl ? [{ type: "driving_audio" as const, url: audioUrl }] : []),
+          ]
+        : [];
+    return {
+      model: input.model,
+      input: {
+        prompt: input.prompt,
+        ...(media.length ? { media } : {}),
+        ...(!i2v && audioUrl ? { audio_url: audioUrl } : {}),
         ...(negative ? { negative_prompt: negative } : {}),
       },
       parameters: {
         ...(duration !== undefined ? { duration } : {}),
         ...(!i2v && ratio ? { ratio } : {}),
         ...(resolution ? { resolution } : {}),
+        ...extrasParameters,
       },
     };
   }
 
+  if (negative) {
+    throw new Error(`DashScope wan3 ${input.model} 不支持 negativePrompt / negative_prompt；不会静默丢弃该字段。`);
+  }
+  if (audioUrl) {
+    throw new Error(`DashScope wan3 ${input.model} 的普通 audioUrl 未经过官方合同验证；请使用明确标注用途的参考音频。`);
+  }
   const frameMedia = dashscopeFrameMedia(first, last);
   const refMedia = extras.map((url) => ({ type: "reference_image" as const, url }));
   const media = frameMedia.length ? frameMedia : refMedia;
@@ -546,12 +1027,13 @@ export function buildDashscopeVideoBody(input: {
     input: {
       prompt: input.prompt,
       ...(media.length ? { media } : {}),
-      ...(negative ? { negative_prompt: negative } : {}),
     },
     parameters: {
       ...(duration !== undefined ? { duration } : {}),
       ...(ratio ? { ratio } : {}),
       ...(resolution ? { resolution } : {}),
+      ...(typeof input.generateAudio === "boolean" ? { audio: input.generateAudio } : {}),
+      ...extrasParameters,
     },
   };
 }
@@ -666,10 +1148,60 @@ export function buildOpenAiOfficialVideoBody(input: {
   generateAudio?: boolean;
   negative_prompt?: string;
   ratio?: string;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 }): Record<string, unknown> {
   const seconds = officialOpenAiVideoSeconds(input.duration);
   const first = String(input.first_frame || "").trim();
   const last = String(input.last_frame || "").trim();
+  const extras = (input.image_urls || []).map((url) => String(url || "").trim()).filter(Boolean);
+  if (finiteNumber(input.fps) !== undefined) {
+    throw new Error("OpenAI 官方 Videos 不支持 fps；不会静默丢弃该字段。");
+  }
+  if (typeof input.generateAudio === "boolean") {
+    throw new Error("OpenAI 官方 Videos 不支持 generate_audio 音频开关；不会静默丢弃该字段。");
+  }
+  if (String(input.negative_prompt || "").trim()) {
+    throw new Error("OpenAI 官方 Videos 不支持 negative_prompt 负面提示词；不会静默丢弃该字段。");
+  }
+  const unsupportedFields: Array<[string, unknown]> = [
+    ["steps", input.steps],
+    ["guidance", input.guidance],
+    ["modelVariant", input.modelVariant],
+    ["watermark", input.watermark],
+    ["promptExpansion", input.promptExpansion],
+    ["returnLastFrame", input.returnLastFrame],
+    ["audioUrl", input.audioUrl],
+    ["width", input.width],
+    ["height", input.height],
+    ...studioVideoExtensionFields(input),
+  ];
+  for (const [name, value] of unsupportedFields) {
+    if (hasVideoPayloadValue(value)) {
+      throw new Error(`OpenAI 官方 Videos 不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+  if (extras.length) {
+    throw new Error("OpenAI 官方 Videos 只接受 1 个 input_reference，不支持 image_urls；不会静默丢弃额外参考图。");
+  }
   if (last) {
     throw new Error(
       "OpenAI 官方 Videos 不支持 last_frame；input_reference 只能作为视频首帧。请移除尾帧或切换到支持首尾帧的 provider/model。",
@@ -697,6 +1229,12 @@ export function buildOpenAiOfficialImageBody(input: {
   maskUrl?: string;
   operation?: "generate" | "edit";
 }): Record<string, unknown> {
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
+    throw new Error("OpenAI 官方 Images 不支持 seed；不会静默丢弃该字段。");
+  }
+  if (String(input.negativePrompt || "").trim()) {
+    throw new Error("OpenAI 官方 Images 不支持 negative_prompt；不会静默丢弃该字段。");
+  }
   const refs = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
   const editing = input.operation === "edit" || refs.length > 0;
   return {
@@ -775,6 +1313,27 @@ export function planOpenAiCompatCreateVideo(input: {
   first_frame?: string;
   last_frame?: string;
   image_urls?: string[];
+  seed?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
   baseUrl?: string;
   protocol?: string;
   endpoints?: { videosCreate?: string; videosPoll?: string }
@@ -799,6 +1358,27 @@ export function planOpenAiCompatCreateVideo(input: {
         first_frame: input.first_frame,
         last_frame: input.last_frame,
         image_urls: input.image_urls,
+        seed: input.seed,
+        steps: input.steps,
+        guidance: input.guidance,
+        modelVariant: input.modelVariant,
+        watermark: input.watermark,
+        promptExpansion: input.promptExpansion,
+        returnLastFrame: input.returnLastFrame,
+        audioUrl: input.audioUrl,
+        width: input.width,
+        height: input.height,
+        frames: input.frames,
+        audioMode: input.audioMode,
+        quantity: input.quantity,
+        mode: input.mode,
+        frameGuideStrength: input.frameGuideStrength,
+        safetyChecker: input.safetyChecker,
+        shift: input.shift,
+        turbo: input.turbo,
+        sampler: input.sampler,
+        scheduler: input.scheduler,
+        usePro: input.usePro,
       },
       { baseUrl: input.baseUrl, protocol: input.protocol },
     ),
@@ -998,6 +1578,27 @@ export function buildCustomerVideoStudioRequest(input: {
         last_frame: input.last_frame,
         image_urls: input.image_urls,
         operation: input.operation,
+        seed: input.seed,
+        steps: input.steps,
+        guidance: input.guidance,
+        modelVariant: input.modelVariant,
+        watermark: input.watermark,
+        promptExpansion: input.promptExpansion,
+        returnLastFrame: input.returnLastFrame,
+        audioUrl: input.audioUrl,
+        width: input.width,
+        height: input.height,
+        frames: input.frames,
+        audioMode: input.audioMode,
+        quantity: input.quantity,
+        mode: input.mode,
+        frameGuideStrength: input.frameGuideStrength,
+        safetyChecker: input.safetyChecker,
+        shift: input.shift,
+        turbo: input.turbo,
+        sampler: input.sampler,
+        scheduler: input.scheduler,
+        usePro: input.usePro,
       },
       options,
     ),
@@ -1063,42 +1664,70 @@ export function readOpenAiCompatPoll(
 
 const OFFICIAL_OPENAI_VIDEO_SECONDS = [4, 8, 12] as const;
 
-/** API ref enum is 4|8|12. Non-enum values map to the nearest; ties round toward 8. */
+/** API ref enum is 4|8|12. Non-enum values are rejected, never silently re-mapped. */
 export function officialOpenAiVideoSeconds(duration?: number) {
   const n = finiteNumber(duration);
   if (n === undefined) return undefined;
   if ((OFFICIAL_OPENAI_VIDEO_SECONDS as readonly number[]).includes(n)) return String(n);
-  let best: (typeof OFFICIAL_OPENAI_VIDEO_SECONDS)[number] = 8;
-  let bestScore = Number.POSITIVE_INFINITY;
-  for (const candidate of OFFICIAL_OPENAI_VIDEO_SECONDS) {
-    const score = Math.abs(n - candidate) * 1000 + Math.abs(candidate - 8);
-    if (score < bestScore) {
-      bestScore = score;
-      best = candidate;
-    }
-  }
-  return String(best);
+  throw new Error(`OpenAI 官方 Videos 的 seconds 只接受 4 / 8 / 12，收到 ${n}；不会静默改成相邻档位。`);
 }
 
 const OFFICIAL_OPENAI_VIDEO_SIZES = ["720x1280", "1280x720", "1024x1792", "1792x1024"] as const;
 
+function officialArkVideoResolution(value?: string) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (raw === "4k") return "4k";
+  const normalized = raw.replace(/p$/, "");
+  if (normalized === "480") return "480p";
+  if (normalized === "720") return "720p";
+  if (normalized === "1080") return "1080p";
+  throw new Error(`Ark 官方视频 resolution 只接受 480p / 720p / 1080p / 4k，收到 ${value || "(空)"}；不会静默省略。`);
+}
+
+function dashscopeOfficialVideoParameters(input: {
+  seed?: number;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  audioMode?: string;
+}) {
+  const seed = finiteNumber(input.seed);
+  const audioMode = String(input.audioMode || "").trim();
+  return {
+    ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
+    ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : {}),
+    ...(seed !== undefined ? { seed } : {}),
+    ...(audioMode ? { audio_setting: audioMode } : {}),
+  };
+}
+
 function officialOpenAiVideoSize(size?: string, ratio?: string) {
   const raw = String(size || "").trim();
-  if (/^\d+x\d+$/i.test(raw)) {
-    const hit = OFFICIAL_OPENAI_VIDEO_SIZES.find((item) => item.toLowerCase() === raw.toLowerCase());
-    return hit || "";
-  }
-  const tier = raw.toLowerCase().replace(/p$/, "");
-  const aspect = String(ratio || "").trim();
-  if (tier === "720" || raw.toUpperCase() === "720P" || !raw) {
+  if (!raw) {
+    // Empty size: infer from ratio when provided. No ratio → no size (API default applies).
+    const aspect = String(ratio || "").trim();
     if (aspect === "9:16") return "720x1280";
     if (aspect === "16:9") return "1280x720";
     if (aspect === "3:4") return "1024x1792";
     if (aspect === "4:3") return "1792x1024";
-    if (!raw) return "";
-    return "1280x720";
+    return "";
   }
-  return "";
+  if (/^\d+x\d+$/i.test(raw)) {
+    const hit = OFFICIAL_OPENAI_VIDEO_SIZES.find((item) => item.toLowerCase() === raw.toLowerCase());
+    if (!hit) {
+      throw new Error(`OpenAI 官方 Videos 的 size 只接受 720x1280 / 1280x720 / 1024x1792 / 1792x1024，收到 ${raw}；不会静默省略。`);
+    }
+    return hit;
+  }
+  if (raw.toLowerCase().replace(/p$/, "") === "720") {
+    const aspect = String(ratio || "").trim();
+    if (aspect === "9:16") return "720x1280";
+    if (aspect === "16:9") return "1280x720";
+    if (aspect === "3:4") return "1024x1792";
+    if (aspect === "4:3") return "1792x1024";
+    throw new Error(`OpenAI 官方 Videos 的 720p 需要 9:16 / 16:9 / 3:4 / 4:3 之一，收到 ${ratio || "(空)"}；不会静默取 1280x720。`);
+  }
+  throw new Error(`OpenAI 官方 Videos 的 size 只接受 720x1280 / 1280x720 / 1024x1792 / 1792x1024 或 720p 档位，收到 ${size || "(空)"}；不会静默省略。`);
 }
 
 function dashscopeVideoFamily(model: string): "wan26" | "wan27" | "wan3" | "happyhorse" {
@@ -1122,13 +1751,17 @@ function normalizeDashscopeVideoResolution(value?: string) {
   if (raw === "480" || raw === "480P") return "480P";
   if (raw === "720" || raw === "720P") return "720P";
   if (raw === "1080" || raw === "1080P") return "1080P";
-  return "";
+  throw new Error(`DashScope 官方视频 resolution 只接受 480P / 720P / 1080P，收到 ${value || "(空)"}；不会静默省略。`);
 }
 
 function wan26Size(ratio: string, resolution: string) {
   const tier = resolution === "1080P" ? "1080P" : "720P";
   const aspect = ratio || "16:9";
-  return WAN26_SIZE_BY_RATIO[tier][aspect] || WAN26_SIZE_BY_RATIO[tier]["16:9"];
+  const size = WAN26_SIZE_BY_RATIO[tier][aspect];
+  if (!size) {
+    throw new Error(`DashScope Wan2.6 视频 ratio 不支持 ${aspect}；只接受 16:9 / 9:16 / 1:1 / 4:3 / 3:4，不会回退到 16:9。`);
+  }
+  return size;
 }
 
 function isWanxV1(model: string) {

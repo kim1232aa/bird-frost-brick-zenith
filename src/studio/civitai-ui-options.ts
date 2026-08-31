@@ -1,5 +1,7 @@
 /** Studio UI + generate-path contract for Civitai official engines. */
 
+import { resolveImageModelCapability } from "../services/api/image-model-capabilities.ts";
+
 export type CivitaiLoraShape = "map" | "array";
 
 /**
@@ -67,18 +69,86 @@ const HUNYUAN_ASPECT_SIZE: Record<string, { width: number; height: number }> = {
 
 const QUANTITY_CHOICES = [1, 2, 4, 6, 8, 12] as const;
 export const DEFAULT_STUDIO_IMAGE_QUANTITY_MAX = 4;
+const UNPUBLISHED_QUANTITY_CHIP_MAX = 10;
+
+function capabilityAdapterType(adapter?: string) {
+  const id = String(adapter || "").trim().toLowerCase();
+  if (id === "ark-plan") return "ark";
+  if (id === "civitai") return "civitai-orchestration";
+  return id;
+}
+
+function capabilityImageQuantityMax(adapter: string | undefined, model: string, operation: "generate" | "edit") {
+  const capability = resolveImageModelCapability({
+    model,
+    operation,
+    provider: adapter ? { adapterType: capabilityAdapterType(adapter) } : undefined,
+  });
+  if (capability.outputCount.state === "supported") return capability.outputCount.max;
+  if (capability.outputCount.state === "unsupported") return 1;
+  return null;
+}
 
 export function isCivitaiAdapterType(adapter?: string) {
   const id = String(adapter || "").trim().toLowerCase();
   return id === "civitai" || id === "civitai-orchestration";
 }
 
+/**
+ * Match a short Civitai engine id ("flux2-klein") or a full service id
+ * ("image/flux2/klein/editImage/9b") to the engine family used by the
+ * LoRA-shape and quantity tables. Unknown ids return undefined instead of a
+ * fabricated shape/cap.
+ */
+function civitaiServiceFamily(model: string): string | undefined {
+  const id = String(model || "").trim().toLowerCase();
+  if (IMAGE_LORA_SHAPE[id] !== undefined || IMAGE_QUANTITY_MAX[id] !== undefined) return id;
+  if (/^image\/flux2\/klein\/(?:createimage|editimage)\/(?:4b|4b-base|9b|9b-base|9b-kv)$/.test(id) || /^image\/sdcpp\/flux2klein\/createvariant\/(?:4b|4b-base|9b|9b-base|9b-kv)$/.test(id)) return "flux2-klein";
+  if (/^image\/flux2\/dev\/(?:createimage|editimage)$/.test(id) || /^image\/sdcpp\/flux2dev\/createvariant$/.test(id)) return "flux2-dev";
+  if (/^image\/flux2\/pro\/(?:createimage|editimage)$/.test(id)) return "flux2-pro";
+  if (/^image\/comfy\/krea2\/(?:turbo|raw)\/createimage$/.test(id) || id === "image/comfy/krea2/edit/editimage") return "krea2-turbo";
+  if (/^image\/fal\/krea2\/createimage$/.test(id)) return "krea2-fal";
+  if (/^image\/(?:comfy|sdcpp)\/flux1\/(?:createimage|createvariant)$/.test(id)) return "flux1";
+  if (/^image\/sdcpp\/zimage\/(?:turbo|base)\/createimage$/.test(id)) return "z-image-turbo";
+  if (/^image\/(?:sdcpp|comfy)\/sdxl\/createimage$/.test(id) || id === "image/sdcpp/sdxl/createvariant") return "sdxl";
+  if (/^image\/sdcpp\/anima\/createimage$/.test(id) || /^image\/comfy\/anima\/createimage$/.test(id)) return "anima";
+  if (/^image\/qwen\/(?:createimage|editimage)\/3\.0-pro$/.test(id)) return "qwen-3.0-pro";
+  if (/^image\/sdcpp\/qwen\/20b\/(?:createimage|editimage|createvariant)$/.test(id)) return "sdcpp-qwen-20b";
+  if (/^image\/seedream\/v(?:4|4\.5|5\.0-lite|5\.0-pro)$/.test(id)) return "seedream";
+  if (/^image\/grok\/v1\.0\/(?:createimage|editimage)$/.test(id)) return "civitai-grok";
+  if (/^image\/wan\/v2\.7\/fal\/(?:createimage|editimage)$/.test(id)) return "wan";
+  if (/^image\/openai\/gpt-image-2\/(?:createimage|editimage)$/.test(id)) return "openai-gpt-image-2";
+  if (/\/gemini\//.test(id)) return "gemini";
+  if (/\/google\//.test(id)) return "google";
+  if (/\/fal\/qwen2\//.test(id)) return "fal-qwen2";
+  if (/\/fal\/mai\//.test(id) || /\/fal\/maiimage\//.test(id)) return "fal-mai";
+  if (/\/fal\/reve\//.test(id)) return "fal-reve";
+  if (/\/flux1-kontext\//.test(id)) return "flux1-kontext";
+  if (/\/comfy\/hidream-o1(?:\/|$)/.test(id)) return "hidream-o1";
+  if (/\/comfy\/hidream(?:\/|$)/.test(id)) return "hidream";
+  if (/\/comfy\/ernie(?:\/|$)/.test(id)) return "ernie";
+  if (/\/comfy\/boogu\//.test(id)) return "boogu";
+  if (/\/comfy\/mageflow\//.test(id) || /\/mageflow\//.test(id)) return "mageflow";
+  return undefined;
+}
+
 export function civitaiImageLoraShape(model: string): CivitaiLoraShape | undefined {
-  return IMAGE_LORA_SHAPE[String(model || "").trim()];
+  const family = civitaiServiceFamily(model);
+  if (!family) return undefined;
+  if (family === "krea2-fal") return undefined;
+  if (family === "wan") return "array";
+  if (family === "sdcpp-qwen-20b") return "map";
+  if (family === "flux2-dev") return "array";
+  return IMAGE_LORA_SHAPE[family];
 }
 
 export function civitaiVideoLoraShape(model: string): CivitaiLoraShape | undefined {
-  return VIDEO_LORA_SHAPE[String(model || "").trim()];
+  const id = String(model || "").trim().toLowerCase();
+  if (VIDEO_LORA_SHAPE[id] !== undefined) return VIDEO_LORA_SHAPE[id];
+  if (/\/ltx2\.3(?:\/|$)/.test(id)) return "map";
+  if (/\/hunyuan(?:\/|$)/.test(id)) return "array";
+  if (id === "video/wan/v2.2/comfy") return "array";
+  return undefined;
 }
 
 /** ImageGenInputLora.strength range. Map LoRAs have no official min/max in OpenAPI — do not invent one. */
@@ -98,23 +168,56 @@ export function assertCivitaiCheckpointAir(adapter: string | undefined, model: s
   return air;
 }
 
-export function civitaiImageQuantityMax(model: string) {
-  return IMAGE_QUANTITY_MAX[String(model || "").trim()] || DEFAULT_STUDIO_IMAGE_QUANTITY_MAX;
+function inferCivitaiQuantityOperation(model: string, operation?: "generate" | "edit") {
+  if (operation) return operation;
+  const id = String(model || "").trim().toLowerCase();
+  if (/\/editimage(?:\/|$)/.test(id) || /\/edit(?:\/|$)/.test(id) || /createvariant/.test(id)) return "edit";
+  return "generate";
 }
 
-export function studioImageQuantityMax(adapter: string | undefined, model: string) {
-  return isCivitaiAdapterType(adapter) ? civitaiImageQuantityMax(model) : DEFAULT_STUDIO_IMAGE_QUANTITY_MAX;
+export function civitaiImageQuantityMax(model: string, operation?: "generate" | "edit"): number | null {
+  const family = civitaiServiceFamily(model);
+  if (!family) return null;
+  const op = inferCivitaiQuantityOperation(model, operation);
+  if (family === "krea2-turbo") return op === "edit" ? 4 : 12;
+  if (family === "sdcpp-qwen-20b") return 12;
+  if (family === "qwen-3.0-pro") return 6;
+  if (family === "krea2-fal") return 10;
+  if (family === "flux1-kontext" || family === "openai-gpt-image-2" || family === "gemini" || family === "google" || family === "civitai-grok" || family === "flux2-klein" || family === "flux2-pro" || family === "flux2-dev") return 4;
+  if (family === "wan" || family === "fal-qwen2") return 10;
+  const published = IMAGE_QUANTITY_MAX[family];
+  return typeof published === "number" ? published : null;
 }
 
-export function studioImageQuantityOptions(max: number) {
-  const cap = Number.isFinite(max) ? Math.max(1, Math.floor(max)) : DEFAULT_STUDIO_IMAGE_QUANTITY_MAX;
-  return QUANTITY_CHOICES.filter((item) => item <= cap);
+export function studioImageQuantityMax(
+  adapter: string | undefined,
+  model: string,
+  operation: "generate" | "edit" = "generate",
+): number | null {
+  if (isCivitaiAdapterType(adapter)) return civitaiImageQuantityMax(model, operation);
+  return capabilityImageQuantityMax(adapter, model, operation);
 }
 
-export function clampStudioImageQuantity(n: number | undefined, max: number) {
-  const cap = Number.isFinite(max) ? Math.max(1, Math.floor(max)) : DEFAULT_STUDIO_IMAGE_QUANTITY_MAX;
+export function studioImageQuantityOptions(max: number | null | undefined): number[] {
+  // Unpublished max (null/NaN) is not a fake quantityMax=10: Ark Seedream is
+  // clientFanout(max=null) with no generic `n`. Chips still go to 10 for UI.
+  // https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01
+  // OpenAI published n is 1–10, so max=10 must include 10.
+  // https://developers.openai.com/api/docs/guides/image-generation
+  const unpublished = typeof max !== "number" || !Number.isFinite(max);
+  const cap = unpublished ? UNPUBLISHED_QUANTITY_CHIP_MAX : Math.max(1, Math.floor(max));
+  const chips: number[] = QUANTITY_CHOICES.filter((item) => item <= cap);
+  if (cap >= 10 && cap < 12 && !chips.includes(10)) chips.push(10);
+  if (cap > 1 && !chips.includes(cap) && cap <= 16) chips.push(cap);
+  chips.sort((left, right) => left - right);
+  return chips.length ? chips : [1];
+}
+
+export function clampStudioImageQuantity(n: number | undefined, max: number | null | undefined) {
   const raw = typeof n === "number" && Number.isFinite(n) ? Math.floor(n) : 1;
-  return Math.max(1, Math.min(cap, raw));
+  const lower = Math.max(1, raw);
+  if (typeof max !== "number" || !Number.isFinite(max)) return lower;
+  return Math.max(1, Math.min(Math.floor(max), lower));
 }
 
 export function resolveStudioImageQuantity(
@@ -122,8 +225,9 @@ export function resolveStudioImageQuantity(
   model: string,
   n?: number,
   quantity?: number,
+  operation: "generate" | "edit" = "generate",
 ) {
-  return clampStudioImageQuantity(quantity ?? n, studioImageQuantityMax(adapter, model));
+  return clampStudioImageQuantity(quantity ?? n, studioImageQuantityMax(adapter, model, operation));
 }
 
 export function snapStudioImageQuantity(n: number, options: readonly number[]) {
@@ -251,11 +355,12 @@ export function studioImageAdapterFields(
     quantity?: number;
     checkpointAir?: string;
     loras?: Record<string, number> | Readonly<Record<string, number>>;
+    operation?: "generate" | "edit";
   },
 ) {
   const checkpointAir = assertCivitaiCheckpointAir(adapter, model, input.checkpointAir);
   return {
-    n: resolveStudioImageQuantity(adapter, model, input.n, input.quantity),
+    n: resolveStudioImageQuantity(adapter, model, input.n, input.quantity, input.operation),
     checkpointAir: checkpointAir || undefined,
     loras: studioImageLoras(adapter, model, input.loras),
   };

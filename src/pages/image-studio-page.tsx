@@ -9,7 +9,7 @@ import { useStudioJobs } from "@/studio/generate/jobs";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
 import { useStudioHistory } from "@/studio/history";
 import { useMediaDraft } from "@/studio/media-draft";
-import { filesToDataUrls } from "@/studio/image-refs";
+import { filesToDataUrls, mergeImageRefs } from "@/studio/image-refs";
 import { useMembershipStore } from "@/studio/membership";
 import { liveCatalog, liveCard, useOpsStore } from "@/studio/ops";
 import { preferredImageKey, preferredTextKey, StudioModelField } from "@/studio/model-select";
@@ -22,6 +22,7 @@ import { GuestGenerateBanner, useGenerateAccess } from "@/studio/auth-gate";
 import { civitaiCheckpointPlaceholder } from "@/studio/civitai-ui-options";
 import {
   buildImageStudioGenerateFields,
+  buildImageStudioRequest,
   imageStudioParamState,
   normalizeCivitaiImageDims,
   resolveImageStudioFamily,
@@ -66,7 +67,11 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const allModels = liveCatalog("image", true);
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
-  const [selection, setSelection] = useState(preferredImageKey());
+  const [selection, setSelection] = useState(() => {
+    if (initialMode !== "edit") return preferredImageKey();
+    const editKeys = liveCatalog("image", true).filter((card) => isEditModel(card.model)).map(catalogKey);
+    return defaultEditKey(editKeys) || preferredImageKey();
+  });
   const [textModel, setTextModel] = useState(preferredTextKey());
   const [mode, setMode] = useState<ImageMode>(initialMode);
   const [quality, setQuality] = useState<"eco" | "std" | "hq">("std");
@@ -115,8 +120,27 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     [items],
   );
   const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "image"), []);
-  const civitaiModel = family === "civitai" ? card?.model || selectedModel || "" : "";
-  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showSeed } = imageStudioParamState(family, civitaiModel, mode);
+  const studioModel = card?.model || selectedModel || "";
+  const civitaiModel = family === "civitai" ? studioModel : "";
+  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showSeed, referenceMin, referenceMax, referencesSupported } = imageStudioParamState(
+    family,
+    studioModel,
+    mode,
+    selectedRelay?.adapterType,
+    selectedRelay,
+  );
+  const editReferenceMax = imageStudioParamState(
+    family,
+    studioModel,
+    "edit",
+    selectedRelay?.adapterType,
+    selectedRelay,
+  ).referenceMax;
+  const quantityLabel = typeof quantityMax === "number" ? String(quantityMax) : "多";
+  const referenceRangeLabel =
+    typeof referenceMax === "number"
+      ? `${Math.max(1, referenceMin)}–${referenceMax} 张`
+      : `${Math.max(1, referenceMin)} 张起`;
 
   useEffect(() => {
     setCount((current) => snapImageStudioCount(current, quantityOptions));
@@ -135,7 +159,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
 
   const generatePreview = buildImageStudioGenerateFields({
     family,
-    model: civitaiModel || selectedModel,
+    model: studioModel,
     mode,
     quality,
     aspect,
@@ -147,6 +171,8 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     checkpointAir,
     negativePrompt: negative,
     dims,
+    adapterType: selectedRelay?.adapterType,
+    provider: selectedRelay,
   });
   const generateBlockReason = generatePreview.error || "";
 
@@ -158,9 +184,16 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
 
   const addRefs = async (files: FileList | null) => {
     if (!files?.length) return;
-    const next = await filesToDataUrls(files, 3);
-    setReferences((current) => [...current, ...next].slice(0, 5));
-    if (mode === "t2i") goMode("i2i");
+    const max = mode === "t2i" ? editReferenceMax : referenceMax;
+    const uploadCap = typeof max === "number" ? max : undefined;
+    try {
+      const next = await filesToDataUrls(files, uploadCap);
+      setReferences((current) => mergeImageRefs(current, next, uploadCap));
+      if (mode === "t2i") goMode("i2i");
+      else setError("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "读取参考图失败");
+    }
   };
 
   const generate = async () => {
@@ -171,7 +204,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     const { providerId, model } = splitModel(selection);
     const payload = buildImageStudioGenerateFields({
       family,
-      model: civitaiModel || model,
+      model: studioModel || model,
       mode,
       quality,
       aspect,
@@ -183,6 +216,8 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       checkpointAir,
       negativePrompt: negative,
       dims,
+      adapterType: selectedRelay?.adapterType,
+      provider: selectedRelay,
     });
     if (payload.error) {
       setError(payload.error);
@@ -198,25 +233,15 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       credits: (family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1) * payload.count,
     });
     try {
-      const result = await generateStudioImage({
+      const result = await generateStudioImage(buildImageStudioRequest({
+        mode,
         relays,
         prompt,
         providerId,
-        model: civitaiModel || model,
-        size: payload.size,
-        aspectRatio: payload.aspectRatio,
-        width: payload.width,
-        height: payload.height,
-        seed: payload.seed,
-        imageUrl: payload.imageUrl,
-        imageUrls: payload.imageUrls,
-        negativePrompt: payload.negativePrompt,
-        n: payload.n,
-        operation: mode === "edit" ? "edit" : "generate",
-        loras: payload.loras,
-        checkpointAir: payload.checkpointAir,
+        model: studioModel || model,
+        payload,
         workTitle: `${mode === "edit" ? "改图 · " : mode === "i2i" ? "图生图 · " : ""}${prompt}`.slice(0, 40),
-      });
+      }));
       setBusy("正在写入结果…");
       setUrls(result.urls);
       record("image");
@@ -280,10 +305,10 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
 
   const hero =
     mode === "edit"
-      ? { kicker: "改图", title: "改图", copy: "上传 1 到 3 张要改的图，写下改哪里、留下什么。生成成功会从本账号额度扣点，失败不扣。" }
+      ? { kicker: "改图", title: "改图", copy: `上传 ${referenceRangeLabel} 要改的图，写下改哪里、留下什么。生成成功会从本账号额度扣点，失败不扣。` }
       : mode === "i2i"
-        ? { kicker: "生图", title: "按图出图", copy: "参考图最多 3 张，都会送给模型，不会只传第一张。" }
-        : { kicker: "生图", title: "文生图", copy: `选模型、写想法，一次可出 1–${quantityMax} 张。` };
+        ? { kicker: "生图", title: "按图出图", copy: `参考图 ${typeof referenceMax === "number" ? `最多 ${referenceMax} 张` : "按当前模型合同"}，都会送给模型，不会只传第一张。` }
+        : { kicker: "生图", title: "文生图", copy: `选模型、写想法，一次可出 1–${quantityLabel} 张。` };
 
   return (
     <div className="bp-page">
@@ -334,9 +359,15 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                   </button>
                 </figure>
               ))}
-              {references.length < 3 ? (
+              {referencesSupported && (typeof referenceMax !== "number" || references.length < referenceMax) ? (
                 <label className="dropzone dropzone-mini">
-                  <span>{references.length ? `再加一张（${references.length}/3）` : mode === "edit" ? "上传要改的图，最多 3 张" : "上传参考图，最多 3 张"}</span>
+                  <span>
+                    {references.length
+                      ? `再加一张（${references.length}${typeof referenceMax === "number" ? `/${referenceMax}` : ""}）`
+                      : mode === "edit"
+                        ? `上传要改的图${typeof referenceMax === "number" ? `，最多 ${referenceMax} 张` : ""}`
+                        : `上传参考图${typeof referenceMax === "number" ? `，最多 ${referenceMax} 张` : ""}`}
+                  </span>
                   <input
                     className="sr-only"
                     type="file"
@@ -350,7 +381,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                 </label>
               ) : null}
             </div>
-            <small className="studio-hint">1–3 张都会提交给模型，不是只传第一张。</small>
+            <small className="studio-hint">{referenceRangeLabel} 都会提交给模型，不是只传第一张。</small>
           </div>
         ) : (
           <label className="dropzone">
@@ -389,7 +420,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
         ) : null}
         <p className="studio-kicker">出图设置</p>
         <p className="cap-strip">
-          {mode === "t2i" ? "文生图" : mode === "edit" ? "改图 · 参考 1–3 张" : "按图出图 · 参考 1–3 张"}
+          {mode === "t2i" ? "文生图" : mode === "edit" ? `改图 · 参考 ${referenceRangeLabel}` : `按图出图 · 参考 ${referenceRangeLabel}`}
           {" · "}
           一次 {count} 张
           {showLora ? " · 可加风格插件" : ""}
@@ -543,8 +574,13 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                   type="button"
                   className="studio-ghost"
                   onClick={() => {
-                    setReferences((current) => [...urls, ...current].slice(0, 5));
-                    goMode("edit");
+                    try {
+                      const cap = typeof editReferenceMax === "number" ? editReferenceMax : undefined;
+                      setReferences((current) => mergeImageRefs(urls, current, cap));
+                      goMode("edit");
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "无法把结果送去编辑");
+                    }
                   }}
                 >
                   拿去编辑

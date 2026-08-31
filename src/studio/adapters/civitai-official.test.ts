@@ -667,6 +667,120 @@ test("Qwen 3.0 Pro sets promptExtend false to avoid implicit rewrite latency", (
   assert.equal(input.promptExtend, false);
 });
 
+test("LTX and Hunyuan video send official seed; only LTX supports negativePrompt", () => {
+  const ltx = stepInput(
+    planCivitaiVideoRequest({
+      model: "ltx2.3",
+      prompt: "p",
+      seed: 11,
+      negativePrompt: "blur",
+    }),
+  );
+  assert.equal(ltx.seed, 11);
+  assert.equal(ltx.negativePrompt, "blur");
+
+  const hunyuan = stepInput(
+    planCivitaiVideoRequest({
+      model: "hunyuan",
+      prompt: "p",
+      seed: 22,
+    }),
+  );
+  assert.equal(hunyuan.seed, 22);
+  assert.throws(
+    () => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", negativePrompt: "watermark" }),
+    /Hunyuan.*negativePrompt|负面提示词.*不支持/iu,
+  );
+});
+
+test("LTX and Hunyuan forward verified steps/guidance/model fields with strict ranges", () => {
+  const ltx = stepInput(
+    planCivitaiVideoRequest({
+      model: "ltx2.3",
+      prompt: "p",
+      steps: 32,
+      guidance: 5.5,
+      modelVariant: "22b-dev",
+    }),
+  );
+  assert.equal(ltx.numInferenceSteps, 32);
+  assert.equal(ltx.guidanceScale, 5.5);
+  assert.equal(ltx.model, "22b-dev");
+
+  const hunyuan = stepInput(
+    planCivitaiVideoRequest({
+      model: "hunyuan",
+      prompt: "p",
+      steps: 40,
+      guidance: 6,
+    }),
+  );
+  assert.equal(hunyuan.steps, 40);
+  assert.equal(hunyuan.cfgScale, 6);
+
+  assert.throws(() => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", steps: 7 }), /steps|numInferenceSteps.*8.*50/iu);
+  assert.throws(() => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", guidance: 11 }), /guidanceScale.*1.*10/iu);
+  assert.throws(() => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", modelVariant: "invented" }), /22b-dev.*22b-distilled|model/iu);
+  assert.throws(() => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", steps: 9 }), /steps.*10.*50/iu);
+  assert.throws(() => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", guidance: 101 }), /cfgScale.*0.*100/iu);
+  assert.throws(() => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", modelVariant: "22b-dev" }), /Hunyuan.*modelVariant|不支持/iu);
+});
+
+test("LTX quantity and firstLastFrameToVideo frameGuideStrength are official live schema fields", () => {
+  const create = stepInput(planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", quantity: 4 }));
+  assert.equal(create.quantity, 4);
+  assert.equal("frameGuideStrength" in create, false);
+
+  const flf = stepInput(
+    planCivitaiVideoRequest({
+      model: "ltx2.3",
+      prompt: "p",
+      imageUrl: "https://example.test/first.png",
+      lastFrameUrl: "https://example.test/last.png",
+      quantity: 2,
+      frameGuideStrength: 0.8,
+    }),
+  );
+  assert.equal(flf.operation, "firstLastFrameToVideo");
+  assert.equal(flf.quantity, 2);
+  assert.equal(flf.frameGuideStrength, 0.8);
+
+  assert.throws(
+    () => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", quantity: 11 }),
+    /quantity.*1.*10/iu,
+  );
+  assert.throws(
+    () => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", frameGuideStrength: 0.8 }),
+    /frameGuideStrength.*firstLastFrameToVideo|不会静默/iu,
+  );
+  assert.throws(
+    () => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", quantity: 2 }),
+    /Hunyuan.*quantity|不会静默/iu,
+  );
+});
+
+test("Civitai direct video rejects unsupported non-empty Studio fields instead of dropping them", () => {
+  const unsupported = [
+    { resolution: "1080p" },
+    { watermark: false },
+    { promptExpansion: false },
+    { returnLastFrame: true },
+    { audioUrl: "https://example.test/audio.mp3" },
+  ] as const;
+  for (const fields of unsupported) {
+    assert.throws(
+      () => planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", ...fields }),
+      /不支持|不会静默|resolution|watermark|promptExpansion|returnLastFrame|audioUrl/iu,
+      `LTX must reject ${Object.keys(fields)[0]}`,
+    );
+    assert.throws(
+      () => planCivitaiVideoRequest({ model: "hunyuan", prompt: "p", ...fields }),
+      /不支持|不会静默|resolution|watermark|promptExpansion|returnLastFrame|audioUrl/iu,
+      `Hunyuan must reject ${Object.keys(fields)[0]}`,
+    );
+  }
+});
+
 test("video aspectRatio maps to official width/height", () => {
   const ltx169 = stepInput(planCivitaiVideoRequest({ model: "ltx2.3", prompt: "p", aspectRatio: "16:9" }));
   assert.equal(ltx169.width, 1280);

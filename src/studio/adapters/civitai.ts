@@ -9,7 +9,9 @@ type Extra = {
   height?: number;
   seed?: number;
   negativePrompt?: string;
-  quantity?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
   n?: number;
   loras?: Record<string, number> | Readonly<Record<string, number>>;
   checkpointAir?: string;
@@ -18,6 +20,22 @@ type Extra = {
   fps?: number;
   strength?: number;
   generateAudio?: boolean;
+  resolution?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  frames?: number;
+  audioMode?: string;
+  quantity?: number;
+  mode?: string;
+  frameGuideStrength?: number;
+  safetyChecker?: boolean;
+  shift?: number;
+  turbo?: boolean;
+  sampler?: string;
+  scheduler?: string;
+  usePro?: boolean;
 };
 
 export type CivitaiImagePlanInput = ImageGenInput & {
@@ -463,21 +481,89 @@ function videoDimensions(
   return size;
 }
 
+function optionalFiniteNumber(
+  value: number | undefined,
+  label: string,
+  minimum: number,
+  maximum: number,
+  integer = false,
+) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${label} 必须是有限数字，收到 ${String(value)}`);
+  }
+  if (integer && !Number.isInteger(value)) throw new Error(`${label} 必须是整数，收到 ${value}`);
+  if (value < minimum || value > maximum) {
+    throw new Error(`${label} 只接受 ${minimum}–${maximum}，收到 ${value}；不会静默夹取`);
+  }
+  return value;
+}
+
+function ltxModelVariant(value?: string) {
+  const model = String(value || "").trim() || "22b-distilled";
+  if (model !== "22b-dev" && model !== "22b-distilled") {
+    throw new Error(`LTX 2.3 model 只接受 22b-dev / 22b-distilled，收到 ${model}`);
+  }
+  return model;
+}
+
+function rejectUnsupportedCivitaiVideoFields(model: string, extra?: Extra, extraFields: ReadonlyArray<[string, unknown]> = []) {
+  const fields: ReadonlyArray<[string, unknown]> = [
+    ["resolution", extra?.resolution],
+    ["watermark", extra?.watermark],
+    ["promptExpansion", extra?.promptExpansion],
+    ["returnLastFrame", extra?.returnLastFrame],
+    ["audioUrl", extra?.audioUrl],
+    ["frames", extra?.frames],
+    ["audioMode", extra?.audioMode],
+    ["sampler", extra?.sampler],
+    ["scheduler", extra?.scheduler],
+    ["usePro", extra?.usePro],
+    ...extraFields,
+  ];
+  for (const [name, value] of fields) {
+    if (value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()))) {
+      throw new Error(`Civitai ${model} 官方视频不支持 ${name}；不会静默丢弃该字段。`);
+    }
+  }
+}
+
 function buildLtxBody(prompt: string, extra?: Extra) {
+  rejectUnsupportedCivitaiVideoFields("LTX 2.3", extra, [
+    ["mode", extra?.mode],
+    ["safetyChecker", extra?.safetyChecker],
+    ["shift", extra?.shift],
+    ["turbo", extra?.turbo],
+  ]);
+
   const first = String(extra?.imageUrl || "").trim();
   const last = String(extra?.lastFrameUrl || "").trim();
   const listed = uniqueUrls(extra?.imageUrls || []);
   const extras = listed.filter((url) => url !== first && url !== last);
   const size = videoDimensions("LTX 2.3", LTX_ASPECT_SIZE, extra, { width: 1280, height: 720 });
+  const duration = optionalFiniteNumber(extra?.duration, "LTX 2.3 duration", 3, 20, true) ?? 5;
+  const fps = optionalFiniteNumber(extra?.fps, "LTX 2.3 fps", 1, 60) ?? 24;
+  const steps = optionalFiniteNumber(extra?.steps, "LTX 2.3 numInferenceSteps", 8, 50, true);
+  const guidance = optionalFiniteNumber(extra?.guidance, "LTX 2.3 guidanceScale", 1, 10);
+  const quantity = optionalFiniteNumber(extra?.quantity, "LTX 2.3 quantity", 1, 10, true);
+  const frameGuideStrength = optionalFiniteNumber(extra?.frameGuideStrength, "LTX 2.3 frameGuideStrength", 0, 1);
+  if (frameGuideStrength !== undefined && !last) {
+    throw new Error("LTX 2.3 frameGuideStrength 只属于 firstLastFrameToVideo；createVideo 不会静默丢弃该字段。");
+  }
   const shared = {
     engine: "ltx2.3",
-    model: "22b-distilled",
+    model: ltxModelVariant(extra?.modelVariant),
     prompt,
-    duration: extra?.duration || 5,
+    duration,
     width: size.width,
     height: size.height,
-    fps: extra?.fps || 24,
+    fps,
     ...(typeof extra?.generateAudio === "boolean" ? { generateAudio: extra.generateAudio } : {}),
+    ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
+    ...(typeof extra?.seed === "number" && Number.isFinite(extra.seed) ? { seed: extra.seed } : {}),
+    ...(steps !== undefined ? { numInferenceSteps: steps } : {}),
+    ...(guidance !== undefined ? { guidanceScale: guidance } : {}),
+    ...(quantity !== undefined ? { quantity } : {}),
     ...loraMapPatch(extra),
   };
   if (last) {
@@ -489,6 +575,7 @@ function buildLtxBody(prompt: string, extra?: Extra) {
       operation: "firstLastFrameToVideo",
       ...(first ? { firstFrame: first } : {}),
       lastFrame: last,
+      ...(frameGuideStrength !== undefined ? { frameGuideStrength } : {}),
     };
   }
   const images = uniqueUrls([first, ...listed]);
@@ -502,18 +589,40 @@ function buildLtxBody(prompt: string, extra?: Extra) {
 
 function buildHunyuanBody(prompt: string, extra?: Extra) {
   const refs = extraRefs(extra);
+  rejectUnsupportedCivitaiVideoFields("Hunyuan", extra, [
+    ["quantity", extra?.quantity],
+    ["mode", extra?.mode],
+    ["frameGuideStrength", extra?.frameGuideStrength],
+    ["safetyChecker", extra?.safetyChecker],
+    ["shift", extra?.shift],
+    ["turbo", extra?.turbo],
+  ]);
   if (refs.length || String(extra?.lastFrameUrl || "").trim()) {
     throw new Error("Hunyuan 是纯文本生视频（T2V），不接受参考图。");
   }
+  if (String(extra?.negativePrompt || "").trim()) {
+    throw new Error("Hunyuan 官方 schema 不支持 negativePrompt 负面提示词；不会静默丢弃该字段。");
+  }
+  if (typeof extra?.generateAudio === "boolean") {
+    throw new Error("Hunyuan 官方 schema 不支持 generateAudio；不会静默丢弃该字段。");
+  }
+  if (String(extra?.modelVariant || "").trim()) {
+    throw new Error("Hunyuan 当前 Studio 合同不支持 modelVariant；自定义 checkpoint 需要 AIR 专用字段，不能用通用模型变体冒充。");
+  }
   const size = videoDimensions("Hunyuan", HUNYUAN_ASPECT_SIZE, extra, { width: 1280, height: 720 });
+  const duration = optionalFiniteNumber(extra?.duration, "Hunyuan duration", 1, 30, true) ?? 5;
+  const steps = optionalFiniteNumber(extra?.steps, "Hunyuan steps", 10, 50, true);
+  const guidance = optionalFiniteNumber(extra?.guidance, "Hunyuan cfgScale", 0, 100);
   return {
     engine: "hunyuan",
     prompt,
-    duration: extra?.duration || 5,
+    duration,
     width: size.width,
     height: size.height,
     frameRate: typeof extra?.fps === "number" ? extra.fps : 25,
-    cfgScale: 4,
+    cfgScale: guidance ?? 4,
+    ...(steps !== undefined ? { steps } : {}),
+    ...(typeof extra?.seed === "number" && Number.isFinite(extra.seed) ? { seed: extra.seed } : {}),
     ...loraArrayPatch(extra, "video"),
   };
 }
@@ -778,6 +887,27 @@ export function planCivitaiVideoRequest(input: CivitaiVideoPlanInput): CivitaiPl
     loras: input.loras,
     generateAudio: input.generateAudio,
     aspectRatio: input.aspectRatio,
+    seed: input.seed,
+    negativePrompt: input.negativePrompt,
+    steps: input.steps,
+    guidance: input.guidance,
+    modelVariant: input.modelVariant,
+    resolution: input.resolution,
+    watermark: input.watermark,
+    promptExpansion: input.promptExpansion,
+    returnLastFrame: input.returnLastFrame,
+    audioUrl: input.audioUrl,
+    frames: input.frames,
+    audioMode: input.audioMode,
+    quantity: input.quantity,
+    mode: input.mode,
+    frameGuideStrength: input.frameGuideStrength,
+    safetyChecker: input.safetyChecker,
+    shift: input.shift,
+    turbo: input.turbo,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
+    usePro: input.usePro,
   };
   return {
     path: workflowQuery(0, Boolean(input.whatif), input.allowMatureContent),

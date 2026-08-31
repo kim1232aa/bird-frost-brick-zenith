@@ -1,5 +1,10 @@
-/** Page-only Civitai param-chain helpers for ImageStudioPage. Do not send unverified fields. */
+/** Page-only image-studio parameter-chain helpers. Do not send unverified fields. */
 
+import {
+  resolveImageModelCapability,
+  type ImageCapabilityProvider,
+  type ImageOperation,
+} from "../services/api/image-model-capabilities.ts";
 import {
   civitaiImageLoraShape,
   civitaiRequiresCheckpointAir,
@@ -12,6 +17,97 @@ import {
 
 export type ImageStudioFamily = "ark" | "civitai" | "gpt" | "grok" | "agnes" | "sensenova" | "generic";
 export type ImageStudioMode = "t2i" | "i2i" | "edit";
+export type ImageStudioParamState = {
+  showLora: boolean;
+  loraShape: CivitaiLoraShape | undefined;
+  needsCheckpoint: boolean;
+  quantityMax: number | null;
+  quantityOptions: number[];
+  showSeed: boolean;
+  showNegative: boolean;
+  referencesSupported: boolean;
+  referenceMin: number;
+  referenceMax: number | null;
+  referenceNote?: string;
+};
+
+function studioOperation(mode: ImageStudioMode): ImageOperation {
+  return mode === "t2i" ? "generate" : "edit";
+}
+
+function familyAdapterType(family: ImageStudioFamily, adapterType?: string) {
+  const explicit = String(adapterType || "").trim();
+  if (explicit) return explicit;
+  if (family === "ark") return "ark";
+  if (family === "gpt") return "openai-compat";
+  if (family === "grok") return "xai-imagine";
+  if (family === "agnes") return "agnes";
+  if (family === "sensenova") return "sensenova";
+  if (family === "civitai") return "civitai";
+  return undefined;
+}
+
+function studioCapabilityProvider(
+  family: ImageStudioFamily,
+  adapterType?: string,
+  provider?: ImageCapabilityProvider,
+): ImageCapabilityProvider | undefined {
+  const adapter = familyAdapterType(family, provider?.adapterType || adapterType);
+  if (provider) {
+    return adapter && adapter !== provider.adapterType ? { ...provider, adapterType: adapter } : provider;
+  }
+  return adapter ? { adapterType: adapter } : undefined;
+}
+
+function studioImageCapability(input: {
+  family: ImageStudioFamily;
+  model: string;
+  mode: ImageStudioMode;
+  adapterType?: string;
+  provider?: ImageCapabilityProvider;
+}) {
+  return resolveImageModelCapability({
+    model: input.model,
+    operation: studioOperation(input.mode),
+    provider: studioCapabilityProvider(input.family, input.adapterType, input.provider),
+  });
+}
+
+function capabilityQuantityMax(family: ImageStudioFamily, model: string, mode: ImageStudioMode, adapterType?: string, provider?: ImageCapabilityProvider) {
+  if (family === "civitai") {
+    const createQuantityMax = studioImageQuantityMax("civitai", model);
+    return mode !== "t2i" ? CIVITAI_EDIT_QUANTITY_MAX[model] || createQuantityMax : createQuantityMax;
+  }
+  const output = studioImageCapability({ family, model, mode, adapterType, provider }).outputCount;
+  if (output.state === "supported") return output.max;
+  if (output.state === "unsupported") return 1;
+  return studioImageQuantityMax(adapterType, model, mode === "t2i" ? "generate" : "edit");
+}
+
+function capabilityReferenceState(family: ImageStudioFamily, model: string, mode: ImageStudioMode, adapterType?: string, provider?: ImageCapabilityProvider) {
+  if (mode === "t2i") {
+    return { referencesSupported: false, referenceMin: 0, referenceMax: 0 as number | null };
+  }
+  if (family === "civitai") {
+    if (CIVITAI_NO_REF_MODELS.has(model)) {
+      return { referencesSupported: false, referenceMin: 0, referenceMax: 0 as number | null };
+    }
+    const max = CIVITAI_REF_MAX[model];
+    return {
+      referencesSupported: true,
+      referenceMin: 1,
+      referenceMax: typeof max === "number" ? max : null,
+    };
+  }
+  const refs = studioImageCapability({ family, model, mode, adapterType, provider }).referenceCount;
+  if (refs.state === "supported") {
+    return { referencesSupported: true, referenceMin: refs.min, referenceMax: refs.max, referenceNote: refs.note };
+  }
+  if (refs.state === "unsupported") {
+    return { referencesSupported: false, referenceMin: 0, referenceMax: 0 as number | null, referenceNote: refs.reason };
+  }
+  return { referencesSupported: true, referenceMin: 1, referenceMax: null, referenceNote: refs.reason };
+}
 
 const CIVITAI_ENGINE_IDS = new Set([
   "krea2-turbo",
@@ -71,19 +167,62 @@ const CIVITAI_DIM_MULTIPLE = 16;
 const CIVITAI_DIM_FALLBACK = { min: 64, max: 2048 };
 
 /**
- * OpenAI's GPT Image 2 supports the verified custom-dimension contract used
- * by the page. GPT Image 1.5/1 use the published legacy size enum instead.
+ * OpenAI's GPT Image 2 accepts arbitrary 16-aligned dimensions inside the
+ * published pixel/edge/aspect limits. GPT Image 1.5/1 use the legacy size
+ * enum instead.
  * https://developers.openai.com/api/docs/guides/image-generation
  */
-const GPT_IMAGE_2_HQ_SIZE = "1536x1536";
-const GPT_IMAGE_LEGACY_HQ_SIZE = "1536x1024";
+const GPT_IMAGE_2_LONG_SIDE: Record<"eco" | "std" | "hq", number> = {
+  eco: 1152,
+  std: 1280,
+  hq: 1536,
+};
+const GPT_IMAGE_LEGACY_LANDSCAPE_SIZE = "1536x1024";
+const GPT_IMAGE_LEGACY_PORTRAIT_SIZE = "1024x1536";
 const GPT_IMAGE_DEFAULT_SIZE = "1024x1024";
 
-function gptImageSize(model: string, quality: "eco" | "std" | "hq") {
-  if (quality !== "hq") return GPT_IMAGE_DEFAULT_SIZE;
-  return /^gpt-image-2(?:-(?:c|high|vip))?$/i.test(String(model || "").trim())
-    ? GPT_IMAGE_2_HQ_SIZE
-    : GPT_IMAGE_LEGACY_HQ_SIZE;
+function isGptImage2Model(model: string) {
+  const key = String(model || "").trim().toLowerCase();
+  return key === "gpt-image-2"
+    || /^gpt-image-2-\d{4}-\d{2}-\d{2}$/.test(key)
+    || key === "chatgpt-image-latest"
+    || key === "gpt-image-2-c"
+    || key === "gpt-image-2-high"
+    || key === "gpt-image-2-vip";
+}
+
+function gptImageQuality(quality: "eco" | "std" | "hq") {
+  return quality === "eco" ? "low" : quality === "hq" ? "high" : "medium";
+}
+
+function gptImageAspect(aspect: string) {
+  const [rawWidth, rawHeight] = String(aspect || "").split(":").map(Number);
+  if (!Number.isFinite(rawWidth) || !Number.isFinite(rawHeight) || rawWidth <= 0 || rawHeight <= 0) {
+    return { width: 1, height: 1 };
+  }
+  return { width: rawWidth, height: rawHeight };
+}
+
+function gptImage2Size(quality: "eco" | "std" | "hq", aspect: string) {
+  const ratio = gptImageAspect(aspect);
+  const landscape = ratio.width >= ratio.height;
+  const longRatio = Math.max(ratio.width, ratio.height) / Math.max(1, Math.min(ratio.width, ratio.height));
+  const longSide = GPT_IMAGE_2_LONG_SIDE[quality];
+  const shortSide = Math.round((longSide / longRatio) / 16) * 16;
+  const width = landscape ? longSide : shortSide;
+  const height = landscape ? shortSide : longSide;
+  return `${width}x${height}`;
+}
+
+function gptLegacySize(_quality: "eco" | "std" | "hq", aspect: string) {
+  const ratio = gptImageAspect(aspect);
+  if (ratio.width > ratio.height) return GPT_IMAGE_LEGACY_LANDSCAPE_SIZE;
+  if (ratio.width < ratio.height) return GPT_IMAGE_LEGACY_PORTRAIT_SIZE;
+  return GPT_IMAGE_DEFAULT_SIZE;
+}
+
+function gptImageSize(model: string, quality: "eco" | "std" | "hq", aspect: string) {
+  return isGptImage2Model(model) ? gptImage2Size(quality, aspect) : gptLegacySize(quality, aspect);
 }
 
 export function snapCivitaiImageDim(value: number, min: number, max: number) {
@@ -129,7 +268,7 @@ function namedNonCivitaiFamily(selection: string, adapter: string): ImageStudioF
   if (adapter === "sensenova") return "sensenova";
   if (adapter === "xai-imagine" || adapter === "xai") return "grok";
   if (adapter === "openai-compat" || adapter === "openai") {
-    return /gpt-image/i.test(selection) ? "gpt" : "generic";
+    return /gpt-image|chatgpt-image-latest/i.test(selection) ? "gpt" : "generic";
   }
   if (adapter) return "generic";
   return undefined;
@@ -149,19 +288,24 @@ export function resolveImageStudioFamily(selection: string, adapterType?: string
   if (named) return named;
   if (selectionLooksLikeCivitai(selection)) return "civitai";
   if (/volcengine|seedance|seedream/i.test(selection)) return "ark";
-  if (/gpt-image/i.test(selection)) return "gpt";
+  if (/gpt-image|chatgpt-image-latest/i.test(selection)) return "gpt";
   if (/grok-imagine-image/i.test(selection)) return "grok";
   if (/agnes-image/i.test(selection)) return "agnes";
   if (/sensenova/i.test(selection)) return "sensenova";
   return "generic";
 }
 
-export function imageStudioParamState(family: ImageStudioFamily, model: string, mode: ImageStudioMode = "t2i") {
+export function imageStudioParamState(
+  family: ImageStudioFamily,
+  model: string,
+  mode: ImageStudioMode = "t2i",
+  adapterType?: string,
+  provider?: ImageCapabilityProvider,
+): ImageStudioParamState {
   const civitai = family === "civitai";
   const loraShape: CivitaiLoraShape | undefined = civitai ? civitaiImageLoraShape(model) : undefined;
-  const createQuantityMax = studioImageQuantityMax(civitai ? "civitai" : undefined, model);
-  const quantityMax =
-    civitai && mode !== "t2i" ? CIVITAI_EDIT_QUANTITY_MAX[model] || createQuantityMax : createQuantityMax;
+  const quantityMax = capabilityQuantityMax(family, model, mode, adapterType, provider);
+  const references = capabilityReferenceState(family, model, mode, adapterType, provider);
   return {
     showLora: Boolean(loraShape),
     loraShape,
@@ -172,6 +316,7 @@ export function imageStudioParamState(family: ImageStudioFamily, model: string, 
     // engine lacks a seed field in the adapter body.
     showSeed: civitai && model !== "civitai-grok",
     showNegative: civitai ? CIVITAI_NEGATIVE_MODELS.has(model) : true,
+    ...references,
   };
 }
 
@@ -190,18 +335,35 @@ export function buildImageStudioLoras(
   return Object.keys(map).length ? map : undefined;
 }
 
-export function imageStudioRefError(family: ImageStudioFamily, model: string, mode: ImageStudioMode, refCount: number) {
+export function imageStudioRefError(
+  family: ImageStudioFamily,
+  model: string,
+  mode: ImageStudioMode,
+  refCount: number,
+  adapterType?: string,
+  provider?: ImageCapabilityProvider,
+) {
   if (mode === "t2i") return "";
   if (family === "civitai" && CIVITAI_NO_REF_MODELS.has(model)) {
     if (model === "z-image-turbo") return "Z-Image 仅支持文生图，不接受参考图。请切回文生图或换模型。";
     if (model === "anima") return "Anima 仅支持文生图（createImage），不接受参考图。请切回文生图或换模型。";
   }
-  if (!refCount) return mode === "edit" ? "编辑至少上传 1 张参考图" : "图生图至少上传 1 张参考图";
-  if (family === "civitai") {
-    const max = CIVITAI_REF_MAX[model];
-    if (typeof max === "number" && refCount > max) {
-      return `${model} 最多 ${max} 张参考图，当前 ${refCount} 张。请先去掉多余的参考再生成。`;
-    }
+  const refs = capabilityReferenceState(family, model, mode, adapterType, provider);
+  if (!refs.referencesSupported) {
+    return refs.referenceNote || `${model} 不接受参考图。请切回文生图或换模型。`;
+  }
+  if (!refCount) {
+    const min = Math.max(1, refs.referenceMin);
+    return mode === "edit"
+      ? min > 1
+        ? `编辑至少上传 ${min} 张参考图`
+        : "编辑至少上传 1 张参考图"
+      : min > 1
+        ? `图生图至少上传 ${min} 张参考图`
+        : "图生图至少上传 1 张参考图";
+  }
+  if (typeof refs.referenceMax === "number" && refCount > refs.referenceMax) {
+    return `${model} 最多 ${refs.referenceMax} 张参考图，当前 ${refCount} 张。请先去掉多余的参考再生成。`;
   }
   return "";
 }
@@ -227,10 +389,14 @@ export function buildImageStudioGenerateFields(input: {
   checkpointAir: string;
   negativePrompt?: string;
   dims: { width: number; height: number };
+  adapterType?: string;
+  provider?: ImageCapabilityProvider;
 }) {
-  const params = imageStudioParamState(input.family, input.model, input.mode);
+  const params = imageStudioParamState(input.family, input.model, input.mode, input.adapterType, input.provider);
   const count = snapImageStudioCount(input.count, params.quantityOptions);
-  const refError = imageStudioRefError(input.family, input.model, input.mode, input.references.length);
+  const refError = input.mode === "t2i" && input.references.length
+    ? "文生图不能携带参考图；请切到图生图或编辑模式。"
+    : imageStudioRefError(input.family, input.model, input.mode, input.references.length, input.adapterType, input.provider);
   const checkpointError = imageStudioCheckpointError(params.needsCheckpoint, input.model, input.checkpointAir);
   const error = refError || checkpointError;
   const refs = input.mode === "t2i" ? [] : [...input.references];
@@ -243,7 +409,7 @@ export function buildImageStudioGenerateFields(input: {
       input.family === "ark"
         ? input.size
         : input.family === "gpt"
-          ? gptImageSize(input.model, input.quality)
+          ? gptImageSize(input.model, input.quality, input.aspect)
           : input.family === "agnes" || input.family === "sensenova"
             ? input.aspect
             : input.size,
@@ -252,10 +418,44 @@ export function buildImageStudioGenerateFields(input: {
     height: input.family === "civitai" || input.family === "grok" ? dims.height : undefined,
     seed: params.showSeed && input.seed ? Number(input.seed) : undefined,
     n: count,
+    quality: input.family === "gpt" ? gptImageQuality(input.quality) : undefined,
     imageUrl: refs[0],
     imageUrls: refs,
     loras: error ? undefined : buildImageStudioLoras(params.showLora, input.loras),
     checkpointAir: error || !params.needsCheckpoint ? undefined : input.checkpointAir.trim(),
     negativePrompt: params.showNegative ? input.negativePrompt || undefined : undefined,
+  };
+}
+
+type ImageStudioGeneratePayload = ReturnType<typeof buildImageStudioGenerateFields>;
+
+export function buildImageStudioRequest<TRelay>(input: {
+  mode: ImageStudioMode;
+  relays: TRelay[];
+  prompt: string;
+  providerId: string;
+  model: string;
+  payload: ImageStudioGeneratePayload;
+  workTitle: string;
+}) {
+  return {
+    relays: input.relays,
+    prompt: input.prompt,
+    providerId: input.providerId,
+    model: input.model,
+    size: input.payload.size,
+    aspectRatio: input.payload.aspectRatio,
+    width: input.payload.width,
+    height: input.payload.height,
+    seed: input.payload.seed,
+    quality: input.payload.quality,
+    imageUrl: input.payload.imageUrl,
+    imageUrls: input.payload.imageUrls,
+    negativePrompt: input.payload.negativePrompt,
+    n: input.payload.n,
+    operation: input.mode === "t2i" ? "generate" as const : "edit" as const,
+    loras: input.payload.loras,
+    checkpointAir: input.payload.checkpointAir,
+    workTitle: input.workTitle,
   };
 }

@@ -168,7 +168,6 @@ test("DashScope wan2.7-i2v uses media first_frame/last_frame not img_url", () =>
     prompt: "p",
     imageUrl: "first",
     lastFrameUrl: "last",
-    ratio: "16:9",
   });
   const input = body.input as { media?: Array<{ type?: string; url?: string }>; img_url?: string };
   assert.deepEqual(input.media, [
@@ -177,6 +176,10 @@ test("DashScope wan2.7-i2v uses media first_frame/last_frame not img_url", () =>
   ]);
   assert.equal("img_url" in input, false);
   assert.equal("ratio" in (body.parameters as Record<string, unknown>), false);
+  assert.throws(
+    () => buildDashscopeVideoBody({ model: "wan2.7-i2v", prompt: "p", imageUrl: "first", ratio: "16:9" }),
+    /画幅跟随首帧.*不支持 ratio|不会静默丢弃/iu,
+  );
 });
 
 test("DashScope wan2.6-image uses multimodal messages", () => {
@@ -226,16 +229,58 @@ test("openai-compat relay video wire forwards resolution fps last_frame image_ur
   assert.equal(body.aspect_ratio || body.ratio, "16:9");
 });
 
-test("OpenAI official video uses seconds size and one input_reference", () => {
+test("openai-compat relay forwards extended video fields without overwriting model", () => {
+  const body = toStudioVideoWire("openai-compat", "relay-video", {
+    prompt: "p",
+    duration: 16,
+    ratio: "21:9",
+    steps: 33,
+    guidance: 7.5,
+    modelVariant: "relay-v2",
+    watermark: false,
+    promptExpansion: false,
+    returnLastFrame: true,
+    audioUrl: "https://example.test/audio.mp3",
+    width: 2048,
+    height: 858,
+  });
+  assert.equal(body.model, "relay-video");
+  assert.equal(body.duration, 16);
+  assert.equal(body.steps, 33);
+  assert.equal(body.guidance, 7.5);
+  assert.equal(body.model_variant, "relay-v2");
+  assert.equal(body.watermark, false);
+  assert.equal(body.prompt_expansion, false);
+  assert.equal(body.return_last_frame, true);
+  assert.equal(body.audio_url, "https://example.test/audio.mp3");
+  assert.equal(body.width, 2048);
+  assert.equal(body.height, 858);
+});
+
+test("official OpenAI and xAI reject unsupported extended video fields before HTTP", () => {
+  assert.throws(
+    () => toStudioVideoWire("openai-compat", "sora-2", {
+      prompt: "p",
+      steps: 33,
+    }, { baseUrl: "https://api.openai.com/v1" }),
+    /OpenAI 官方.*steps|不支持.*steps/iu,
+  );
+  assert.throws(
+    () => toStudioVideoWire("xai-imagine", "grok-imagine-video-1.5", {
+      prompt: "p",
+      guidance: 7.5,
+    }, { baseUrl: "https://api.x.ai/v1" }),
+    /xAI 官方.*guidance|不支持.*guidance/iu,
+  );
+});
+
+test("OpenAI official video uses only seconds size and one input_reference", () => {
   const body = buildOpenAiOfficialVideoBody({
     model: "sora-2",
     prompt: "p",
     duration: 8,
     size: "1280x720",
     first_frame: "https://example.test/a.png",
-    fps: 24,
-    generateAudio: false,
-    negative_prompt: "n",
     ratio: "16:9",
   });
   assert.equal(body.model, "sora-2");
@@ -245,11 +290,17 @@ test("OpenAI official video uses seconds size and one input_reference", () => {
   assert.deepEqual(body.input_reference, { image_url: "https://example.test/a.png" });
   assert.equal("duration" in body, false);
   assert.equal("ratio" in body, false);
-  assert.equal("fps" in body, false);
-  assert.equal("generate_audio" in body, false);
-  assert.equal("negative_prompt" in body, false);
-  assert.equal("last_frame" in body, false);
-  assert.equal("image_urls" in body, false);
+});
+
+test("OpenAI official video rejects unsupported non-empty fields instead of dropping them", () => {
+  const base = { model: "sora-2", prompt: "p", duration: 8 };
+  assert.throws(() => buildOpenAiOfficialVideoBody({ ...base, fps: 24 }), /OpenAI 官方.*fps|不支持.*fps/iu);
+  assert.throws(() => buildOpenAiOfficialVideoBody({ ...base, generateAudio: false }), /OpenAI 官方.*generate_audio|不支持.*音频/iu);
+  assert.throws(() => buildOpenAiOfficialVideoBody({ ...base, negative_prompt: "n" }), /OpenAI 官方.*negative_prompt|不支持.*负面/iu);
+  assert.throws(
+    () => buildOpenAiOfficialVideoBody({ ...base, first_frame: "https://example.test/a.png", image_urls: ["https://example.test/b.png"] }),
+    /OpenAI 官方.*image_urls|input_reference.*1/iu,
+  );
 });
 
 test("OpenAI official video rejects last_frame instead of silently dropping it", () => {
@@ -265,18 +316,15 @@ test("OpenAI official video rejects last_frame instead of silently dropping it",
   );
 });
 
-test("OpenAI official Images never receive seed or negative_prompt", () => {
-  const generate = buildOpenAiOfficialImageBody({
-    model: "gpt-image-2",
-    prompt: "p",
-    seed: 12,
-    negativePrompt: "n",
-    n: 1,
-    size: "1024x1024",
-  });
-  assert.equal("seed" in generate, false);
-  assert.equal("negative_prompt" in generate, false);
-  assert.equal(generate.size, "1024x1024");
+test("OpenAI official Images reject unsupported seed or negative_prompt instead of dropping them", () => {
+  assert.throws(
+    () => buildOpenAiOfficialImageBody({ model: "gpt-image-2", prompt: "p", seed: 12 }),
+    /OpenAI 官方 Images.*seed|不支持.*seed/iu,
+  );
+  assert.throws(
+    () => buildOpenAiOfficialImageBody({ model: "gpt-image-2", prompt: "p", negativePrompt: "n" }),
+    /OpenAI 官方 Images.*negative_prompt|不支持.*negative/iu,
+  );
 
   const edit = buildOpenAiOfficialImageBody({
     model: "gpt-image-2",
@@ -284,14 +332,10 @@ test("OpenAI official Images never receive seed or negative_prompt", () => {
     imageUrls: ["https://example.test/a.png", "https://example.test/b.png"],
     maskUrl: "https://example.test/mask.png",
     operation: "edit",
-    seed: 3,
-    negativePrompt: "n",
   });
   assert.deepEqual(edit.images, [{ image_url: "https://example.test/a.png" }, { image_url: "https://example.test/b.png" }]);
   assert.deepEqual(edit.mask, { image_url: "https://example.test/mask.png" });
   assert.equal("image" in edit, false);
-  assert.equal("seed" in edit, false);
-  assert.equal("negative_prompt" in edit, false);
 });
 
 test("xAI studio video wire does not invent resolution", () => {
@@ -333,7 +377,7 @@ test("DashScope poll window covers the documented multi-minute task", () => {
   assert.ok(DASHSCOPE_TASK_POLL_WINDOW_MS >= 5 * 60_000);
 });
 
-test("toStudioVideoWire openai-compat on api.openai.com uses official seconds/size/input_reference", () => {
+test("toStudioVideoWire on api.openai.com uses official seconds size and input_reference", () => {
   const body = toStudioVideoWire(
     "openai-compat",
     "sora-2",
@@ -342,10 +386,6 @@ test("toStudioVideoWire openai-compat on api.openai.com uses official seconds/si
       duration: 8,
       ratio: "16:9",
       resolution: "720p",
-      fps: 24,
-      generateAudio: false,
-      image_urls: ["https://example.test/c.png"],
-      negative_prompt: "n",
       first_frame: "https://example.test/a.png",
     },
     { baseUrl: "https://api.openai.com/v1" },
@@ -355,10 +395,28 @@ test("toStudioVideoWire openai-compat on api.openai.com uses official seconds/si
   assert.deepEqual(body.input_reference, { image_url: "https://example.test/a.png" });
   assert.equal("duration" in body, false);
   assert.equal("ratio" in body, false);
-  assert.equal("fps" in body, false);
-  assert.equal("generate_audio" in body, false);
-  assert.equal("last_frame" in body, false);
-  assert.equal("image_urls" in body, false);
+});
+
+test("toStudioVideoWire on api.openai.com rejects compatibility-only video fields", () => {
+  const base = {
+    prompt: "p",
+    duration: 8,
+    ratio: "16:9",
+    resolution: "720p",
+    first_frame: "https://example.test/a.png",
+  };
+  assert.throws(
+    () => toStudioVideoWire("openai-compat", "sora-2", { ...base, fps: 24 }, { baseUrl: "https://api.openai.com/v1" }),
+    /OpenAI 官方.*fps/iu,
+  );
+  assert.throws(
+    () => toStudioVideoWire("openai-compat", "sora-2", { ...base, generateAudio: false }, { baseUrl: "https://api.openai.com/v1" }),
+    /OpenAI 官方.*generate_audio|音频/iu,
+  );
+  assert.throws(
+    () => toStudioVideoWire("openai-compat", "sora-2", { ...base, image_urls: ["https://example.test/c.png"] }, { baseUrl: "https://api.openai.com/v1" }),
+    /OpenAI 官方.*image_urls|input_reference/iu,
+  );
 });
 
 test("toStudioVideoWire official OpenAI rejects last_frame before serialization", () => {
@@ -412,7 +470,7 @@ test("videoCreatePath uses /videos on official OpenAI host and /videos/generatio
   );
 });
 
-test("Canvas customer official OpenAI JSON keeps the supported first-frame contract", () => {
+test("Canvas customer official OpenAI JSON keeps only the supported first-frame contract", () => {
   const request = buildCustomerVideoStudioRequest({
     adapterType: "openai-compat",
     model: "sora-2",
@@ -422,16 +480,29 @@ test("Canvas customer official OpenAI JSON keeps the supported first-frame contr
     duration: 8,
     ratio: "16:9",
     first_frame: "https://example.test/a.png",
-    negative_prompt: "n",
   });
   assert.equal(request.path, "/videos");
   assert.equal(request.body.seconds, "8");
   assert.equal(request.body.size, "1280x720");
   assert.deepEqual(request.body.input_reference, { image_url: "https://example.test/a.png" });
   assert.equal("duration" in request.body, false);
-  assert.equal("image_urls" in request.body, false);
-  assert.equal("last_frame" in request.body, false);
-  assert.equal("negative_prompt" in request.body, false);
+});
+
+test("Canvas customer official OpenAI JSON rejects negative_prompt before a request is sent", () => {
+  assert.throws(
+    () =>
+      buildCustomerVideoStudioRequest({
+        adapterType: "openai-compat",
+        model: "sora-2",
+        baseUrl: "https://api.openai.com/v1",
+        protocol: "openai-compat",
+        prompt: "p",
+        duration: 8,
+        ratio: "16:9",
+        negative_prompt: "n",
+      }),
+    /OpenAI 官方.*negative_prompt|负面提示词/iu,
+  );
 });
 
 test("Canvas customer official OpenAI JSON rejects last_frame before a request is sent", () => {
@@ -572,15 +643,13 @@ test("createVideo official host ignores compat videosCreate and forces /videos",
   assert.equal(relay.path, "/videos/generations");
 });
 
-test("official OpenAI seconds only emit API-ref 4|8|12", () => {
+test("official OpenAI seconds only emit API-ref 4|8|12 and reject other values", () => {
   assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 4 }).seconds, "4");
   assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 8 }).seconds, "8");
   assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 12 }).seconds, "12");
-  assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 5 }).seconds, "4");
-  assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 6 }).seconds, "8");
-  assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 10 }).seconds, "8");
-  assert.equal(buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 15 }).seconds, "12");
   assert.equal("seconds" in buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p" }), false);
+  assert.throws(() => buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 5 }), /seconds 只接受 4 \/ 8 \/ 12/);
+  assert.throws(() => buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", duration: 6 }), /seconds 只接受 4 \/ 8 \/ 12/);
 });
 
 test("customer official OpenAI poll plans GET /videos/{id}/content when retrieve is completed without a URL", () => {
@@ -692,6 +761,59 @@ test("Agnes create path stays POST /videos even when endpoints advertise generat
   assert.equal((request.body.extra_body as { mode: string }).mode, "keyframes");
 });
 
+test("toStudioVideoWire agnes sends explicit frames as official num_frames", () => {
+  const body = toStudioVideoWire("agnes", "agnes-video-v2.0", {
+    prompt: "p",
+    duration: 5,
+    fps: 24,
+    frames: 81,
+  });
+  assert.equal(body.num_frames, 81);
+  assert.equal(body.frame_rate, 24);
+});
+
+test("toStudioVideoWire DashScope video-edit sends official audio_setting", () => {
+  const wan = buildDashscopeVideoBody({
+    model: "wan2.7-videoedit",
+    prompt: "p",
+    audioMode: "origin",
+    resolution: "720P",
+  });
+  assert.equal((wan.parameters as { audio_setting?: string }).audio_setting, "origin");
+  assert.equal((wan.parameters as { resolution?: string }).resolution, "720P");
+
+  const horse = toStudioVideoWire("dashscope", "happyhorse-1.0-video-edit", {
+    prompt: "p",
+    audioMode: "auto",
+    resolution: "1080P",
+  });
+  assert.equal((horse.parameters as { audio_setting?: string }).audio_setting, "auto");
+
+  assert.throws(
+    () => buildDashscopeVideoBody({ model: "wan2.7-t2v", prompt: "p", audioMode: "origin" }),
+    /audio_setting|audioMode|videoedit/iu,
+  );
+});
+
+test("toStudioVideoWire Civitai LTX quantity and frameGuideStrength stay official", () => {
+  const create = toStudioVideoWire("civitai", "ltx2.3", { prompt: "p", quantity: 3 });
+  const createInput = (create.steps as Array<{ input: Record<string, unknown> }>)[0].input;
+  assert.equal(createInput.quantity, 3);
+  assert.equal("frameGuideStrength" in createInput, false);
+
+  const flf = toStudioVideoWire("civitai", "ltx2.3", {
+    prompt: "p",
+    first_frame: "https://example.test/a.png",
+    last_frame: "https://example.test/b.png",
+    frameGuideStrength: 0.7,
+    quantity: 2,
+  });
+  const flfInput = (flf.steps as Array<{ input: Record<string, unknown> }>)[0].input;
+  assert.equal(flfInput.operation, "firstLastFrameToVideo");
+  assert.equal(flfInput.frameGuideStrength, 0.7);
+  assert.equal(flfInput.quantity, 2);
+});
+
 test("toStudioVideoWire agnes refuses last-only keyframes impersonation", () => {
   assert.throws(
     () =>
@@ -734,21 +856,48 @@ test("official OpenAI size only emits API-ref WxH or documented 720p mappings", 
     "1280x720",
   );
   assert.equal("size" in buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p" }), false);
-  assert.equal("size" in buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", size: "1080p", ratio: "16:9" }), false);
-  assert.equal("size" in buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", size: "1920x1080" }), false);
+  assert.throws(
+    () => buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", size: "1080p", ratio: "16:9" }),
+    /OpenAI 官方 Videos 的 size .* 1080p/,
+  );
+  assert.throws(
+    () => buildOpenAiOfficialVideoBody({ model: "sora-2", prompt: "p", size: "1920x1080" }),
+    /OpenAI 官方 Videos 的 size .* 1920x1080/,
+  );
 });
 
-test("Ark create body omits undocumented resolution even when Studio supplies it", () => {
+test("Ark create body sends official resolution, watermark, and return_last_frame", () => {
   const body = buildArkVideoBody({
-    model: "seedance",
+    model: "doubao-seedance-2-0-260128",
     prompt: "p",
-    resolution: "720p",
+    resolution: "1080P",
     duration: 5,
     ratio: "16:9",
+    generateAudio: false,
+    watermark: true,
+    returnLastFrame: true,
   });
-  assert.equal("resolution" in body, false);
+  assert.equal(body.resolution, "1080p");
+  assert.equal(body.generate_audio, false);
+  assert.equal(body.watermark, true);
+  assert.equal(body.return_last_frame, true);
   assert.equal(body.duration, 5);
   assert.equal(body.ratio, "16:9");
+  assert.equal("fps" in body, false);
+});
+
+test("Ark create body rejects resolution not in the official enum", () => {
+  assert.throws(
+    () =>
+      buildArkVideoBody({
+        model: "seedance",
+        prompt: "p",
+        resolution: "2k",
+        duration: 5,
+        ratio: "16:9",
+      }),
+    /Ark 官方视频 resolution 只接受 480p \/ 720p \/ 1080p \/ 4k/,
+  );
 });
 
 test("DashScope wan2.6-i2v uses img_url for its first-frame contract", () => {
@@ -777,26 +926,209 @@ test("DashScope wan2.6-i2v rejects lastFrameUrl instead of silently dropping it"
   );
 });
 
-test("DashScope happyhorse omits undocumented negative_prompt", () => {
+test("DashScope known video families reject configurable fps instead of silently dropping it", () => {
+  for (const model of ["wan2.6-t2v", "wan2.7-t2v", "wan3.0-video", "happyhorse-1.1-t2v"]) {
+    assert.throws(
+      () => buildDashscopeVideoBody({ model, prompt: "p", fps: 24 }),
+      /DashScope.*fps.*固定|不支持.*fps/iu,
+      model,
+    );
+  }
+});
+
+test("DashScope wan2.6 rejects an unknown ratio instead of falling back to 16:9", () => {
+  assert.throws(
+    () => buildDashscopeVideoBody({ model: "wan2.6-t2v", prompt: "p", ratio: "21:9", resolution: "720P" }),
+    /wan2\.6.*ratio|画幅.*21:9|21:9.*不支持/iu,
+  );
+});
+
+test("DashScope happyhorse rejects unsupported negativePrompt instead of dropping it", () => {
+  assert.throws(
+    () =>
+      buildDashscopeVideoBody({
+        model: "happyhorse-1.1-r2v",
+        prompt: "p",
+        imageUrls: ["https://example.test/a.png"],
+        negativePrompt: "n",
+      }),
+    /HappyHorse.*negativePrompt|negative_prompt.*不支持/iu,
+  );
+});
+
+test("DashScope wan2.7-t2v rejects boolean generateAudio instead of dropping it", () => {
+  assert.throws(
+    () => buildDashscopeVideoBody({ model: "wan2.7-t2v", prompt: "p", generateAudio: false }),
+    /wan2\.7.*generateAudio|parameters\.audio.*不支持/iu,
+  );
+});
+
+test("DashScope wan3.0-video sends official parameters.audio watermark seed prompt_extend", () => {
+  assert.throws(
+    () => buildDashscopeVideoBody({ model: "wan3.0-video", prompt: "p", negativePrompt: "n" }),
+    /wan3.*negativePrompt|negative_prompt.*不支持/iu,
+  );
   const body = buildDashscopeVideoBody({
-    model: "happyhorse-1.1-r2v",
+    model: "wan3.0-video",
     prompt: "p",
-    imageUrls: ["https://example.test/a.png"],
+    generateAudio: false,
+    watermark: true,
+    seed: 12345,
+    promptExpansion: false,
+  });
+  const parameters = body.parameters as Record<string, unknown>;
+  assert.equal(parameters.audio, false);
+  assert.equal(parameters.watermark, true);
+  assert.equal(parameters.seed, 12345);
+  assert.equal(parameters.prompt_extend, false);
+  assert.equal("negative_prompt" in (body.input as Record<string, unknown>), false);
+});
+
+test("DashScope wan2.7-r2v uses media reference_image and official parameter fields", () => {
+  const body = buildDashscopeVideoBody({
+    model: "wan2.7-r2v",
+    prompt: "p",
+    imageUrls: ["https://example.test/a.png", "https://example.test/b.png"],
+    ratio: "16:9",
+    resolution: "720P",
+    duration: 10,
+    watermark: true,
+    seed: 7,
+    promptExpansion: false,
     negativePrompt: "n",
   });
   const input = body.input as { media?: Array<{ type?: string; url?: string }>; negative_prompt?: string };
-  assert.deepEqual(input.media, [{ type: "reference_image", url: "https://example.test/a.png" }]);
-  assert.equal("negative_prompt" in input, false);
+  assert.deepEqual(input.media, [
+    { type: "reference_image", url: "https://example.test/a.png" },
+    { type: "reference_image", url: "https://example.test/b.png" },
+  ]);
+  assert.equal(input.negative_prompt, "n");
+  const parameters = body.parameters as Record<string, unknown>;
+  assert.equal(parameters.ratio, "16:9");
+  assert.equal(parameters.resolution, "720P");
+  assert.equal(parameters.duration, 10);
+  assert.equal(parameters.watermark, true);
+  assert.equal(parameters.seed, 7);
+  assert.equal(parameters.prompt_extend, false);
+  assert.equal("audio" in parameters, false);
 });
 
-test("DashScope default family omits undocumented parameters.audio", () => {
+test("DashScope wan2.6-r2v uses reference_urls and size instead of media", () => {
   const body = buildDashscopeVideoBody({
-    model: "wan3-t2v",
+    model: "wan2.6-r2v-flash",
     prompt: "p",
+    imageUrls: ["https://example.test/a.png"],
+    ratio: "16:9",
+    resolution: "720P",
     generateAudio: false,
+    watermark: true,
+    seed: 9,
   });
-  assert.equal("audio" in (body.parameters as Record<string, unknown>), false);
-  assert.equal("generate_audio" in (body.parameters as Record<string, unknown>), false);
+  const input = body.input as { reference_urls?: string[]; media?: unknown };
+  assert.deepEqual(input.reference_urls, ["https://example.test/a.png"]);
+  assert.equal("media" in input, false);
+  const parameters = body.parameters as Record<string, unknown>;
+  assert.equal(parameters.size, "1280*720");
+  assert.equal("ratio" in parameters, false);
+  assert.equal(parameters.audio, false);
+  assert.equal(parameters.watermark, true);
+  assert.equal(parameters.seed, 9);
+});
+
+test("DashScope wan2.6-t2v puts negative_prompt in input and official extras in parameters", () => {
+  const body = buildDashscopeVideoBody({
+    model: "wan2.6-t2v",
+    prompt: "p",
+    ratio: "16:9",
+    negativePrompt: "n",
+    watermark: false,
+    seed: 3,
+    promptExpansion: true,
+    audioUrl: "https://example.test/a.mp3",
+  });
+  const input = body.input as Record<string, unknown>;
+  assert.equal(input.negative_prompt, "n");
+  assert.equal(input.audio_url, "https://example.test/a.mp3");
+  const parameters = body.parameters as Record<string, unknown>;
+  assert.equal(parameters.size, "1280*720");
+  assert.equal(parameters.watermark, false);
+  assert.equal(parameters.seed, 3);
+  assert.equal(parameters.prompt_extend, true);
+  assert.equal("negative_prompt" in parameters, false);
+});
+
+test("DashScope wan2.7-i2v sends driving_audio and omits ratio", () => {
+  const body = buildDashscopeVideoBody({
+    model: "wan2.7-i2v",
+    prompt: "p",
+    imageUrl: "first",
+    audioUrl: "https://example.test/a.mp3",
+    watermark: true,
+    seed: 4,
+    promptExpansion: false,
+  });
+  const input = body.input as { media?: Array<{ type?: string; url?: string }> };
+  assert.deepEqual(input.media, [
+    { type: "first_frame", url: "first" },
+    { type: "driving_audio", url: "https://example.test/a.mp3" },
+  ]);
+  const parameters = body.parameters as Record<string, unknown>;
+  assert.equal("ratio" in parameters, false);
+  assert.equal(parameters.watermark, true);
+  assert.equal(parameters.seed, 4);
+  assert.equal(parameters.prompt_extend, false);
+});
+
+test("xAI official R2V refuses more than 7 reference_images", () => {
+  assert.throws(
+    () =>
+      buildXaiImagineVideoBody({
+        model: "grok-imagine-video-1.5",
+        prompt: "p",
+        image_urls: Array.from({ length: 8 }, (_, index) => `https://example.test/${index}.png`),
+      }),
+    /最多 7 张|reference_images/,
+  );
+  const seven = buildXaiImagineVideoBody({
+    model: "grok-imagine-video-1.5",
+    prompt: "p",
+    image_urls: Array.from({ length: 7 }, (_, index) => `https://example.test/${index}.png`),
+  });
+  assert.equal((seven.reference_images as unknown[]).length, 7);
+});
+
+test("xAI official validates duration, resolution, aspect ratio, and model-specific audio", () => {
+  const base = { model: "grok-imagine-video-1.5", prompt: "p" };
+  assert.throws(() => buildXaiImagineVideoBody({ ...base, duration: 16 }), /duration.*1.*15|1–15/iu);
+  assert.throws(() => buildXaiImagineVideoBody({ ...base, resolution: "2k" }), /resolution.*480p.*720p.*1080p/iu);
+  assert.throws(() => buildXaiImagineVideoBody({ ...base, aspect_ratio: "21:9" }), /aspect_ratio.*1:1.*16:9/iu);
+  assert.throws(
+    () => buildXaiImagineVideoBody({ model: "grok-imagine-video", prompt: "p", generateAudio: false }),
+    /generate_audio.*1\.5|音频.*1\.5/iu,
+  );
+  assert.throws(
+    () => buildXaiImagineVideoBody({ ...base, resolution: "1080p", image_urls: ["https://example.test/a.png"] }),
+    /R2V.*720p|reference_images.*720p/iu,
+  );
+});
+
+test("xAI relay preserves compatibility extensions without applying official enums", () => {
+  const refs = Array.from({ length: 8 }, (_, index) => `https://example.test/${index}.png`);
+  const body = buildXaiImagineVideoBody({
+    model: "grok-imagine-video",
+    prompt: "p",
+    profile: "relay",
+    duration: 16,
+    resolution: "2k",
+    aspect_ratio: "21:9",
+    generateAudio: false,
+    image_urls: refs,
+  });
+  assert.equal(body.duration, 16);
+  assert.equal(body.resolution, "2k");
+  assert.equal(body.aspect_ratio, "21:9");
+  assert.equal(body.generate_audio, false);
+  assert.deepEqual(body.image_urls, refs);
 });
 
 test("xAI official poll path stays /videos/{id} and create stays /videos/generations", () => {
@@ -819,17 +1151,25 @@ test("xAI official poll path stays /videos/{id} and create stays /videos/generat
   );
 });
 
-test("official OpenAI JSON input_reference is a single image_url object and never a file field", () => {
+test("official OpenAI JSON input_reference is one image_url object and rejects extras", () => {
   const body = buildOpenAiOfficialVideoBody({
     model: "sora-2",
     prompt: "p",
     first_frame: "https://example.test/a.png",
-    image_urls: ["https://example.test/c.png"],
   });
   assert.deepEqual(body.input_reference, { image_url: "https://example.test/a.png" });
   assert.equal("file_id" in (body.input_reference as Record<string, unknown>), false);
   assert.equal(typeof body.input_reference, "object");
   assert.equal(Array.isArray(body.input_reference), false);
+  assert.throws(
+    () => buildOpenAiOfficialVideoBody({
+      model: "sora-2",
+      prompt: "p",
+      first_frame: "https://example.test/a.png",
+      image_urls: ["https://example.test/c.png"],
+    }),
+    /OpenAI 官方.*image_urls|input_reference/iu,
+  );
 });
 
 test("official OpenAI retrieve-then-content skips content fetch when a file URL is already present", () => {
@@ -898,6 +1238,72 @@ test("Civitai customer builder emits the official videoGen workflow body", () =>
       },
     ],
   });
+});
+
+test("Civitai customer video forwards verified LTX and Hunyuan generation fields", () => {
+  const ltx = buildCustomerVideoStudioRequest({
+    adapterType: "civitai-orchestration",
+    model: "ltx2.3",
+    baseUrl: "https://orchestration.civitai.com/v2/consumer",
+    protocol: "civitai",
+    prompt: "p",
+    duration: 6,
+    ratio: "9:16",
+    fps: 30,
+    generateAudio: false,
+    negative_prompt: "blur",
+    seed: 17,
+    steps: 32,
+    guidance: 5.5,
+    modelVariant: "22b-dev",
+    width: 720,
+    height: 1280,
+  });
+  const ltxInput = (ltx.body.steps as Array<{ input: Record<string, unknown> }>)[0]!.input;
+  assert.equal(ltxInput.duration, 6);
+  assert.equal(ltxInput.fps, 30);
+  assert.equal(ltxInput.generateAudio, false);
+  assert.equal(ltxInput.negativePrompt, "blur");
+  assert.equal(ltxInput.seed, 17);
+  assert.equal(ltxInput.numInferenceSteps, 32);
+  assert.equal(ltxInput.guidanceScale, 5.5);
+  assert.equal(ltxInput.model, "22b-dev");
+  assert.equal(ltxInput.width, 720);
+  assert.equal(ltxInput.height, 1280);
+
+  const hunyuan = buildCustomerVideoStudioRequest({
+    adapterType: "civitai-orchestration",
+    model: "hunyuan",
+    baseUrl: "https://orchestration.civitai.com/v2/consumer",
+    protocol: "civitai",
+    prompt: "p",
+    duration: 12,
+    ratio: "1:1",
+    fps: 25,
+    seed: 22,
+    steps: 40,
+    guidance: 6,
+    width: 480,
+    height: 480,
+  });
+  const hunyuanInput = (hunyuan.body.steps as Array<{ input: Record<string, unknown> }>)[0]!.input;
+  assert.equal(hunyuanInput.duration, 12);
+  assert.equal(hunyuanInput.frameRate, 25);
+  assert.equal(hunyuanInput.seed, 22);
+  assert.equal(hunyuanInput.steps, 40);
+  assert.equal(hunyuanInput.cfgScale, 6);
+  assert.equal(hunyuanInput.width, 480);
+  assert.equal(hunyuanInput.height, 480);
+
+  assert.throws(
+    () => buildCustomerVideoStudioRequest({
+      adapterType: "civitai-orchestration",
+      model: "hunyuan",
+      prompt: "p",
+      negative_prompt: "stale",
+    }),
+    /Hunyuan.*negative|负面提示词.*不支持/iu,
+  );
 });
 
 test("Civitai customer poll plans GetBlob for a nested completed workflow", () => {

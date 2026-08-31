@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildImageStudioGenerateFields,
+  buildImageStudioRequest,
   buildImageStudioLoras,
   imageStudioCheckpointError,
   imageStudioParamState,
@@ -24,6 +25,7 @@ test("Civitai adapter wins over seedream/ark name matching", () => {
   assert.equal(resolveImageStudioFamily("preset-volcengine-plan::doubao-seedream-5.0-lite", "ark-plan"), "ark");
   assert.equal(resolveImageStudioFamily("preset-civitai::flux1", "civitai"), "civitai");
   assert.equal(resolveImageStudioFamily("preset-openai::gpt-image-2", "openai-compat"), "gpt");
+  assert.equal(resolveImageStudioFamily("preset-openai::chatgpt-image-latest", "openai-compat"), "gpt");
   assert.equal(resolveImageStudioFamily("preset-grok-relay::grok-imagine-image", "xai-imagine"), "grok");
   assert.equal(resolveImageStudioFamily("preset-openai::sdxl", "openai-compat"), "generic");
 });
@@ -100,26 +102,121 @@ test("Seedream keeps its backend-supported seed control and wire value", () => {
   assert.equal(payload.seed, 123);
 });
 
-test("non-Civitai providers never show Civitai LoRA/checkpoint and keep the 1–4 quantity cap", () => {
+test("non-Civitai providers never show Civitai LoRA/checkpoint and follow published output counts", () => {
   const ark = imageStudioParamState("ark", "doubao-seedream-5.0-lite");
   assert.equal(ark.showLora, false);
   assert.equal(ark.needsCheckpoint, false);
-  assert.deepEqual(ark.quantityOptions, [1, 2, 4]);
+  assert.equal(ark.quantityMax, null);
+  assert.deepEqual(ark.quantityOptions, [1, 2, 4, 6, 8, 10]);
 
   const grok = imageStudioParamState("grok", "grok-imagine-image");
   assert.equal(grok.showLora, false);
-  assert.equal(grok.quantityMax, 4);
+  assert.equal(grok.quantityMax, 10);
+  assert.deepEqual(grok.quantityOptions, [1, 2, 4, 6, 8, 10]);
 
   const gpt = imageStudioParamState("gpt", "gpt-image-2");
-  assert.deepEqual(gpt.quantityOptions, [1, 2, 4]);
+  assert.equal(gpt.quantityMax, 10);
+  assert.deepEqual(gpt.quantityOptions, [1, 2, 4, 6, 8, 10]);
   assert.equal(gpt.showLora, false);
   assert.equal(gpt.needsCheckpoint, false);
+  assert.equal(gpt.referenceMax, 0);
 
   const fal = imageStudioParamState("generic", "flux-dev");
   assert.equal(fal.showLora, false);
   assert.equal(fal.needsCheckpoint, false);
   assert.equal(fal.showSeed, false);
-  assert.deepEqual(fal.quantityOptions, [1, 2, 4]);
+  assert.equal(fal.quantityMax, null);
+  assert.deepEqual(fal.quantityOptions, [1, 2, 4, 6, 8, 10]);
+});
+
+test("GPT Image edit uses official n 1-10 and 16 reference images, not a hard 3-image cap", () => {
+  for (const model of ["gpt-image-2", "gpt-image-2-2026-04-21", "chatgpt-image-latest"]) {
+    const gpt = imageStudioParamState("gpt", model, "edit");
+    assert.equal(gpt.quantityMax, 10, model);
+    assert.deepEqual(gpt.quantityOptions, [1, 2, 4, 6, 8, 10]);
+    assert.equal(gpt.referenceMin, 1, model);
+    assert.equal(gpt.referenceMax, 16, model);
+    assert.equal(gpt.referencesSupported, true, model);
+    assert.equal(imageStudioRefError("gpt", model, "edit", 16), "");
+    assert.match(imageStudioRefError("gpt", model, "edit", 17), /最多 16 张/);
+  }
+
+  const generated = buildImageStudioGenerateFields({
+    family: "gpt",
+    model: "gpt-image-2",
+    mode: "t2i",
+    quality: "std",
+    aspect: "1:1",
+    size: "2K",
+    seed: "",
+    count: 10,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(generated.error, undefined);
+  assert.equal(generated.count, 10);
+  assert.equal(generated.n, 10);
+
+  const staleReference = buildImageStudioGenerateFields({
+    family: "gpt",
+    model: "gpt-image-2",
+    mode: "t2i",
+    quality: "std",
+    aspect: "1:1",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: ["data:image/png;base64,stale"],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.match(String(staleReference.error), /文生图.*参考图|参考图.*图生图/);
+
+  const references = Array.from({ length: 16 }, (_, index) => `data:image/png;base64,ref${index}`);
+  const edited = buildImageStudioGenerateFields({
+    family: "gpt",
+    model: "gpt-image-2",
+    mode: "edit",
+    quality: "hq",
+    aspect: "1:1",
+    size: "2K",
+    seed: "",
+    count: 10,
+    references,
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(edited.error, undefined);
+  assert.equal(edited.n, 10);
+  assert.equal(edited.imageUrls?.length, 16);
+});
+
+test("xAI Imagine keeps the official 3-reference edit cap and n 1-10", () => {
+  const grok = imageStudioParamState("grok", "grok-imagine-image-2.0", "edit");
+  assert.equal(grok.quantityMax, 10);
+  assert.equal(grok.referenceMax, 3);
+  assert.equal(imageStudioRefError("grok", "grok-imagine-image-2.0", "edit", 3), "");
+  assert.match(imageStudioRefError("grok", "grok-imagine-image-2.0", "edit", 4), /最多 3 张/);
+
+  const generated = buildImageStudioGenerateFields({
+    family: "grok",
+    model: "grok-imagine-image-2.0",
+    mode: "t2i",
+    quality: "std",
+    aspect: "16:9",
+    size: "2k",
+    seed: "",
+    count: 10,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(generated.n, 10);
 });
 
 test("quantity chips snap to the engine max instead of a hard 4", () => {
@@ -526,7 +623,7 @@ test("Civitai image width/height snap to multiples of 16 inside the live engine 
   assert.equal(gpt.height, undefined);
 });
 
-test("GPT Image HQ size follows each model profile and preserves edit references", () => {
+test("GPT Image sizes follow each model profile and preserve edit references", () => {
   const gpt2 = buildImageStudioGenerateFields({
     family: "gpt",
     model: "gpt-image-2",
@@ -558,7 +655,7 @@ test("GPT Image HQ size follows each model profile and preserves edit references
       checkpointAir: "",
       dims: DIMS,
     });
-    assert.equal(generated.size, "1536x1024");
+    assert.equal(generated.size, "1024x1024");
 
     const references = ["data:image/png;base64,first", "data:image/png;base64,second"];
     const edited = buildImageStudioGenerateFields({
@@ -575,7 +672,94 @@ test("GPT Image HQ size follows each model profile and preserves edit references
       checkpointAir: "",
       dims: DIMS,
     });
-    assert.equal(edited.size, "1536x1024");
+    assert.equal(edited.size, "1024x1024");
     assert.deepEqual(edited.imageUrls, references);
+
+    const landscape = buildImageStudioGenerateFields({
+      family: "gpt",
+      model,
+      mode: "t2i",
+      quality: "std",
+      aspect: "16:9",
+      size: "2K",
+      seed: "",
+      count: 1,
+      references: [],
+      loras: [],
+      checkpointAir: "",
+      dims: DIMS,
+    });
+    assert.equal(landscape.size, "1536x1024");
+  }
+});
+
+test("page request mapping forwards GPT quality and every edit reference", () => {
+  const references = Array.from({ length: 16 }, (_, index) => `data:image/png;base64,ref${index}`);
+  const payload = buildImageStudioGenerateFields({
+    family: "gpt",
+    model: "gpt-image-2",
+    mode: "edit",
+    quality: "hq",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 10,
+    references,
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+
+  assert.deepEqual(buildImageStudioRequest({
+    mode: "edit",
+    relays: [],
+    prompt: "change the lighting",
+    providerId: "preset-openai",
+    model: "gpt-image-2",
+    payload,
+    workTitle: "改图",
+  }), {
+    relays: [],
+    prompt: "change the lighting",
+    providerId: "preset-openai",
+    model: "gpt-image-2",
+    size: "1536x864",
+    aspectRatio: "16:9",
+    width: undefined,
+    height: undefined,
+    seed: undefined,
+    quality: "high",
+    imageUrl: references[0],
+    imageUrls: references,
+    negativePrompt: undefined,
+    n: 10,
+    operation: "edit",
+    loras: undefined,
+    checkpointAir: undefined,
+    workTitle: "改图",
+  });
+});
+
+test("GPT Image 2 aliases transmit quality and an aspect-ratio-compatible edit size", () => {
+  for (const model of ["gpt-image-2", "gpt-image-2-2026-04-21", "chatgpt-image-latest"]) {
+    const edited = buildImageStudioGenerateFields({
+      family: "gpt",
+      model,
+      mode: "edit",
+      quality: "hq",
+      aspect: "16:9",
+      size: "2K",
+      seed: "",
+      count: 10,
+      references: ["data:image/png;base64:first"],
+      loras: [],
+      checkpointAir: "",
+      dims: DIMS,
+    });
+    assert.equal(edited.error, undefined, model);
+    assert.equal(edited.quality, "high", model);
+    assert.equal(edited.aspectRatio, "16:9", model);
+    assert.equal(edited.size, "1536x864", model);
+    assert.equal(edited.n, 10, model);
   }
 });

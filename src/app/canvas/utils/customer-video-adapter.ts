@@ -1,4 +1,5 @@
 import type { CanvasNodeData, VideoReferenceRole } from '../types';
+import type { VideoGenerationSettings } from '../../../stores/video-generation-settings';
 
 export const CUSTOMER_VIDEO_SUBMIT_PATH = '/v1/videos/generations';
 
@@ -15,12 +16,25 @@ export type Seedance2CustomerVideoPayload = {
   prompt: string;
   ratio: string;
   duration: number;
+  resolution?: string;
+  fps?: number;
+  generateAudio?: boolean;
   negative_prompt?: string;
   reference_image?: string;
   reference_images?: string[];
   first_frame?: string;
   last_frame?: string;
   references?: Seedance2CustomerVideoReference[];
+  seed?: number;
+  steps?: number;
+  guidance?: number;
+  modelVariant?: string;
+  watermark?: boolean;
+  promptExpansion?: boolean;
+  returnLastFrame?: boolean;
+  audioUrl?: string;
+  width?: number;
+  height?: number;
   /** Internal preflight-only candidates; never serialized without an explicit profile. */
   reference_videos?: Array<{ name?: string; useAs?: string }>;
 };
@@ -134,33 +148,104 @@ function assertCustomerVideoPayloadHasNoUnmappedMedia(payload: Seedance2Customer
   }
 }
 
+function hasCustomerVideoSetting(value: unknown) {
+  return value !== undefined && value !== null && (typeof value !== 'string' || Boolean(value.trim()));
+}
+
+function customerVideoDimensions(value: VideoGenerationSettings['dimensions']) {
+  if (typeof value === 'string') {
+    const match = value.trim().match(/^(\d+)\s*[x×*]\s*(\d+)$/u);
+    if (!match) throw new Error(`customer 视频 dimensions 必须是 width x height，收到 ${value}`);
+    return { width: Number(match[1]), height: Number(match[2]) };
+  }
+  if (value && Number.isInteger(value.width) && Number.isInteger(value.height) && value.width > 0 && value.height > 0) {
+    return { width: value.width, height: value.height };
+  }
+  throw new Error('customer 视频 dimensions 的 width 和 height 必须是正整数');
+}
+
+const CUSTOMER_VIDEO_MAPPED_SETTING_KEYS = [
+  'duration',
+  'fps',
+  'resolution',
+  'dimensions',
+  'aspectRatio',
+  'audio',
+  'watermark',
+  'negativePrompt',
+  'seed',
+  'steps',
+  'guidance',
+  'modelVariant',
+  'promptExpansion',
+  'returnLastFrame',
+  'providerDefaultFields',
+] as const;
+
+function assertCustomerVideoSettingsHaveNoUnmappedFields(settings: VideoGenerationSettings) {
+  const mapped = new Set<string>(CUSTOMER_VIDEO_MAPPED_SETTING_KEYS);
+  for (const [name, value] of Object.entries(settings as Record<string, unknown>)) {
+    if (!hasCustomerVideoSetting(value)) continue;
+    if (mapped.has(name)) continue;
+    throw new Error(`当前 customer 视频 serializer 未验证 ${name} 的请求字段；不会静默丢弃该设置。`);
+  }
+}
+
+function customerVideoSettingsFields(settings: VideoGenerationSettings) {
+  assertCustomerVideoSettingsHaveNoUnmappedFields(settings);
+  const fields: Partial<Seedance2CustomerVideoPayload> = {};
+  if (hasCustomerVideoSetting(settings.resolution)) fields.resolution = String(settings.resolution).trim();
+  if (typeof settings.fps === 'number') fields.fps = settings.fps;
+  if (typeof settings.audio === 'boolean') fields.generateAudio = settings.audio;
+  else if (typeof settings.audio === 'string' && settings.audio.trim()) fields.audioUrl = settings.audio.trim();
+  else if (Array.isArray(settings.audio) && settings.audio.length) {
+    throw new Error('当前 customer 视频 serializer 只验证单个 audio URL；不会把音频数组猜测成一个请求字段。');
+  }
+  if (hasCustomerVideoSetting(settings.negativePrompt)) fields.negative_prompt = String(settings.negativePrompt).trim();
+  if (typeof settings.seed === 'number') fields.seed = settings.seed;
+  if (typeof settings.steps === 'number') fields.steps = settings.steps;
+  if (typeof settings.guidance === 'number') fields.guidance = settings.guidance;
+  if (hasCustomerVideoSetting(settings.modelVariant)) fields.modelVariant = String(settings.modelVariant).trim();
+  if (typeof settings.watermark === 'boolean') fields.watermark = settings.watermark;
+  if (typeof settings.promptExpansion === 'boolean') fields.promptExpansion = settings.promptExpansion;
+  if (typeof settings.returnLastFrame === 'boolean') fields.returnLastFrame = settings.returnLastFrame;
+  if (hasCustomerVideoSetting(settings.dimensions)) Object.assign(fields, customerVideoDimensions(settings.dimensions));
+  return fields;
+}
+
 export function buildSeedance2CustomerVideoPayload(
   node: CanvasNodeData,
   references: Seedance2CustomerVideoReference[] = [],
   videos: Array<{ name?: string; useAs?: string }> = [],
 ): Seedance2CustomerVideoPayload {
   const meta = node.metadata || {};
+  const settings = (meta.videoGenerationSettings || {}) as VideoGenerationSettings;
   const prompt = String(meta.prompt || meta.content || '').trim();
   const frames = mapCustomerVideoFrameReferences(references, videos);
-  const ratio = normalizeCustomerVideoRatio(meta.seedanceRatio || meta.size || '9:16');
-  const duration = normalizeCustomerVideoDuration(meta.seedanceDuration || meta.seconds || 5);
+  const ratioValue = hasCustomerVideoSetting(settings.aspectRatio)
+    ? String(settings.aspectRatio).trim()
+    : meta.seedanceRatio || meta.size || '9:16';
+  const durationValue = hasCustomerVideoSetting(settings.duration)
+    ? settings.duration
+    : meta.seedanceDuration || meta.seconds || 5;
   const payload: Seedance2CustomerVideoPayload = {
     mode: frames.mode,
     prompt,
-    ratio,
-    duration,
+    ratio: normalizeCustomerVideoRatio(ratioValue),
+    duration: normalizeCustomerVideoDuration(durationValue),
+    ...customerVideoSettingsFields(settings),
     ...(frames.first_frame ? { first_frame: frames.first_frame } : {}),
     ...(frames.last_frame ? { last_frame: frames.last_frame } : {}),
   };
   const negativePrompt = String(meta.negativePrompt || '').trim();
-  if (negativePrompt) payload.negative_prompt = negativePrompt;
+  if (negativePrompt && payload.negative_prompt === undefined) payload.negative_prompt = negativePrompt;
   return payload;
 }
 
 /**
- * Generic serializer 只发出 prompt/ratio/duration。
- * 已验证的 first_frame/last_frame 留在原始 payload 上，交给 buildCustomerVideoStudioRequest
- * 映射为官方 OpenAI `input_reference` 或 Agnes `image` / `extra_body.image` keyframes。
+ * Serialize the validated customer video fields while keeping first_frame/last_frame
+ * on the original payload for buildCustomerVideoStudioRequest. That builder maps them
+ * to each verified provider-specific wire contract.
  */
 export function buildCustomerVideoWirePayload(payload: Seedance2CustomerVideoPayload) {
   assertCustomerVideoPayloadHasNoUnmappedMedia(payload);

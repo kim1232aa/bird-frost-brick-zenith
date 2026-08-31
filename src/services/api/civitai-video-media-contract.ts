@@ -101,6 +101,7 @@ const DEFINITIONS = [
     contract("video/happyHorse/v1.1/imageToVideo", "civitai-i2v", "happyhorse-single-image", ["first_frame"], 1),
     contract("video/happyHorse/v1.1/referenceToVideo", "civitai-reference-images", "happyhorse-reference-images", ["reference_set"], 9, { storyAutoReferencePolicy: "semantic-references", evidence: HAPPYHORSE_REFERENCE_EVIDENCE }),
     contract("video/hunyuan", "civitai-text-video", "text-only", ["none"], 0),
+    contract("video/wan/v2.2/comfy", "civitai-text-video", "text-only", ["none"], 0),
     contract("video/kling", "civitai-i2v", "kling-optional-source-image", ["none", "first_frame"], 1),
     contract("video/kling-v3", "civitai-frames-or-references", "kling-v3", ["none", "first_frame", "first_last_frame", "reference_set", "reference_set_with_frames"], 7, { acceptsReferenceVideos: true, videoMaximum: 1, storyAutoReferencePolicy: "semantic-references", evidence: KLING_V3_REFERENCE_EVIDENCE }),
     contract("video/ltx2.3/createVideo", "civitai-i2v", "ltx-optional-source-array", ["none", "first_frame"], 1),

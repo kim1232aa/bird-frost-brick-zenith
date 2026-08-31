@@ -158,9 +158,15 @@ test("Agnes video V2.0 maps duration to documented num_frames/frame_rate and omi
     negativePrompt: "watermark",
     imageUrls: ["https://example.test/extra.png"],
     lastFrameUrl: "https://example.test/last.png",
+    width: 1152,
+    height: 768,
+    seed: 42,
   });
   assert.equal(body.num_frames, 121);
   assert.equal(body.frame_rate, 24);
+  assert.equal(body.width, 1152);
+  assert.equal(body.height, 768);
+  assert.equal(body.seed, 42);
   assert.equal("fps" in body, false);
   assert.equal("duration" in body, false);
   assert.equal("generate_audio" in body, false);
@@ -181,6 +187,27 @@ test("Agnes video V2.0 uses the documented 10-second 241-frame recommendation", 
   const body = buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", duration: 10 });
   assert.equal(body.num_frames, 241);
   assert.equal(body.frame_rate, 24);
+});
+
+test("Agnes video V2.0 sends an explicit frames value as official num_frames", () => {
+  const body = buildAgnesVideoBody({
+    model: "agnes-video-v2.0",
+    prompt: "p",
+    duration: 5,
+    fps: 24,
+    frames: 81,
+  });
+  assert.equal(body.num_frames, 81);
+  assert.equal(body.frame_rate, 24);
+  assert.equal("duration" in body, false);
+  assert.throws(
+    () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", frames: 80 }),
+    /8n\+1|num_frames/,
+  );
+  assert.throws(
+    () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", quantity: 2 }),
+    /不支持 quantity|不会静默/,
+  );
 });
 
 test("Agnes video V2.0 maps an explicit fps while preserving the 8n+1 frame rule", () => {

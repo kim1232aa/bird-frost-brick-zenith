@@ -21,7 +21,7 @@ export function isEditOnlyModel(model: string) {
 export function defaultEditKey(keys: string[]) {
   const preferred =
     keys.find((key) => /preset-superxihe-image::gpt-image-2/i.test(key)) ||
-    keys.find((key) => /gpt-image-2/i.test(key)) ||
+    keys.find((key) => /gpt-image-2|chatgpt-image-latest/i.test(key)) ||
     keys.find((key) => /qwen-image-edit/i.test(key)) ||
     keys.find((key) => /grok-imagine-image/i.test(key)) ||
     keys.find((key) => /flux\.2-dev|flux2-dev/i.test(key));

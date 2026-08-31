@@ -58,8 +58,28 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 
 test("the auth schema ships outside the globbed directory", () => {
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  const topLevel = readdirSync(migrationsDir);
+  // Source stays in auth/. Node's readdirSync is non-recursive by default
+  // (`recursive` defaults to false), matching migrate.mjs and
+  // import.meta.glob("/migrations/*.sql") — neither applier descends.
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
+  assert.ok(topLevel.includes("auth"));
+
+  const studioSchemas = [
+    "0002_studio.sql",
+    "0003_relay_vault.sql",
+    "0004_studio_works.sql",
+  ];
+  for (const name of studioSchemas) {
+    assert.ok(topLevel.includes(name), `top-level glob must include ${name}`);
+  }
+
+  const pending = pendingMigrations(topLevel, []);
+  assert.ok(pending.length > 0, "studio schema in the globbed directory must be pending");
+  const pendingNames = pending.map((m) => m.name);
+  for (const name of studioSchemas) {
+    assert.ok(pendingNames.includes(name), `pending must include ${name}`);
+  }
 });
 
 test("this workspace's auth schema copy is byte-identical to its source", () => {

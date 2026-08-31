@@ -127,11 +127,18 @@ test("non-Civitai image generate payload is not rewritten by Civitai caps or dro
     maskUrl: "https://example.test/mask.png",
     quality: "hd",
   });
-  assert.equal(fal.n, 4);
+  assert.equal(fal.n, 12);
   assert.deepEqual(fal.loras, loras);
   assert.equal(fal.checkpointAir, "urn:air:keep");
   assert.equal(fal.maskUrl, "https://example.test/mask.png");
   assert.equal(fal.quality, "hd");
+
+  const gpt = imageAdapterInput("openai-compat", "gpt-image-2", { n: 10, quality: "high" });
+  assert.equal(gpt.n, 10);
+  assert.equal(gpt.quality, "high");
+
+  const grok = imageAdapterInput("xai-imagine", "grok-imagine-image-2.0", { n: 10 });
+  assert.equal(grok.n, 10);
 });
 
 test("Civitai LTX generate payload sends explicit generateAudio and aspectRatio as width/height", () => {

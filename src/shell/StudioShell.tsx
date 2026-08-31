@@ -4,17 +4,15 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Menu, X } from "lucide-react";
 import { STUDIO_NAV } from "./nav";
+import { studioShellLayout } from "./studio-page-layout";
 import { useOpsStore } from "@/studio/ops";
 import { accountLabel, canEnterOps, useAccountStore } from "@/studio/account";
 
 export function StudioShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const path = pathname.replace(/\/+$/, "") || "/";
-  const isOps = path.startsWith("/admin");
-  const isCanvas = path.startsWith("/canvas");
-  const isWorkspace = path.startsWith("/canvas/workspace");
-  const isAccount = path === "/account" || path === "/login" || path === "/register";
-  const flush = isOps || isCanvas || isAccount || path === "/story";
+  const layout = studioShellLayout(pathname);
+  const path = layout.path;
+  const isOps = layout.isOps;
   const imageCredits = useOpsStore((state) => state.credits.image);
   const session = useAccountStore((state) => state.session);
   const isGuest = useAccountStore((state) => state.isGuest);
@@ -35,7 +33,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
   }, [path]);
 
   return (
-    <div className={isCanvas ? "studio-root min-h-screen is-canvas" : "studio-root min-h-screen"}>
+    <div className={layout.rootClass}>
       <header className="studio-topbar">
         <Link to="/" className="studio-brand" onClick={() => setMenuOpen(false)}>
           <span className="studio-mark" aria-hidden />
@@ -110,15 +108,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
           {admin ? <Link to="/admin">运营后台</Link> : null}
         </nav>
       ) : null}
-      <div
-        className={
-          flush
-            ? isWorkspace || isOps || path === "/story"
-              ? "studio-page studio-flush"
-              : "studio-page studio-flush studio-flush-scroll"
-            : "studio-page"
-        }
-      >
+      <div className={layout.pageClass}>
         {children}
       </div>
     </div>

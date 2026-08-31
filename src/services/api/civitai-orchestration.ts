@@ -1,7 +1,7 @@
 import { resolveCivitaiService, type CivitaiGenerationService } from "@/services/api/civitai-services";
 import { resolveCivitaiVideoMediaContract } from "@/services/api/civitai-video-media-contract";
 import { assertCivitaiLoraCompatibility, civitaiLoraUnsupportedMessage, isCivitaiArrayLoraService, parseCivitaiLoraAir } from "@/services/api/civitai-lora-resource";
-import { civitaiEngineAcceptsOptionalImages, civitaiPureTextToImageReferenceMessage, isCivitaiFalKrea2Service } from "@/services/api/image-model-capabilities";
+import { civitaiEngineAcceptsOptionalImages, civitaiPureTextToImageReferenceMessage, isCivitaiFalKrea2Service, isExactCivitaiOpenAIGptImage2Service } from "@/services/api/image-model-capabilities";
 import {
     VIDEO_GENERATION_PARAMETER_NAMES,
     resolveVideoModelCapability,
@@ -84,6 +84,8 @@ export type CivitaiImageWorkflowOptions = {
     readonly steps?: number;
     readonly guidance?: number;
     readonly cfgScale?: number;
+    readonly guidanceScale?: number;
+    readonly numInferenceSteps?: number;
     readonly sampler?: CivitaiSdCppSampleMethod | CivitaiComfySampler | "";
     readonly sampleMethod?: CivitaiSdCppSampleMethod | "";
     readonly scheduler?: CivitaiSdCppSchedule | CivitaiComfyScheduler | "";
@@ -102,6 +104,8 @@ export type CivitaiImageWorkflowOptions = {
     readonly embeddings?: readonly string[];
     readonly uCache?: "off" | "normal";
     readonly allowMatureContent?: boolean;
+    /** Flux2 Klein model version. */
+    readonly modelVersion?: "4b" | "4b-base" | "9b" | "9b-base" | "9b-kv";
 };
 
 const CIVITAI_SDCPP_SAMPLE_METHODS = [
@@ -164,6 +168,8 @@ export type CivitaiVideoWorkflowOptions = {
     readonly videos?: readonly string[];
     readonly audios?: readonly string[];
     readonly allowMatureContent?: boolean;
+    /** LTX 2.3 uses a map; Hunyuan and WAN v2.2 Comfy use VideoGenInputLora arrays. */
+    readonly loras?: Readonly<Record<string, number>>;
 };
 
 type CivitaiVideoReferenceParts = {
@@ -174,6 +180,9 @@ type CivitaiVideoReferenceParts = {
 
 export function buildCivitaiImageWorkflow(options: CivitaiImageWorkflowOptions) {
     const service = requireCivitaiService(options.model, options.service, "imageGen");
+    if (String(service.parameters.engine || "").trim().toLowerCase() === "openai" && !isExactCivitaiOpenAIGptImage2Service(service)) {
+        throw new Error(`Civitai / ${service.id} 不在已验证的 OpenAI 图片服务目录中；仅支持 gpt-image-2 createImage/editImage`);
+    }
     const images = requireCompleteMediaArray(options.images || [], `Civitai / ${service.id} 参考图片`);
     const operation = service.parameters.operation || "";
     const engine = service.parameters.engine.toLowerCase();
@@ -206,8 +215,8 @@ export function buildCivitaiImageWorkflow(options: CivitaiImageWorkflowOptions) 
             $type: "imageGen",
             input: {
                 ...service.parameters,
-                ...(service.modalities.input.includes("text") || acceptsOptionalImages || kreaFal ? { prompt: options.prompt } : {}),
-                ...buildCivitaiImageSettings(engine, service.parameters, options),
+                ...(service.modalities.input.includes("text") || acceptsOptionalImages || kreaFal || operation === "createVariant" ? { prompt: options.prompt } : {}),
+                ...buildCivitaiImageSettings(service, options),
                 ...advancedInput,
                 ...imageInput,
                 ...maskInput,
@@ -232,9 +241,10 @@ function buildCivitaiImageMaskInput(service: CivitaiGenerationService, value: st
     const maskImage = nonEmptyString(value);
     if (!maskImage) throw new Error(`Civitai / ${service.id} 的 maskImage 不能为空`);
     const parameters = service.parameters;
-    const supportsMaskImage = parameters.engine === "openai"
-        && parameters.model === "gpt-image-2"
-        && parameters.operation === "editImage";
+    const engine = String(parameters.engine || "").toLowerCase();
+    const model = String(parameters.model || "").toLowerCase();
+    const operation = String(parameters.operation || "").toLowerCase();
+    const supportsMaskImage = engine === "openai" && model === "gpt-image-2" && operation === "editimage";
     if (!supportsMaskImage) throw new Error(`Civitai / ${service.id} 不支持 maskImage；不会把 Civitai 字段套到其他 service`);
     return { maskImage };
 }
@@ -246,25 +256,22 @@ function buildCivitaiImageAdvancedInput(
 ) {
     const provided = providedCivitaiImageAdvancedFields(options);
     const parameters = service.parameters;
-    const isZImage = parameters.engine === "sdcpp" && parameters.ecosystem === "zImage";
-    const isSdxlVariant = parameters.engine === "sdcpp"
-        && parameters.ecosystem === "sdxl"
-        && parameters.operation === "createVariant";
+    const engine = parameters.engine.toLowerCase();
+    const ecosystem = String(parameters.ecosystem || "").toLowerCase();
+    const operation = String(parameters.operation || "").toLowerCase();
+    const isZImage = engine === "sdcpp" && ecosystem === "zimage";
+    const isSdxlVariant = engine === "sdcpp" && ecosystem === "sdxl" && operation === "createvariant";
     if (isCivitaiFalKrea2Service(service)) return buildCivitaiFalKrea2AdvancedInput(service, options, images);
     if (isSdxlVariant) return buildCivitaiSdxlVariantAdvancedInput(service, options);
-    if (parameters.engine === "comfy") return buildCivitaiComfyAdvancedInput(service, options);
-    if (parameters.engine === "sdcpp" && parameters.operation === "createVariant") {
+    if (engine === "comfy") return buildCivitaiComfyAdvancedInput(service, options);
+    if (engine === "sdcpp" && operation === "createvariant") {
         return buildCivitaiSdcppVariantAdvancedInput(service, options);
     }
-    if (parameters.engine === "sdcpp" && (parameters.operation === "createImage" || parameters.operation === "editImage")) {
+    if (engine === "sdcpp" && (operation === "createimage" || operation === "editimage")) {
         return buildCivitaiSdcppAdvancedInput(service, options, isZImage);
     }
-    if (isCivitaiFlux2KleinService(service)) {
-        const leftover = provided.filter((field) => field !== "loras");
-        if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；当前 service 没有已验证的 serializer`);
-        const loras = normalizeCivitaiLoras(options.loras, service);
-        return loras ? { loras } : {};
-    }
+    if (isCivitaiFlux2KleinService(service)) return buildCivitaiFlux2KleinAdvancedInput(service, options);
+    if (isCivitaiFlux2DevService(service)) return buildCivitaiFlux2DevAdvancedInput(service, options);
     if (isCivitaiArrayLoraImageService(service)) {
         const leftover = provided.filter((field) => field !== "loras");
         if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；当前 service 没有已验证的 serializer`);
@@ -278,6 +285,10 @@ function buildCivitaiImageAdvancedInput(
 
 function isCivitaiFlux2KleinService(service: CivitaiGenerationService) {
     return service.parameters.engine.toLowerCase() === "flux2" && String(service.parameters.model || "").toLowerCase() === "klein";
+}
+
+function isCivitaiFlux2DevService(service: CivitaiGenerationService) {
+    return service.parameters.engine.toLowerCase() === "flux2" && String(service.parameters.model || "").toLowerCase() === "dev";
 }
 
 function isCivitaiArrayLoraImageService(service: CivitaiGenerationService) {
@@ -346,11 +357,25 @@ function buildCivitaiSdcppVariantAdvancedInput(service: CivitaiGenerationService
     const allowedParameters = new Set(["engine", "ecosystem", "model", "operation", "version", "provider", "modelVersion"]);
     const unknownParameters = Object.keys(parameters).filter((key) => !allowedParameters.has(key));
     if (unknownParameters.length) throw new Error(`Civitai / ${service.id} 的 sdcpp createVariant service parameters 含未声明字段：${unknownParameters.join("、")}`);
-    const leftover = providedCivitaiImageAdvancedFields(options).filter((field) => field !== "strength");
+    const leftover = providedCivitaiImageAdvancedFields(options).filter((field) => field !== "strength" && field !== "loras");
     if (leftover.length) throw new Error(`Civitai / ${service.id} 的 createVariant 不支持高级图片参数：${leftover.join("、")}`);
+    const ecosystem = String(parameters.ecosystem || "").toLowerCase();
+    const flux2Variant = ecosystem === "flux2klein" || ecosystem === "flux2dev";
+    if (flux2Variant) {
+        assertOptionalIntegerRange("width", options.width, 512, 2048, service);
+        assertOptionalIntegerRange("height", options.height, 512, 2048, service);
+        assertIntegerRange("quantity", options.quantity, 1, 4, service);
+    }
     const strength = options.strength ?? 0.7;
     assertFiniteRange("strength", strength, 0, 1, service);
-    return { strength };
+    const loras = ecosystem === "flux2dev"
+        ? normalizeCivitaiLoraArray(options.loras, service)
+        : normalizeCivitaiLoras(options.loras, service);
+    return {
+        strength,
+        ...(parameters.modelVersion ? { modelVersion: parameters.modelVersion } : {}),
+        ...(loras ? { loras } : {}),
+    };
 }
 
 /** engine: "sdcpp" → sampleMethod/schedule。覆盖 Z-Image、anima、sdxl、qwen 等 createImage/editImage 服务。 */
@@ -404,6 +429,83 @@ function buildCivitaiSdcppAdvancedInput(service: CivitaiGenerationService, optio
         ...(loras ? { loras } : {}),
         ...(clipSkip !== undefined ? { clipSkip } : {}),
         ...(strength !== undefined ? { strength } : {}),
+    };
+}
+
+/** engine: "flux2" Klein — cfgScale 1-20, steps 4-50, sampleMethod/schedule, negativePrompt, seed, modelVersion, loras map. https://orchestration.civitai.com/openapi/v2-consumers.json */
+function buildCivitaiFlux2KleinAdvancedInput(service: CivitaiGenerationService, options: CivitaiImageWorkflowOptions) {
+    const parameters = service.parameters;
+    const allowedParameters = new Set(["engine", "model", "operation", "version", "provider", "modelVersion"]);
+    const unknownParameters = Object.keys(parameters).filter((key) => !allowedParameters.has(key));
+    if (unknownParameters.length) throw new Error(`Civitai / ${service.id} 的 flux2 klein service parameters 含未声明字段：${unknownParameters.join("、")}`);
+    const leftover = providedCivitaiImageAdvancedFields(options).filter((field) => (
+        field !== "negativePrompt" && field !== "cfgScale" && field !== "steps"
+        && field !== "seed" && field !== "sampler" && field !== "scheduler"
+        && field !== "loras" && field !== "modelVersion"
+    ));
+    if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；Flux2 Klein 只有 negativePrompt/cfgScale/steps/seed/sampler/scheduler/loras/modelVersion`);
+    assertOptionalIntegerRange("width", options.width, 512, 2048, service);
+    assertOptionalIntegerRange("height", options.height, 512, 2048, service);
+    assertIntegerRange("quantity", options.quantity, 1, 4, service);
+    if ([...options.prompt].length > 1000) throw new Error(`Civitai / ${service.id} 的 prompt 最长为 1000 个字符`);
+
+    const negativePrompt = nonEmptyString(options.negativePrompt);
+    const cfgScale = resolveNumberAlias(options.guidance, options.cfgScale, "guidance", "cfgScale", service);
+    const sampleMethod = resolveStringAlias(options.sampler, options.sampleMethod, "sampler", "sampleMethod", service);
+    const schedule = resolveStringAlias(options.scheduler, options.schedule, "scheduler", "schedule", service);
+    if (options.steps !== undefined) assertIntegerRange("steps", options.steps, 4, 50, service);
+    if (cfgScale !== undefined) assertFiniteRange("cfgScale", cfgScale, 1, 20, service);
+    if (options.seed !== undefined && !Number.isSafeInteger(options.seed)) {
+        throw new Error(`Civitai / ${service.id} 的 seed 必须是 JavaScript 可精确表示的安全整数`);
+    }
+    if (sampleMethod && !CIVITAI_SDCPP_SAMPLE_METHODS.some((value) => value === sampleMethod)) {
+        throw new Error(`Civitai / ${service.id} 的 sampleMethod 不支持 ${sampleMethod}；允许值：${CIVITAI_SDCPP_SAMPLE_METHODS.join(", ")}`);
+    }
+    if (schedule && !CIVITAI_SDCPP_SCHEDULES.some((value) => value === schedule)) {
+        throw new Error(`Civitai / ${service.id} 的 schedule 不支持 ${schedule}；允许值：${CIVITAI_SDCPP_SCHEDULES.join(", ")}`);
+    }
+    const modelVersion = options.modelVersion;
+    if (modelVersion !== undefined && !["4b", "4b-base", "9b", "9b-base", "9b-kv"].includes(modelVersion)) {
+        throw new Error(`Civitai / ${service.id} 的 modelVersion 不支持 ${modelVersion}；允许值：4b, 4b-base, 9b, 9b-base, 9b-kv`);
+    }
+    const loras = normalizeCivitaiLoras(options.loras, service);
+    return {
+        ...(negativePrompt ? { negativePrompt } : {}),
+        ...(options.seed !== undefined ? { seed: options.seed } : {}),
+        ...(options.steps !== undefined ? { steps: options.steps } : {}),
+        ...(cfgScale !== undefined ? { cfgScale } : {}),
+        ...(sampleMethod ? { sampleMethod } : {}),
+        ...(schedule ? { schedule } : {}),
+        ...(modelVersion ? { modelVersion } : {}),
+        ...(loras ? { loras } : {}),
+    };
+}
+
+/** engine: "flux2" Dev — guidanceScale 0-20, numInferenceSteps 4-50, seed, loras array; no negativePrompt/sampler/scheduler. https://orchestration.civitai.com/openapi/v2-consumers.json */
+function buildCivitaiFlux2DevAdvancedInput(service: CivitaiGenerationService, options: CivitaiImageWorkflowOptions) {
+    const parameters = service.parameters;
+    const allowedParameters = new Set(["engine", "model", "operation", "version", "provider"]);
+    const unknownParameters = Object.keys(parameters).filter((key) => !allowedParameters.has(key));
+    if (unknownParameters.length) throw new Error(`Civitai / ${service.id} 的 flux2 dev service parameters 含未声明字段：${unknownParameters.join("、")}`);
+    const leftover = providedCivitaiImageAdvancedFields(options).filter((field) => (
+        field !== "seed" && field !== "guidanceScale" && field !== "numInferenceSteps" && field !== "loras"
+    ));
+    if (leftover.length) throw new Error(`Civitai / ${service.id} 不支持高级图片参数：${leftover.join("、")}；Flux2 Dev 只有 seed/guidanceScale/numInferenceSteps/loras`);
+    assertOptionalIntegerRange("width", options.width, 512, 2048, service);
+    assertOptionalIntegerRange("height", options.height, 512, 2048, service);
+    assertIntegerRange("quantity", options.quantity, 1, 4, service);
+    if ([...options.prompt].length > 1000) throw new Error(`Civitai / ${service.id} 的 prompt 最长为 1000 个字符`);
+    if (options.seed !== undefined && !Number.isSafeInteger(options.seed)) {
+        throw new Error(`Civitai / ${service.id} 的 seed 必须是 JavaScript 可精确表示的安全整数`);
+    }
+    if (options.guidanceScale !== undefined) assertFiniteRange("guidanceScale", options.guidanceScale, 0, 20, service);
+    if (options.numInferenceSteps !== undefined) assertIntegerRange("numInferenceSteps", options.numInferenceSteps, 4, 50, service);
+    const loras = normalizeCivitaiLoraArray(options.loras, service);
+    return {
+        ...(options.seed !== undefined ? { seed: options.seed } : {}),
+        ...(options.guidanceScale !== undefined ? { guidanceScale: options.guidanceScale } : {}),
+        ...(options.numInferenceSteps !== undefined ? { numInferenceSteps: options.numInferenceSteps } : {}),
+        ...(loras ? { loras } : {}),
     };
 }
 
@@ -555,6 +657,8 @@ function providedCivitaiImageAdvancedFields(options: CivitaiImageWorkflowOptions
     if (options.steps !== undefined) fields.push("steps");
     if (options.guidance !== undefined) fields.push("guidance");
     if (options.cfgScale !== undefined) fields.push("cfgScale");
+    if (options.guidanceScale !== undefined) fields.push("guidanceScale");
+    if (options.numInferenceSteps !== undefined) fields.push("numInferenceSteps");
     if (nonEmptyString(options.sampler)) fields.push("sampler");
     if (nonEmptyString(options.sampleMethod)) fields.push("sampleMethod");
     if (nonEmptyString(options.scheduler)) fields.push("scheduler");
@@ -568,6 +672,7 @@ function providedCivitaiImageAdvancedFields(options: CivitaiImageWorkflowOptions
     if (options.uCache) fields.push("uCache");
     if (options.clipSkip !== undefined) fields.push("clipSkip");
     if (options.denoiseStrength !== undefined) fields.push("denoiseStrength");
+    if (options.modelVersion !== undefined) fields.push("modelVersion");
     return fields;
 }
 
@@ -678,6 +783,7 @@ export function buildCivitaiVideoWorkflow(options: CivitaiVideoWorkflowOptions) 
     };
     const mediaInput = buildCivitaiVideoMediaInput(service, options.referenceKind, images, videos, audios, referenceParts);
     const videoSettings = buildCivitaiVideoSettings(capability, generationParameters);
+    const videoLoras = buildCivitaiVideoLoras(service, options.loras);
     return {
         allowMatureContent: options.allowMatureContent !== false,
         steps: [{
@@ -687,9 +793,42 @@ export function buildCivitaiVideoWorkflow(options: CivitaiVideoWorkflowOptions) 
                 prompt: options.prompt,
                 ...mediaInput,
                 ...videoSettings,
+                ...videoLoras,
             },
         }],
     };
+}
+
+function normalizeCivitaiVideoLoras(value: Readonly<Record<string, number>>, service: CivitaiGenerationService) {
+    if (!isRecord(value)) throw new Error(`Civitai / ${service.id} 的 loras 必须是 AIR 到权重的对象映射`);
+    const normalized: Record<string, number> = {};
+    for (const [resource, strength] of Object.entries(value)) {
+        if (typeof strength !== "number" || !Number.isFinite(strength)) {
+            throw new Error(`Civitai / ${service.id} 的 loras strength 必须是有限数字：${resource || "空 key"}`);
+        }
+        const parsed = parseCivitaiLoraAir(resource);
+        if (!parsed) throw new Error(`Civitai / ${service.id} 的 loras key 必须是完整的 Civitai LoRA model-version AIR：${resource || "空 key"}`);
+        if (Object.prototype.hasOwnProperty.call(normalized, parsed.air)) {
+            throw new Error(`Civitai / ${service.id} 的多个 loras key 规范化为同一个 AIR：${parsed.air}`);
+        }
+        normalized[parsed.air] = strength;
+    }
+    return normalized;
+}
+
+/** LTX 2.3 uses a map; Hunyuan and WAN v2.2 Comfy use VideoGenInputLora arrays with no published strength max. */
+function buildCivitaiVideoLoras(service: CivitaiGenerationService, value: Readonly<Record<string, number>> | undefined) {
+    if (value === undefined || !Object.keys(value).length) return {};
+    const engine = service.parameters.engine.toLowerCase();
+    const version = String(service.parameters.version || "").toLowerCase();
+    const provider = String(service.parameters.provider || "").toLowerCase();
+    if (engine === "ltx2.3") return { loras: normalizeCivitaiVideoLoras(value, service) };
+    if (engine === "hunyuan" || (engine === "wan" && version === "v2.2" && provider === "comfy")) {
+        return {
+            loras: Object.entries(normalizeCivitaiVideoLoras(value, service)).map(([air, strength]) => ({ air, strength })),
+        };
+    }
+    throw new Error(`Civitai / ${service.id} 不接受 LoRA；当前引擎没有已验证的视频 LoRA 合同`);
 }
 
 function buildCivitaiVideoMediaInput(
@@ -1036,12 +1175,13 @@ function isProvidedCivitaiVideoValue(value: unknown) {
 }
 
 function buildCivitaiImageSettings(
-    engine: string,
-    parameters: Readonly<Record<string, string>>,
+    service: CivitaiGenerationService,
     options: CivitaiImageWorkflowOptions,
 ) {
+    const parameters = service.parameters;
+    const engine = parameters.engine.toLowerCase();
     const quantity = options.quantity;
-    const dims = finiteImageDimensions(options);
+    const dims = finiteImageDimensions(options, service);
     const explicitSize = nonEmptyString(options.size);
     const explicitAspectRatio = nonEmptyString(options.aspectRatio);
     const explicitImageSize = nonEmptyString(options.imageSize);
@@ -1107,30 +1247,45 @@ function buildCivitaiImageSettings(
     }
 
     if (engine === "qwen") {
-        if (!dims) throw new Error("Civitai qwen 的 width 和 height 是 OpenAPI 必填字段，不能省略");
-        return { width: dims.width, height: dims.height, quantity };
+        assertIntegerRange("quantity", quantity, 1, 6, service);
+        if (dims) {
+            assertIntegerRange("width", dims.width, 512, 2048, service);
+            assertIntegerRange("height", dims.height, 512, 2048, service);
+        }
+        return { quantity, ...(dims ? { width: dims.width, height: dims.height } : {}) };
     }
 
-    if (engine === "sdcpp" && parameters.ecosystem === "qwen" && model === "20b" && (operation === "editImage" || operation === "createVariant")) {
-        if (!dims) throw new Error(`Civitai sdcpp qwen 20b ${operation} 的 width 和 height 是 OpenAPI 必填字段，不能省略`);
-        return { width: dims.width, height: dims.height, quantity };
+    if (engine === "sdcpp" && String(parameters.ecosystem || "").toLowerCase() === "qwen" && model === "20b") {
+        assertIntegerRange("quantity", quantity, 1, 12, service);
+        if (dims) {
+            assertIntegerRange("width", dims.width, 64, 2048, service);
+            assertIntegerRange("height", dims.height, 64, 2048, service);
+            if (dims.width % 8 !== 0 || dims.height % 8 !== 0) {
+                throw new Error(`Civitai / ${service.id} 的 width 和 height 必须是 8 的倍数`);
+            }
+        }
+        return { quantity, ...(dims ? { width: dims.width, height: dims.height } : {}) };
     }
 
     return {
         quantity,
         ...(dims ? { width: dims.width, height: dims.height } : {}),
-        ...(engine === "sdcpp" && parameters.ecosystem === "zImage" && options.outputFormat
+        ...(engine === "sdcpp" && String(parameters.ecosystem || "").toLowerCase() === "zimage" && options.outputFormat
             ? { outputFormat: options.outputFormat }
             : {}),
     };
 }
 
-function finiteImageDimensions(options: Pick<CivitaiImageWorkflowOptions, "width" | "height">) {
+function finiteImageDimensions(
+    options: Pick<CivitaiImageWorkflowOptions, "width" | "height">,
+    service: CivitaiGenerationService,
+) {
     const { width, height } = options;
-    if (typeof width === "number" && Number.isFinite(width) && typeof height === "number" && Number.isFinite(height)) {
-        return { width, height };
+    if (width === undefined && height === undefined) return undefined;
+    if (typeof width !== "number" || !Number.isFinite(width) || typeof height !== "number" || !Number.isFinite(height)) {
+        throw new Error(`Civitai / ${service.id} 的 width 和 height 必须同时提供有限数字`);
     }
-    return undefined;
+    return { width, height };
 }
 
 const DEFAULT_IMAGE_ASPECT_RATIOS = [
