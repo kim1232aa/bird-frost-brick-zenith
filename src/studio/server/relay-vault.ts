@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
-import { authMiddleware } from "@/lib/auth/middleware";
 import { orderedProviderCredentialIds, normalizeProviderKeyInput } from "@/stores/provider-credentials";
 import { createApiRelayProvider, type ApiRelayProvider } from "@/stores/api-relay-config";
 import { studioRelays } from "@/studio/wiring";
 
 /** Must stay aligned with `DEV_USER_ID` in verify.server.ts (auth-off PGLite). */
 const ENV_VAULT_USER_ID = "dev-user";
+const STUDIO_VAULT_ROW_ID = "studio";
 
 export type PublicRelayVaultProvider = Omit<ApiRelayProvider, "apiKey" | "apiKeys"> & {
   apiKey: "";
@@ -157,20 +157,27 @@ function parseImageHostCredential(value: unknown): RawImageHostCredential | null
   return baseUrl || apiKey ? { baseUrl, apiKey } : null;
 }
 
-async function readRelayVaultRaw(userId: string): Promise<RawRelayVaultPayload> {
-  const sql = await getSql();
-  const rows = await sql.query<{ relays_json: string; hidden_json: string; image_host_json?: string; updated_at: string }>(
-    "select relays_json, hidden_json, image_host_json, updated_at::text as updated_at from studio_relay_vault where id = $1",
-    [userId],
-  );
-  const row = rows[0];
-  if (!row) return { relays: [], hiddenPresetIds: [], updatedAt: "", imageHost: null };
+function parseVaultRow(row: { relays_json: string; hidden_json: string; image_host_json?: string; updated_at: string }): RawRelayVaultPayload {
   return {
     relays: parseRelays(row.relays_json),
     hiddenPresetIds: parseIds(row.hidden_json),
     updatedAt: row.updated_at || "",
     imageHost: parseImageHostCredential(row.image_host_json),
   };
+}
+
+async function readRelayVaultRaw(userId: string): Promise<RawRelayVaultPayload> {
+  const sql = await getSql();
+  const ids = [...new Set([userId, STUDIO_VAULT_ROW_ID, ENV_VAULT_USER_ID].filter(Boolean))];
+  for (const id of ids) {
+    const rows = await sql.query<{ relays_json: string; hidden_json: string; image_host_json?: string; updated_at: string }>(
+      "select relays_json, hidden_json, image_host_json, updated_at::text as updated_at from studio_relay_vault where id = $1",
+      [id],
+    );
+    const row = rows[0];
+    if (row) return parseVaultRow(row);
+  }
+  return { relays: [], hiddenPresetIds: [], updatedAt: "", imageHost: null };
 }
 
 export function redactRelay(relay: ApiRelayProvider): PublicRelayVaultProvider {
@@ -188,8 +195,8 @@ export function redactRelay(relay: ApiRelayProvider): PublicRelayVaultProvider {
 }
 
 const requireVaultSession = createServerOnlyFn(async () => {
-  const { requireUserId } = await import("@/lib/auth/verify.server");
-  return requireUserId();
+  const { resolveStudioVaultUserId } = await import("@/lib/auth/verify.server");
+  return resolveStudioVaultUserId();
 });
 
 type RelayVaultInput = ApiRelayProvider & { hasApiKey?: boolean };
@@ -339,9 +346,9 @@ export async function readImageHostVaultKey(baseUrl: string) {
 }
 
 export const loadRelayVault = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const raw = await readRelayVaultRaw(context.userId);
+  .handler(async () => {
+    const userId = await requireVaultSession();
+    const raw = await readRelayVaultRaw(userId);
     return {
       relays: raw.relays.map(redactRelay),
       hiddenPresetIds: raw.hiddenPresetIds,
@@ -351,29 +358,33 @@ export const loadRelayVault = createServerFn({ method: "GET" })
   });
 
 export const loadImageHostCredential = createServerFn({ method: "GET" })
-  .middleware([authMiddleware])
-  .handler(async ({ context }) => {
-    const raw = await readRelayVaultRaw(context.userId);
+  .handler(async () => {
+    const userId = await requireVaultSession();
+    const raw = await readRelayVaultRaw(userId);
     return publicImageHostCredential(raw.imageHost);
   });
 
 export const saveRelayVault = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
   .validator((value: { relays: RelayVaultInput[]; hiddenPresetIds?: string[] }) => ({
     relays: Array.isArray(value?.relays)
       ? value.relays.filter((relay): relay is RelayVaultInput => Boolean(relay && typeof relay === "object" && typeof relay.id === "string"))
       : [],
     hiddenPresetIds: Array.isArray(value?.hiddenPresetIds) ? value.hiddenPresetIds.filter((id) => typeof id === "string") : [],
   }))
-  .handler(async ({ data, context }) => writeRelayVault(context.userId, data));
+  .handler(async ({ data }) => {
+    const userId = await requireVaultSession();
+    return writeRelayVault(userId, data);
+  });
 
 export const saveImageHostCredential = createServerFn({ method: "POST" })
-  .middleware([authMiddleware])
   .validator((value: Partial<ImageHostCredentialInput>) => ({
     baseUrl: normalizeImageHostBaseUrl(value?.baseUrl),
     apiKey: String(value?.apiKey || "").trim(),
   }))
-  .handler(async ({ data, context }) => writeImageHostCredential(context.userId, data));
+  .handler(async ({ data }) => {
+    const userId = await requireVaultSession();
+    return writeImageHostCredential(userId, data);
+  });
 
 type EnvSeededRelay = {
   readonly id: string;
@@ -476,7 +487,7 @@ function applyEnvSeededRelays(existing: ApiRelayProvider[]) {
   return { relays: [...byId.values()], seeded };
 }
 
-export async function seedRelayVaultFromEnv(userId = ENV_VAULT_USER_ID) {
+export async function seedRelayVaultFromEnv(userId = STUDIO_VAULT_ROW_ID) {
   const seeds = envSeededRelays();
   if (!seeds.length) return { ok: true as const, seeded: 0 };
   const existing = await readRelayVaultRaw(userId);
