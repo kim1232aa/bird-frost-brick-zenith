@@ -7,7 +7,7 @@ import { studioRelays } from "@/studio/wiring";
 
 /** Must stay aligned with `DEV_USER_ID` in verify.server.ts (auth-off PGLite). */
 const ENV_VAULT_USER_ID = "dev-user";
-const STUDIO_VAULT_ROW_ID = "studio";
+const LEGACY_STUDIO_VAULT_USER_ID = "studio";
 
 export type PublicRelayVaultProvider = Omit<ApiRelayProvider, "apiKey" | "apiKeys"> & {
   apiKey: "";
@@ -166,18 +166,31 @@ function parseVaultRow(row: { relays_json: string; hidden_json: string; image_ho
   };
 }
 
-async function readRelayVaultRaw(userId: string): Promise<RawRelayVaultPayload> {
+function emptyVault(): RawRelayVaultPayload {
+  return { relays: [], hiddenPresetIds: [], updatedAt: "", imageHost: null };
+}
+
+async function readRelayVaultRow(userId: string) {
   const sql = await getSql();
-  const ids = [...new Set([userId, STUDIO_VAULT_ROW_ID, ENV_VAULT_USER_ID].filter(Boolean))];
-  for (const id of ids) {
-    const rows = await sql.query<{ relays_json: string; hidden_json: string; image_host_json?: string; updated_at: string }>(
-      "select relays_json, hidden_json, image_host_json, updated_at::text as updated_at from studio_relay_vault where id = $1",
-      [id],
-    );
-    const row = rows[0];
+  const rows = await sql.query<{ relays_json: string; hidden_json: string; image_host_json?: string; updated_at: string }>(
+    "select relays_json, hidden_json, image_host_json, updated_at::text as updated_at from studio_relay_vault where id = $1",
+    [userId],
+  );
+  return rows[0] || null;
+}
+
+async function readRelayVaultRaw(userId: string): Promise<RawRelayVaultPayload> {
+  const seen = new Set<string>();
+  const candidates = [userId, LEGACY_STUDIO_VAULT_USER_ID, ENV_VAULT_USER_ID].filter((id) => {
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+  for (const id of candidates) {
+    const row = await readRelayVaultRow(id);
     if (row) return parseVaultRow(row);
   }
-  return { relays: [], hiddenPresetIds: [], updatedAt: "", imageHost: null };
+  return emptyVault();
 }
 
 export function redactRelay(relay: ApiRelayProvider): PublicRelayVaultProvider {
@@ -218,8 +231,6 @@ function mergeVaultInputs(
       return applyCredentialEntries(cleanRelay, credentialEntries(relay, fallbackByKey));
     }
 
-    // A browser-safe payload has no raw values. Keep the server copy and honor
-    // an identity-only order when the caller supplied one.
     const requestedIds = orderedProviderCredentialIds(relay);
     const previousById = new Map(previousEntries.map((entry) => [entry.id, entry]));
     const selected = requestedIds.map((id) => previousById.get(id)).filter((entry): entry is CredentialEntry => Boolean(entry));
@@ -324,7 +335,6 @@ export async function readRelayVaultKey(relayId: string, credentialId?: string) 
   const selected = requestedCredentialId
     ? entries.find((entry) => entry.id === requestedCredentialId)
     : entries[0];
-  // An explicit unknown identity is never allowed to fall back to slot zero.
   if (!selected) return null;
   const authScheme = match.authScheme === "Key" || match.authScheme === "x-api-key" ? match.authScheme : "Bearer";
   return {
@@ -347,8 +357,7 @@ export async function readImageHostVaultKey(baseUrl: string) {
 
 export const loadRelayVault = createServerFn({ method: "GET" })
   .handler(async () => {
-    const userId = await requireVaultSession();
-    const raw = await readRelayVaultRaw(userId);
+    const raw = await readRelayVaultRaw(await requireVaultSession());
     return {
       relays: raw.relays.map(redactRelay),
       hiddenPresetIds: raw.hiddenPresetIds,
@@ -359,8 +368,7 @@ export const loadRelayVault = createServerFn({ method: "GET" })
 
 export const loadImageHostCredential = createServerFn({ method: "GET" })
   .handler(async () => {
-    const userId = await requireVaultSession();
-    const raw = await readRelayVaultRaw(userId);
+    const raw = await readRelayVaultRaw(await requireVaultSession());
     return publicImageHostCredential(raw.imageHost);
   });
 
@@ -371,20 +379,14 @@ export const saveRelayVault = createServerFn({ method: "POST" })
       : [],
     hiddenPresetIds: Array.isArray(value?.hiddenPresetIds) ? value.hiddenPresetIds.filter((id) => typeof id === "string") : [],
   }))
-  .handler(async ({ data }) => {
-    const userId = await requireVaultSession();
-    return writeRelayVault(userId, data);
-  });
+  .handler(async ({ data }) => writeRelayVault(await requireVaultSession(), data));
 
 export const saveImageHostCredential = createServerFn({ method: "POST" })
   .validator((value: Partial<ImageHostCredentialInput>) => ({
     baseUrl: normalizeImageHostBaseUrl(value?.baseUrl),
     apiKey: String(value?.apiKey || "").trim(),
   }))
-  .handler(async ({ data }) => {
-    const userId = await requireVaultSession();
-    return writeImageHostCredential(userId, data);
-  });
+  .handler(async ({ data }) => writeImageHostCredential(await requireVaultSession(), data));
 
 type EnvSeededRelay = {
   readonly id: string;
@@ -418,9 +420,6 @@ function normalizeEnvRelayBaseUrl(value: string) {
   if (!raw) return defaultGrokRelayBaseUrl();
   try {
     const url = new URL(raw);
-    // Environment examples and older deployments may use http://. Upgrade the
-    // same endpoint before it enters the vault; attachVaultKey still rejects
-    // anything that is not HTTPS, so a key is never sent over cleartext HTTP.
     if (url.protocol === "http:") url.protocol = "https:";
     const normalized = url.toString().replace(/\/+$/, "");
     return isHttpsEndpoint(normalized) ? normalized : "";
@@ -487,7 +486,7 @@ function applyEnvSeededRelays(existing: ApiRelayProvider[]) {
   return { relays: [...byId.values()], seeded };
 }
 
-export async function seedRelayVaultFromEnv(userId = STUDIO_VAULT_ROW_ID) {
+export async function seedRelayVaultFromEnv(userId = LEGACY_STUDIO_VAULT_USER_ID) {
   const seeds = envSeededRelays();
   if (!seeds.length) return { ok: true as const, seeded: 0 };
   const existing = await readRelayVaultRaw(userId);
