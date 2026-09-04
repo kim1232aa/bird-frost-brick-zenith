@@ -22,12 +22,15 @@ if (databaseConfigured && !authConfigured) {
   console.error(
     "[auth] DATABASE_URL is set but auth is disabled (VITE_AUTH_ENABLED=false) " +
       "— requireUserId() will reject every request (fail closed) rather than " +
-      "share one dev user on a real database.",
+      "share one dev user on a real database. Vault reads use resolveStudioVaultUserId() instead.",
   );
 }
 
 /** Dev fallback user id, used only when auth is disabled (VITE_AUTH_ENABLED=false). */
 export const DEV_USER_ID = "dev-user";
+
+/** Shared single-tenant vault row when sign-in is off. */
+export const STUDIO_VAULT_USER_ID = "studio";
 
 /**
  * Thrown by `requireUserId` when the caller has no valid session. Carries
@@ -94,4 +97,14 @@ export async function requireUserId(bearerToken?: string): Promise<string> {
   const user = await getSessionUser(bearerToken);
   if (!user) throw new UnauthorizedError();
   return user.id;
+}
+
+/**
+ * Vault / relay-key access for this product's single-tenant studio deploy.
+ * Auth off -> shared `studio` row even when DATABASE_URL is set.
+ * Auth on -> the signed-in user id (same as requireUserId).
+ */
+export async function resolveStudioVaultUserId(bearerToken?: string): Promise<string> {
+  if (!authConfigured && !gateIdentityEnabled()) return STUDIO_VAULT_USER_ID;
+  return requireUserId(bearerToken);
 }
