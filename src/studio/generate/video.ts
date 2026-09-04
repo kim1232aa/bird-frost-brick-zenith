@@ -1,3 +1,4 @@
+import { resolveVideoModelCapability } from "@/services/api/video-model-capabilities";
 import { providerCapabilityIsRunnable, type ApiRelayProvider } from "@/stores/api-relay-config";
 import type { VideoCreateInput } from "@/studio/adapters/types";
 import { adapterForProvider } from "@/studio/adapters";
@@ -12,6 +13,42 @@ function assertRunnableVideoCapability(provider: ApiRelayProvider, providerName?
   if (!providerCapabilityIsRunnable(provider, "video")) {
     throw new Error(`${providerName || provider.name || provider.id} 视频能力尚未接线，已阻止发送`);
   }
+}
+
+function allocateStudioVideoReferences(
+  provider: ApiRelayProvider,
+  model: string,
+  input: { imageUrl?: string; lastFrameUrl?: string; imageUrls?: string[] },
+) {
+  const capability = resolveVideoModelCapability({ model, provider });
+  const first = String(input.imageUrl || input.imageUrls?.[0] || "").trim();
+  const last = String(input.lastFrameUrl || "").trim();
+  const extras = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
+  const refs = capability.referenceImagePolicy;
+  const refsSupported = Boolean(refs && refs.supported);
+  const firstLast = Boolean(capability.supportsFirstLastFrame || capability.requiresFirstLastFrame);
+  if (refsSupported) {
+    const max = refs && refs.supported && refs.max != null ? refs.max : extras.length + 1;
+    const all = Array.from(new Set([first, ...extras].filter(Boolean))).slice(0, Math.max(1, max));
+    return { imageUrl: all[0], lastFrameUrl: undefined as string | undefined, imageUrls: all.length ? all : undefined };
+  }
+  if (firstLast) {
+    const lastFrameUrl = last && last !== first ? last : undefined;
+    const all = [first, lastFrameUrl].filter(Boolean) as string[];
+    return { imageUrl: first || undefined, lastFrameUrl, imageUrls: all.length ? all : undefined };
+  }
+  if (capability.supportsFirstFrame) {
+    return {
+      imageUrl: first || undefined,
+      lastFrameUrl: undefined as string | undefined,
+      imageUrls: first ? [first] : undefined,
+    };
+  }
+  return {
+    imageUrl: undefined as string | undefined,
+    lastFrameUrl: undefined as string | undefined,
+    imageUrls: undefined as string[] | undefined,
+  };
 }
 
 export function buildStudioVideoCreateInput(input: VideoCreateInput & { adapterId: string }): VideoCreateInput {
@@ -111,10 +148,11 @@ export async function createStudioVideo(input: {
     model,
   );
   if (!adapter.createVideo) throw new Error(`${adapter.label} 不支持生视频`);
-  const imageUrl = input.imageUrl ? await toDataUrlIfLocal(input.imageUrl) : undefined;
-  const lastFrameUrl = input.lastFrameUrl ? await toDataUrlIfLocal(input.lastFrameUrl) : undefined;
-  const imageUrls = input.imageUrls
-    ? await Promise.all(input.imageUrls.map((url) => toDataUrlIfLocal(url)))
+  const allocated = allocateStudioVideoReferences(provider, model, input);
+  const imageUrl = allocated.imageUrl ? await toDataUrlIfLocal(allocated.imageUrl) : undefined;
+  const lastFrameUrl = allocated.lastFrameUrl ? await toDataUrlIfLocal(allocated.lastFrameUrl) : undefined;
+  const imageUrls = allocated.imageUrls
+    ? await Promise.all(allocated.imageUrls.map((url) => toDataUrlIfLocal(url)))
     : undefined;
   const videoInput = buildStudioVideoCreateInput({
     adapterId: adapter.id,
