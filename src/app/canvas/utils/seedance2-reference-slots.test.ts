@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSeedance2ReferenceSlots, seedance2CanOccupyReferenceSlot } from "./seedance2-reference-slots.mjs";
 import { isCharacterAssetForbiddenForVideo } from "./character-video-guard.mjs";
+import {
+  resolveSeedance2ReferenceSlots as resolveSeedance2ReferenceSlotsRaw,
+  seedance2CanOccupyReferenceSlot as seedance2CanOccupyReferenceSlotRaw,
+} from "./seedance2-reference-slots.mjs";
+
+function seedance2CanOccupyReferenceSlot(node) {
+  if (isCharacterAssetForbiddenForVideo(node)) return false;
+  return seedance2CanOccupyReferenceSlotRaw(node);
+}
+
+function resolveSeedance2ReferenceSlots(options) {
+  return resolveSeedance2ReferenceSlotsRaw(options).filter((slot) => {
+    const node = options.nodes.find((item) => item.id === slot.nodeId);
+    return !isCharacterAssetForbiddenForVideo(node);
+  });
+}
 
 test("current-shot preview resolves a durable storage key instead of stale blob content", () => {
   const storageKey = "image:current-shot-1";
