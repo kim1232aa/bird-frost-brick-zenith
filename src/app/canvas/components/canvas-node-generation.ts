@@ -9,6 +9,7 @@ import type { ResolvedVideoModelCapability, VideoReferenceIntent } from "@/servi
 import type { VideoGenerationSettingsScope } from "@/stores/video-generation-settings";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type Seedance2ReferenceSlotUseAs } from "../types";
 import { getGenerationResourceNodes } from "../utils/canvas-resource-references";
+import { isCharacterAssetForbiddenForVideo } from "../utils/character-video-guard";
 
 export type NodeGenerationContext = {
     prompt: string;
@@ -331,6 +332,7 @@ function generationLabel(type: NodeGenerationInput["type"], index: number) {
 
 function readReferenceImage(node: CanvasNodeData, useAs?: Seedance2ReferenceSlotUseAs): NodeReferenceImage | null {
     if (node.type !== CanvasNodeType.Image) return null;
+    if (isCharacterAssetForbiddenForVideo(node)) return null;
     return {
         id: node.id,
         name: `${node.title || node.id}.png`,
