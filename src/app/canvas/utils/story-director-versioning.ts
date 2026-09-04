@@ -1,3 +1,4 @@
+import { sha256Hex } from "@/lib/sha256";
 import type {
   CanvasConnection,
   CanvasNodeData,
@@ -40,16 +41,11 @@ export async function createStoryReferenceSnapshots(
       height: source.height,
       content,
       storageKey: source.storageKey,
-      sha256: await sha256(hashInput),
+      sha256: await sha256Hex(hashInput),
       stableOrder: index,
       createdAt: now,
     };
   }));
-}
-
-async function sha256(value: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 type CloneStoryVersionInput = {

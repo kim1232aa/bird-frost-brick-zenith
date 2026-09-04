@@ -542,6 +542,26 @@ test("Studio generation fields keep capability-supported Civitai parameters and 
   assert.equal(hunyuan.negativePrompt, undefined);
 });
 
+test("unsupported aspect ratio is hidden and omitted instead of reaching the adapter", () => {
+  const wanI2v = buildVideoStudioGenerateFields({
+    adapterType: "dashscope",
+    providerId: "preset-aliyun-dashscope",
+    model: "wan2.7-i2v",
+    mode: "i2v",
+    duration: 5,
+    ratio: "16:9",
+    firstFrame: "https://example.test/first.png",
+    audio: false,
+    fps: 30,
+    loras: [],
+    isArk: false,
+    host: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  });
+  assert.equal(wanI2v.error, undefined);
+  assert.equal(wanI2v.showAspectRatio, false);
+  assert.equal(wanI2v.ratio, undefined);
+});
+
 test("generic compatibility relay keeps non-official video extension values", () => {
   const relay = buildVideoStudioGenerateFields({
     adapterType: "openai-compat",

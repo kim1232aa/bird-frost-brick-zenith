@@ -156,7 +156,7 @@ export function ecommercePackErrorSummary(ok: number, failed: number) {
 }
 
 export function ecommerceShouldAbortPack(message: string) {
-  return /积分不足|请先登录|访客继续|额度不足|credits/i.test(String(message || ""));
+  return /请先登录|访客继续/i.test(String(message || ""));
 }
 
 export function ecommerceDisabledReason(input: {

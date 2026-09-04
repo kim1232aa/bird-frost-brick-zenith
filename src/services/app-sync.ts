@@ -2,6 +2,7 @@
 
 import localforage from "localforage";
 
+import { sha256BytesHex } from "@/lib/sha256";
 import { getDesktopJSON, setDesktopJSON } from "@/services/desktop-storage";
 import { getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
 import { getImageBlob, resolveImageUrl, setImageBlob } from "@/services/image-storage";
@@ -391,8 +392,7 @@ function isValidSha256(value: unknown): value is string {
 }
 
 async function sha256Blob(blob: Blob) {
-    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return sha256BytesHex(new Uint8Array(await blob.arrayBuffer()));
 }
 
 function fileExtension(mimeType: string, storageKey: string) {

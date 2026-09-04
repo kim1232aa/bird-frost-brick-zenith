@@ -153,7 +153,9 @@ test("Hunyuan sends frameRate and required cfgScale, never fps", () => {
   assert.equal(input.cfgScale, 4);
   assert.equal("fps" in input, false);
   assert.equal("images" in input, false);
-  assert.equal(stepInput(planCivitaiVideoRequest({ model: "hunyuan", prompt: "p" })).frameRate, 25);
+  const defaults = stepInput(planCivitaiVideoRequest({ model: "hunyuan", prompt: "p" }));
+  assert.equal(defaults.frameRate, 25);
+  assert.equal(defaults.steps, 40);
 });
 
 test("Hunyuan is text-to-video only", () => {
@@ -925,7 +927,7 @@ test("SFW video poll hides mature output URLs", async () => {
   ];
   const result = await civitaiAdapter.pollVideo!(civitaiSfwCtx, "wf_video_sfw");
   assert.deepEqual(result, { status: "completed", url: "https://example.test/sfw.mp4" });
-  assert.equal(proxyCalls[0]?.path, "/workflows/wf_video_sfw?wait=0&hideMatureContent=true");
+  assert.equal(proxyCalls[0]?.path, "/workflows/wf_video_sfw?wait=30&hideMatureContent=true");
   assert.equal(proxyCalls[0]?.method, "GET");
 });
 
@@ -939,7 +941,7 @@ test("video poll uses the shared parser for legacy video output", async () => {
   ];
   const result = await civitaiAdapter.pollVideo!(civitaiCtx, "wf_video");
   assert.deepEqual(result, { status: "completed", url: "https://example.test/legacy-polled.mp4" });
-  assert.equal(proxyCalls[0]?.path, "/workflows/wf_video?wait=0");
+  assert.equal(proxyCalls[0]?.path, "/workflows/wf_video?wait=30");
   assert.equal(proxyCalls[0]?.method, "GET");
 });
 

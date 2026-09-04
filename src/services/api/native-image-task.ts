@@ -1,6 +1,6 @@
 import type { ApiRequestRoute } from "@/services/api/ai-routing";
 import type { ResolvedImageCapabilityId } from "@/services/api/image-model-capabilities";
-import { providerCredentialPool } from "@/stores/provider-credentials";
+import { orderedProviderCredentialIds } from "@/stores/provider-credentials";
 
 export const CANVAS_IMAGE_TASK_SCHEMA_VERSION = 1 as const;
 export type NativeImageTaskProvider = "dashscope" | "miaohua" | "civitai";
@@ -8,11 +8,11 @@ export type CanvasImageTaskProvider = NativeImageTaskProvider | "platform";
 export type CanvasImageTaskOperation = "generate" | "edit" | "variation" | "responses-tool";
 export type CanvasImageTaskResultPolicy = "exact-count" | "partial-valid";
 
-/** Runtime only. apiKey must never be copied into persisted canvas state. */
 export type SubmittedNativeImageTask = {
     readonly provider: NativeImageTaskProvider;
     readonly taskId: string;
-    readonly apiKey: string;
+    /** Opaque server-vault identity selected for this task. */
+    readonly credentialId?: string;
     readonly startedAt: string;
     readonly expectedOutputs: number;
 };
@@ -56,10 +56,10 @@ export function snapshotSubmittedNativeImageTask(
         (submitted.provider === "miaohua" && (adapter === "sensenova-miaohua" || adapter === "miaohua" || adapter === "sensenova")) ||
         (submitted.provider === "civitai" && (adapter === "civitai-orchestration" || adapter === "civitai"));
     if (!providerMatchesAdapter) throw new Error("图片任务 provider 与创建路由的协议适配器不一致");
-    const pool = providerCredentialPool(route.provider);
-    const index = pool.keys.findIndex((key) => key === submitted.apiKey);
-    const credentialId = index >= 0 ? String(pool.ids[index] || "").trim() : "";
-    if (!credentialId) throw new Error("图片任务创建所用凭据没有稳定槽位 ID，无法安全持久化并恢复");
+    const credentialId = String(submitted.credentialId || "").trim();
+    if (!credentialId || !orderedProviderCredentialIds(route.provider).includes(credentialId)) {
+        throw new Error("图片任务创建所用凭据没有稳定槽位 ID，无法安全持久化并恢复");
+    }
     return {
         schemaVersion: CANVAS_IMAGE_TASK_SCHEMA_VERSION,
         taskId: submitted.taskId,
@@ -78,7 +78,7 @@ export function snapshotSubmittedNativeImageTask(
 }
 
 export type RestoredNativeImageTask =
-    | { readonly status: "ready"; readonly apiKey: string }
+    | { readonly status: "ready"; readonly credentialId: string }
     | { readonly status: "provider-missing" | "provider-revision-mismatch" | "adapter-mismatch" | "model-mismatch" | "credential-missing" };
 
 export function restoreNativeImageTaskCredential(snapshot: CanvasImageTaskSnapshot, route: ApiRequestRoute): RestoredNativeImageTask {
@@ -87,10 +87,9 @@ export function restoreNativeImageTaskCredential(snapshot: CanvasImageTaskSnapsh
     if (route.provider.updatedAt !== snapshot.providerRevision) return { status: "provider-revision-mismatch" };
     if (String(route.provider.adapterType || "").trim().toLowerCase() !== String(snapshot.adapterType || "").trim().toLowerCase()) return { status: "adapter-mismatch" };
     if (route.model !== snapshot.model) return { status: "model-mismatch" };
-    const pool = providerCredentialPool(route.provider);
-    const index = pool.ids.findIndex((id) => id === snapshot.credentialId);
-    const apiKey = index >= 0 ? pool.keys[index] : "";
-    return apiKey ? { status: "ready", apiKey } : { status: "credential-missing" };
+    const credentialId = String(snapshot.credentialId || "").trim();
+    if (!credentialId || !orderedProviderCredentialIds(route.provider).includes(credentialId)) return { status: "credential-missing" };
+    return { status: "ready", credentialId };
 }
 
 export function ownsCanvasImageTask(binding: CanvasImageTaskBinding | undefined, attemptId: string, taskId?: string) {

@@ -61,7 +61,11 @@ export function packStoryVideoRequestWindows(options: {
       prompt: options.prompts?.[index] || "",
     }];
   });
-  const operation = options.operation || defaultStoryPackOperation(options.policy, pairs.length);
+  const operation = resolveRequestedStoryPackOperation(
+    options.policy,
+    pairs.length,
+    options.operation,
+  );
   const titled = (shots: StoryShot[]) => {
     const first = shots[0];
     const last = shots[shots.length - 1];
@@ -117,9 +121,25 @@ export function packStoryVideoRequestWindows(options: {
     const minimum = options.policy.referenceImagePolicy?.supported && typeof options.policy.referenceImagePolicy.min === "number"
       ? options.policy.referenceImagePolicy.min
       : 1;
+    // `current-shot` means one request per story shot. It must not suppress the
+    // semantic character/scene references that the chosen R2V operation accepts.
+    if (perShotStoryReferenceWindows(options.policy)) {
+      return pairs.map((item) => windowOf([item], "reference-to-video"));
+    }
     return packNonOverlappingWindows(pairs, minimum, Math.max(maximum, minimum)).map((items) => windowOf(items, "reference-to-video"));
   }
   return pairs.map((item) => windowOf([item], operation));
+}
+
+function resolveRequestedStoryPackOperation(
+  policy: Seedance2StoryReferenceCapability,
+  imageCount: number,
+  requested?: VideoReferenceSubmissionOperation,
+): VideoReferenceSubmissionOperation {
+  const auto = defaultStoryPackOperation(policy, imageCount);
+  // An explicit operation is part of the request contract. Never replace it
+  // merely because the profile's automatic Story strategy is current-shot.
+  return requested || auto;
 }
 
 function defaultStoryPackOperation(
@@ -130,10 +150,22 @@ function defaultStoryPackOperation(
   if (policy.requiresFirstLastFrame) return "first-last-frame-to-video";
   if (policy.intentPolicy === "none") return "text-to-video";
   if (policy.intentPolicy === "keyframes" && policy.supportsKeyframeSequence) return "keyframes-to-video";
+  if (perShotStoryReferenceWindows(policy)) return "reference-to-video";
+  if (policy.storyAutoReferencePolicy === "current-shot") return "image-to-video";
   if (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first") {
     return "reference-to-video";
   }
   return "image-to-video";
+}
+
+function perShotStoryReferenceWindows(policy: Seedance2StoryReferenceCapability) {
+  const maximum = policy.referenceImagePolicy?.supported ? policy.referenceImagePolicy.max : 0;
+  return policy.storyAutoReferencePolicy === "current-shot" &&
+    (maximum === null || maximum > 1) &&
+    (policy.intentPolicy === "frames-or-reference-set" ||
+      policy.intentPolicy === "reference-set" ||
+      policy.intentPolicy === "r2v-with-first" ||
+      policy.intentPolicy === "reference-set-with-frames");
 }
 
 function packNonOverlappingWindows<T>(items: T[], minimum: number, maximum: number): T[][] {
@@ -1088,6 +1120,9 @@ function workflowVideoGenerationSnapshot(metadata: CanvasNodeMetadata): Partial<
   if (metadata.videoGenerationScope !== undefined) snapshot.videoGenerationScope = metadata.videoGenerationScope;
   if (metadata.videoGenerationCapabilityId !== undefined) snapshot.videoGenerationCapabilityId = metadata.videoGenerationCapabilityId;
   if (metadata.videoWireFormat !== undefined) snapshot.videoWireFormat = metadata.videoWireFormat;
+  if (metadata.videoGenerationOperationMigration !== undefined) {
+    snapshot.videoGenerationOperationMigration = metadata.videoGenerationOperationMigration;
+  }
   return snapshot;
 }
 
@@ -1125,6 +1160,7 @@ function applyWorkflowVideoGenerationSnapshot(
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationScope");
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationCapabilityId");
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoWireFormat");
+  applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationOperationMigration");
 }
 
 function applyOptionalWorkflowSnapshotField<Key extends keyof CanvasNodeMetadata>(

@@ -7,8 +7,8 @@ import { preferredImageKey, preferredTextKey, preferredVideoKey, CompactModelSel
 import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
-import { characterLock, draftPlan, type StoryCast, type StoryShot } from "@/studio/story/plan";
-import { shotImageRefs, stillSizeForQuality, storyStillUrls, videoStillBundle } from "@/studio/story/director-helpers";
+import { characterLock, type StoryCast, type StoryShot } from "@/studio/story/plan";
+import { shotImageRefs, stillSizeForQuality, storyImageReferenceMax, storyStillUrls, videoStillBundle } from "@/studio/story/director-helpers";
 import { WorkbenchStatus } from "@/studio/workbench-status";
 import { pushStoryToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
@@ -33,6 +33,60 @@ export function StoryDirectorPage() {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [job, setJob] = useState<{ type: "char" | "shot" | "video" | "analyze" | "all"; index?: number } | null>(null);
+  const [boardReady, setBoardReady] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("boundless-studio:story-board");
+      if (!raw) {
+        setBoardReady(true);
+        return;
+      }
+      const saved = JSON.parse(raw) as {
+        idea?: string;
+        textModel?: string;
+        imageModel?: string;
+        videoModel?: string;
+        style?: string;
+        mode?: "single" | "grid9";
+        shotCount?: number;
+        ratio?: string;
+        quality?: string;
+        logline?: string;
+        scenes?: string[];
+        cast?: StoryCast[];
+        shots?: StoryShot[];
+      };
+      if (saved.idea) setIdea(saved.idea);
+      if (saved.textModel) setTextModel(saved.textModel);
+      if (saved.imageModel) setImageModel(saved.imageModel);
+      if (saved.videoModel) setVideoModel(saved.videoModel);
+      if (saved.style) setStyle(saved.style);
+      if (saved.mode === "grid9" || saved.mode === "single") setMode(saved.mode);
+      if (typeof saved.shotCount === "number") setShotCount(saved.shotCount);
+      if (saved.ratio) setRatio(saved.ratio);
+      if (saved.quality) setQuality(saved.quality);
+      if (saved.logline) setLogline(saved.logline);
+      if (Array.isArray(saved.scenes)) setScenes(saved.scenes);
+      if (Array.isArray(saved.cast)) setCast(saved.cast);
+      if (Array.isArray(saved.shots)) setShots(saved.shots);
+    } catch {
+      /* ignore broken draft */
+    }
+    setBoardReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!boardReady) return;
+    try {
+      sessionStorage.setItem(
+        "boundless-studio:story-board",
+        JSON.stringify({ idea, textModel, imageModel, videoModel, style, mode, shotCount, ratio, quality, logline, scenes, cast, shots }),
+      );
+    } catch {
+      /* quota */
+    }
+  }, [boardReady, idea, textModel, imageModel, videoModel, style, mode, shotCount, ratio, quality, logline, scenes, cast, shots]);
 
   useEffect(() => {
     const next = queryParam("text") || queryParam("model");
@@ -53,11 +107,10 @@ export function StoryDirectorPage() {
     setJob({ type: "analyze" });
     setBusy("正在拆分镜…");
     setError("");
-    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
-    setLogline(local.logline);
-    setScenes(local.scenes);
-    setCast(local.cast);
-    setShots(local.shots);
+    setLogline("");
+    setScenes([]);
+    setCast([]);
+    setShots([]);
     try {
       const { planStory } = await import("@/studio/story/plan");
       const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
@@ -92,7 +145,7 @@ export function StoryDirectorPage() {
       });
       setCast((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "ready" } : item)));
       people[index] = { ...people[index], url: result.url, status: "ready" };
-      addHistory({ kind: "image", title: `角色 ${person.name}`, prompt: person.look, model: result.model, urls: [result.url] });
+      addHistory({ kind: "image", title: `角色 ${person.name}`, prompt: person.look, model: result.model, providerId: result.providerId, urls: [result.url] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "角色图失败";
       setError(message);
@@ -111,12 +164,18 @@ export function StoryDirectorPage() {
     setError("");
     try {
       const { generateStudioImage } = await import("@/studio/generate/image");
-      const refs = shotImageRefs(people, boardShots, index);
+      const imageProvider = relays.find((relay) => relay.id === imageSel.providerId);
+      const refs = shotImageRefs(
+        people,
+        boardShots,
+        index,
+        storyImageReferenceMax(imageSel.model, imageProvider),
+      );
       const result = await generateStudioImage({
         relays,
         providerId: imageSel.providerId,
         model: imageSel.model,
-        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(cast.length ? cast : [])}. Adult 24+ fashion photoshoot still, photorealistic.`,
+        prompt: `${shot.prompt}. Camera: ${shot.camera}. Style: ${style}. Character lock: ${characterLock(people)}. Adult 24+ fashion photoshoot still, photorealistic.`,
         imageUrl: refs[0],
         imageUrls: refs,
         size: stillSizeForQuality(quality, ratio),
@@ -124,7 +183,7 @@ export function StoryDirectorPage() {
         workKind: "story",
       });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, url: result.url, status: "done", error: "" } : item)));
-      addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, urls: [result.url] });
+      addHistory({ kind: "image", title: shot.title, prompt: shot.prompt, model: result.model, providerId: result.providerId, urls: [result.url] });
       return result.url;
     } catch (err) {
       const message = err instanceof Error ? err.message : "这一镜出图失败";
@@ -163,7 +222,7 @@ export function StoryDirectorPage() {
       });
       const url = await waitStudioVideo({ relays, providerId: created.providerId, taskId: created.id, model: created.model, prompt: shot.prompt, workTitle: `故事视频 · ${shot.title}` });
       setShots((current) => current.map((item, i) => (i === index ? { ...item, videoUrl: url, status: "video" } : item)));
-      addHistory({ kind: "video", title: shot.title, prompt: shot.prompt, model: created.model, urls: [url] });
+      addHistory({ kind: "video", title: shot.title, prompt: shot.prompt, model: created.model, providerId: created.providerId, urls: [url] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "视频失败";
       setError(message);
@@ -181,10 +240,11 @@ export function StoryDirectorPage() {
       if (people[i].url || people[i].locked) continue;
       setProgress(`${done}/${missing.length || 1} 角色图 ${people[i].name}`);
       await renderCharacter(i, people);
-      if (!people[i].url) await renderCharacter(i, people);
+      if (!people[i].url) return false;
       done += 1;
       setProgress(`${done}/${missing.length || 1} 角色图完成`);
     }
+    return true;
   };
 
   const fillShots = async (boardShots = shots, people = cast) => {
@@ -194,9 +254,9 @@ export function StoryDirectorPage() {
     for (let i = 0; i < next.length; i += 1) {
       if (next[i].url) continue;
       setProgress(`${done}/${missing.length || 1} 分镜 ${next[i].title}`);
-      let url = await renderShot(i, next, people);
-      if (!url) url = await renderShot(i, next, people);
-      if (url) next[i] = { ...next[i], url, status: "done" };
+      const url = await renderShot(i, next, people);
+      if (!url) return null;
+      next[i] = { ...next[i], url, status: "done" };
       done += 1;
       setProgress(`${done}/${missing.length || 1} 分镜完成`);
     }
@@ -207,6 +267,7 @@ export function StoryDirectorPage() {
         title: `故事 · ${(idea || logline || "分镜").slice(0, 28)}`,
         prompt: idea,
         model: imageSel.model,
+        providerId: imageSel.providerId,
         urls,
       });
     }
@@ -216,7 +277,7 @@ export function StoryDirectorPage() {
   const runStillPipeline = async (board?: { cast: StoryCast[]; shots: StoryShot[] }) => {
     const people = board?.cast || cast;
     const boardShots = board?.shots || shots;
-    await fillCast(people);
+    if (!(await fillCast(people))) return null;
     return fillShots(boardShots, people);
   };
 
@@ -228,25 +289,19 @@ export function StoryDirectorPage() {
     setJob({ type: "all" });
     setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
     setError("");
-    const local = draftPlan(idea, style, mode === "grid9" ? 9 : shotCount);
-    setLogline(local.logline);
-    setScenes(local.scenes);
-    setCast(local.cast);
-    setShots(local.shots);
+    setLogline("");
+    setScenes([]);
+    setCast([]);
+    setShots([]);
     try {
       const { planStory } = await import("@/studio/story/plan");
-      let plan = local;
-      try {
-        plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
-      } catch (analyzeErr) {
-        setError(analyzeErr instanceof Error ? `分析失败，改用本地分镜：${analyzeErr.message}` : "分析失败，改用本地分镜");
-      }
+      const plan = await planStory({ relays, idea, textModel, style, shotCount: mode === "grid9" ? 9 : shotCount });
       setLogline(plan.logline);
       setScenes(plan.scenes);
       setCast(plan.cast);
       setShots(plan.shots);
       const stills = await runStillPipeline(plan);
-      if (stills.some((item) => item.url)) {
+      if (stills?.length && stills.every((item) => item.url)) {
         setBusy("正在用全部分镜静帧生成视频…");
         await renderVideo(0, stills);
       }

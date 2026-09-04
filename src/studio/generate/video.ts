@@ -1,10 +1,11 @@
 import { providerCapabilityIsRunnable, type ApiRelayProvider } from "@/stores/api-relay-config";
 import type { VideoCreateInput } from "@/studio/adapters/types";
 import { adapterForProvider } from "@/studio/adapters";
-import { STUDIO_VIDEO_POLL_INTERVAL_MS, STUDIO_VIDEO_POLL_WINDOW_MS } from "@/studio/adapters/contracts";
+import { STUDIO_VIDEO_POLL_INTERVAL_MS, studioVideoPollWindowMs } from "@/studio/adapters/contracts";
 import { studioVideoAdapterFields } from "@/studio/civitai-ui-options";
 import { modelPoints, useOpsStore } from "@/studio/ops";
 import { STUDIO_PROVIDERS } from "@/studio/wiring";
+import { toDataUrlIfLocal } from "@/studio/persist-url";
 import { providerById } from "./proxy";
 
 function assertRunnableVideoCapability(provider: ApiRelayProvider, providerName?: string) {
@@ -110,6 +111,11 @@ export async function createStudioVideo(input: {
     model,
   );
   if (!adapter.createVideo) throw new Error(`${adapter.label} 不支持生视频`);
+  const imageUrl = input.imageUrl ? await toDataUrlIfLocal(input.imageUrl) : undefined;
+  const lastFrameUrl = input.lastFrameUrl ? await toDataUrlIfLocal(input.lastFrameUrl) : undefined;
+  const imageUrls = input.imageUrls
+    ? await Promise.all(input.imageUrls.map((url) => toDataUrlIfLocal(url)))
+    : undefined;
   const videoInput = buildStudioVideoCreateInput({
     adapterId: adapter.id,
     model,
@@ -117,9 +123,9 @@ export async function createStudioVideo(input: {
     duration: input.duration,
     aspectRatio: input.aspectRatio,
     resolution: input.resolution,
-    imageUrl: input.imageUrl,
-    lastFrameUrl: input.lastFrameUrl,
-    imageUrls: input.imageUrls,
+    imageUrl,
+    lastFrameUrl,
+    imageUrls,
     width: input.width,
     height: input.height,
     generateAudio: input.generateAudio,
@@ -186,25 +192,32 @@ export async function waitStudioVideo(input: {
   try {
     const started = Date.now();
     let tick = 0;
-    while (Date.now() - started < STUDIO_VIDEO_POLL_WINDOW_MS) {
+    const windowMs = studioVideoPollWindowMs(input.model);
+    while (Date.now() - started < windowMs) {
       tick += 1;
       input.onTick?.(tick);
       const state = await pollStudioVideo(input);
       if (state.status === "completed" && state.url) {
         if (typeof window !== "undefined") {
           const { recordGeneratedWork } = await import("@/studio/history");
-          recordGeneratedWork({
+          const saved = await recordGeneratedWork({
             kind: "video",
             title: (input.workTitle || input.prompt || input.model || "视频").slice(0, 40),
             prompt: input.prompt || "",
             model: input.model || "",
+            providerId: input.providerId,
             urls: [state.url],
           });
+          if (saved?.persistError) {
+            throw new Error(`作品库保存失败：${saved.persistError}`);
+          }
+          const persisted = saved?.urls?.[0];
+          if (persisted) return persisted;
         }
         return state.url;
       }
       if (state.status === "failed") throw new Error(state.error || "视频生成失败");
-      const remaining = STUDIO_VIDEO_POLL_WINDOW_MS - (Date.now() - started);
+      const remaining = windowMs - (Date.now() - started);
       if (remaining <= 0) break;
       await new Promise((resolve) => window.setTimeout(resolve, Math.min(STUDIO_VIDEO_POLL_INTERVAL_MS, remaining)));
     }

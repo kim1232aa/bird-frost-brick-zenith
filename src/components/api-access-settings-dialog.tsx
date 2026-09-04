@@ -74,26 +74,9 @@ import {
 } from "@/stores/api-relay-config";
 import { hasProviderCredential, parseProviderKeyText, providerCredentialPool, reconcileProviderCredentialPool } from "@/stores/provider-credentials";
 import { PRESET_RELAY_ENDPOINTS } from "@/stores/api-relay-presets";
-import { flushConfigStore, useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { flushConfigStore, persistApiSettingsBeforeClose, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { STUDIO_PROVIDERS, STUDIO_ROUTES } from "@/studio/wiring";
 import { getStudioAdapter } from "@/studio/registry";
-
-export async function persistApiSettingsBeforeClose(
-    flush: () => Promise<void>,
-    close: () => void,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-    try {
-        await flush();
-        close();
-        return { ok: true };
-    } catch (error) {
-        const detail = error instanceof Error && error.message.trim() ? `：${error.message.trim()}` : "";
-        return {
-            ok: false,
-            error: `设置保存失败，本地数据库未确认写入。弹窗已保持打开，请重试${detail}`,
-        };
-    }
-}
 
 export function ApiAccessSettingsDialog() {
     const { message } = App.useApp();
@@ -449,7 +432,7 @@ export function ApiAccessSettingsDialog() {
                             <div className="space-y-5" role="tabpanel">
                                 <div>
                                     <div className="text-base font-semibold">中转设置</div>
-                                    <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">配置中转地址和每个中转可用的<span className="whitespace-nowrap">模型列表</span>。</div>
+                                    <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">配置中转地址和每个中转可用的<span className="whitespace-nowrap">模型列表</span>。API Key 保存到后端密钥库，浏览器配置只保留已配置标志。</div>
                                 </div>
 
                                 <RelayConfigTransferPanel />
@@ -471,7 +454,7 @@ export function ApiAccessSettingsDialog() {
                                     <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="min-w-0">
                                             <div className="text-sm font-semibold">中转地址</div>
-                                            <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">可以添加多个中转，每个中转保存自己的 Base URL / API Key / <span className="whitespace-nowrap">模型列表</span>。</div>
+                                            <div className="mt-1 text-xs text-stone-500 dark:text-stone-400">可以添加多个中转；Base URL 和模型保存在配置中，API Key 仅在保存成功后留在后端密钥库。</div>
                                         </div>
                                         <div className="flex flex-wrap gap-2 sm:shrink-0">
                                             <Button
@@ -761,6 +744,11 @@ function ModelCapabilityCheckboxes({ provider, onChange }: { provider: ApiRelayP
 
 function RelayProviderCard({ provider, displayName, loading, onChange, onDelete, onPullModels }: { provider: ApiRelayProvider; displayName: string; loading: boolean; onChange: (patch: Partial<ApiRelayProvider>) => void; onDelete: () => void; onPullModels: () => void }) {
     const credentialPool = providerCredentialPool(provider);
+    const credentialStatus = credentialPool.keys.length
+        ? `当前待保存 ${credentialPool.keys.length} 把`
+        : provider.hasApiKey
+          ? "后端密钥库已配置"
+          : "未配置";
     const catalogSummary = summarizeModelsDevMetadata(provider.models, provider.modelCatalogMetadata);
     const updateModels = (models: string[]) => {
         onChange(
@@ -801,9 +789,10 @@ function RelayProviderCard({ provider, displayName, loading, onChange, onDelete,
                 <Field label="Base URL">
                     <input className={inputClass} value={provider.baseUrl} placeholder="https://your-relay.example.com" onChange={(event) => onChange({ baseUrl: event.target.value })} />
                 </Field>
-                <Field label={`API Keys / 轮询凭据（已配置 ${credentialPool.keys.length} 把）`}>
+                <Field label={`API Keys / 轮询凭据（${credentialStatus}）`}>
                     <SecretListInput
                         values={credentialPool.keys}
+                        hasStoredCredential={provider.hasApiKey === true}
                         placeholder="每行或逗号分隔；按顺序轮询，仅一把也可"
                         onCommit={(keys) => onChange(reconcileProviderCredentialPool(keys, provider))}
                     />
@@ -845,32 +834,6 @@ function RelayProviderCard({ provider, displayName, loading, onChange, onDelete,
                     <div className="text-xs text-stone-500 dark:text-stone-400">默认开启。取消勾选才会把 allowMatureContent=false 发给 Civitai， mature 提示词会被上游拒绝。</div>
                 </div>
             ) : null}
-            <div className="grid gap-2 rounded-xl border border-stone-200 bg-white p-3 text-sm dark:border-stone-800 dark:bg-stone-950">
-                <label className="flex items-center gap-2">
-                    <input
-                        type="checkbox"
-                        checked={provider.proxyMode === "custom"}
-                        onChange={(event) => onChange({ proxyMode: event.target.checked ? "custom" : "direct" })}
-                    />
-                    使用此中转的专属代理
-                </label>
-                {provider.proxyMode === "custom" ? (
-                    <Field label="专属代理 URL">
-                        <input
-                            aria-label="专属代理 URL"
-                            type="text"
-                            autoComplete="off"
-                            className={inputClass}
-                            value={provider.proxyUrl}
-                            placeholder="http://127.0.0.1:7890"
-                            onChange={(event) => onChange({ proxyUrl: event.target.value })}
-                        />
-                    </Field>
-                ) : (
-                    <div className="text-xs text-stone-500 dark:text-stone-400">关闭时强制直连，不继承系统或环境代理。</div>
-                )}
-                <div className="text-xs text-stone-500 dark:text-stone-400">仅影响此 provider 的提交、轮询和结果代取；代理地址只保存在本地配置中。</div>
-            </div>
             <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="协议适配器">
                     <select className={inputClass} value={provider.adapterType || ""} onChange={(event) => onChange({ adapterType: event.target.value || undefined })}>
@@ -1156,7 +1119,7 @@ function ImageCapabilityResolutionHint({
     );
 }
 
-function SecretListInput({ values, placeholder, onCommit }: { values: string[]; placeholder: string; onCommit: (values: string[]) => void }) {
+function SecretListInput({ values, hasStoredCredential, placeholder, onCommit }: { values: string[]; hasStoredCredential: boolean; placeholder: string; onCommit: (values: string[]) => void }) {
     const committedText = values.join("\n");
     const [draft, setDraft] = useState<string | null>(null);
     const [editing, setEditing] = useState(false);
@@ -1184,7 +1147,7 @@ function SecretListInput({ values, placeholder, onCommit }: { values: string[]; 
                 autoComplete="new-password"
                 aria-label="API Keys / 轮询凭据（默认隐藏）"
                 readOnly
-                value={values.length ? "configured" : ""}
+                value={values.length || hasStoredCredential ? "configured" : ""}
                 placeholder={placeholder}
             />
             <Button type="button" variant="outline" className="h-10 shrink-0 rounded-xl" onClick={() => setEditing(true)}>

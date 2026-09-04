@@ -384,9 +384,8 @@ function ProviderModelTriggerLabel({
     const model = String(option.model || "").trim();
     if (providerName && model) {
         return (
-            <span className="canvas-model-picker-text flex min-w-0 flex-1 flex-col items-start text-left leading-4">
-                <span className="w-full break-words text-[11px] opacity-70">{providerName}</span>
-                <span className="w-full break-all text-[12px] font-medium">{model}</span>
+            <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left text-[12px]">
+                {providerName} · {model}
             </span>
         );
     }

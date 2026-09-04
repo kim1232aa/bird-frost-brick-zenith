@@ -4,6 +4,7 @@ import { adapterForProvider } from "@/studio/adapters";
 import { STUDIO_PROVIDERS } from "@/studio/wiring";
 import { modelPoints, useOpsStore } from "@/studio/ops";
 import { collectImageRefs } from "@/studio/image-refs";
+import { toDataUrlIfLocal } from "@/studio/persist-url";
 import { studioImageAdapterFields } from "@/studio/civitai-ui-options";
 import { providerById } from "./proxy";
 
@@ -59,7 +60,8 @@ export async function generateStudioImage(input: {
     operation: input.operation,
   });
   const count = civitai.n;
-  const refs = collectImageRefs(input);
+  const refs = await Promise.all(collectImageRefs(input).map((url) => toDataUrlIfLocal(url)));
+  const maskUrl = input.maskUrl ? await toDataUrlIfLocal(input.maskUrl) : undefined;
   const imageInput: ImageGenInput = {
     model,
     prompt,
@@ -75,7 +77,7 @@ export async function generateStudioImage(input: {
     n: count,
     operation: input.operation,
     quality: input.quality,
-    maskUrl: input.maskUrl,
+    maskUrl,
     loras: civitai.loras,
     strength: input.strength,
     checkpointAir: civitai.checkpointAir,
@@ -92,13 +94,19 @@ export async function generateStudioImage(input: {
     if (!urls[0]) throw new Error("没有返回图片");
     if (typeof window !== "undefined") {
       const { recordGeneratedWork } = await import("@/studio/history");
-      recordGeneratedWork({
+      const saved = await recordGeneratedWork({
         kind: input.workKind || "image",
         title: (input.workTitle || prompt).slice(0, 40),
         prompt,
         model,
+        providerId,
         urls,
       });
+      if (saved?.persistError) {
+        throw new Error(`作品库保存失败：${saved.persistError}`);
+      }
+      const persisted = saved?.urls?.filter(Boolean) || [];
+      if (persisted[0]) return { url: persisted[0], urls: persisted, model, providerId };
     }
     return { url: urls[0], urls, model, providerId };
   } catch (err) {

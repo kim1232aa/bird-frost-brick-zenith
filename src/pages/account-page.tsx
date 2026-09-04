@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { providerHasUsableCredential } from "@/stores/api-relay-config";
 import { accountLabel, canEnterOps, useAccountStore } from "@/studio/account";
-import { MEMBERSHIP_IS_LOCAL_MOCK, STUDIO_CREDIT_PACKS, STUDIO_PLANS, planById, planLabel, useMembershipStore, type StudioPlanId } from "@/studio/membership";
+import { MEMBERSHIP_IS_LOCAL_MOCK, STUDIO_PLANS, planById, planLabel, useMembershipStore } from "@/studio/membership";
 import { useStudioJobs } from "@/studio/generate/jobs";
 import { useOpsStore } from "@/studio/ops";
 import { useStudioSession } from "@/studio/session";
@@ -24,8 +24,6 @@ export function AccountPage() {
   const updateProfile = useAccountStore((state) => state.updateProfile);
   const continueAsGuest = useAccountStore((state) => state.continueAsGuest);
   const plan = useMembershipStore((state) => state.plan);
-  const upgrade = useMembershipStore((state) => state.upgrade);
-  const buyPack = useMembershipStore((state) => state.buyPack);
   const jobs = useStudioJobs((state) => state.jobs);
   const credits = useOpsStore((state) => state.credits);
   const ledger = useOpsStore((state) => state.ledger);
@@ -41,30 +39,11 @@ export function AccountPage() {
   const enabled = relays.filter((item) => item.enabled).length;
   const admin = canEnterOps({ session });
   const label = accountLabel({ session, isGuest, hydrated });
-  const payload = {
-    success: true,
-    request_id: session?.id || (isGuest ? "guest" : "anonymous"),
-    data: {
-      web_credits: webCredits,
-      api_credits: apiCredits,
-      plan,
-      jobs: {
-        running: jobs.filter((item) => item.status === "running").length,
-        today: jobs.filter((item) => item.createdAt > Date.now() - 86_400_000).length,
-        total: jobs.length,
-      },
-    },
-  };
 
   const saveProfile = (event: FormEvent) => {
     event.preventDefault();
     updateProfile({ displayName, email });
     setSaved("资料已保存在本机。");
-  };
-
-  const pickPlan = (id: StudioPlanId) => {
-    upgrade(id);
-    setSaved(`已切换到${planById(id).name}。额度差额已记入本账号账本。`);
   };
 
   return (
@@ -75,7 +54,7 @@ export function AccountPage() {
         <p className="studio-lead">
           当前身份：{label}
           {session?.role === "admin" ? " · 可以进运营后台。" : " · 运营后台仅管理员。可去设置填自己的 Key。"}
-          {MEMBERSHIP_IS_LOCAL_MOCK ? " 会员和额度还没接到远端结算。" : " 生成成功会从本账号额度账本扣点，失败不扣。"}
+          {MEMBERSHIP_IS_LOCAL_MOCK ? " 页面点数仅为当前浏览器的本机演示额度，不是余额或远端账本；支付与结算尚未接入。" : " 生成成功会从远端账号额度账本扣点，失败不扣。"}
         </p>
       </header>
 
@@ -170,7 +149,7 @@ export function AccountPage() {
             <p className="studio-kicker">MEMBERSHIP</p>
             <h2>方案</h2>
           </div>
-          <p className="studio-hint">点升级会把差额补进本账号额度。不会发起第三方支付。</p>
+          <p className="studio-hint">这里只是本机方案预览；未接入支付或远端结算，切换不会产生订单。</p>
         </div>
         <div className="acct-plans">
           {STUDIO_PLANS.map((item) => (
@@ -183,23 +162,10 @@ export function AccountPage() {
                   <li key={perk}>{perk}</li>
                 ))}
               </ul>
-              {item.id === plan ? (
-                <button type="button" className="studio-ghost" disabled>
-                  当前方案
-                </button>
-              ) : (
-                <button type="button" className="studio-primary" onClick={() => pickPlan(item.id)}>
-                  切换到{item.name}
-                </button>
-              )}
+              <button type="button" className="studio-ghost" disabled>
+                {item.id === plan ? "当前本机方案" : "未接支付与结算"}
+              </button>
             </article>
-          ))}
-        </div>
-        <div className="acct-plans" style={{ marginTop: 16 }}>
-          {STUDIO_CREDIT_PACKS.map((pack) => (
-            <button key={pack.id} type="button" className="studio-ghost" onClick={() => { buyPack(pack.id); setSaved(`已加 ${pack.label}。`); }}>
-              {pack.label}
-            </button>
           ))}
         </div>
       </section>
@@ -354,11 +320,6 @@ export function AccountPage() {
         )}
       </section>
 
-      <section className="acct-card">
-        <h2>GET /api/v1/account/balances</h2>
-        <pre className="acct-json">{JSON.stringify(payload, null, 2)}</pre>
-        <p className="studio-hint">本账号额度接口。数字跟账本走，生成成功会变。密钥只写在设置页，不要写进仓库。</p>
-      </section>
     </div>
   );
 }

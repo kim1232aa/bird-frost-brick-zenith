@@ -2,6 +2,7 @@ import type { ImageAdvancedSettings, ImageAdvancedSettingsScope } from "../../st
 import type { VideoGenerationSettings, VideoGenerationSettingsScope, VideoWireFormatSnapshot } from "../../stores/video-generation-settings";
 import type { VideoReferenceUseAs } from "../../types/media";
 import type { CanvasImageTaskBinding } from "../../services/api/native-image-task";
+import { orderedProviderCredentialIds } from "../../stores/provider-credentials";
 
 export type Position = {
     x: number;
@@ -263,7 +264,8 @@ type CanvasVideoRuntimeTask = {
     readonly id: string;
     readonly provider: CanvasVideoTaskProvider;
     readonly model: string;
-    readonly apiKey?: string;
+    /** Opaque server-vault identity for local relay tasks. */
+    readonly credentialId?: string;
     readonly agnesVideoId?: string;
     readonly expectedOutputs?: number;
     readonly route?: CanvasVideoTaskRoute;
@@ -275,9 +277,7 @@ type CanvasVideoTaskRoute =
 
 type CanvasVideoTaskProviderConfig = {
     readonly id: string;
-    readonly apiKey: string;
     readonly apiKeyId?: string;
-    readonly apiKeys?: readonly string[];
     readonly apiKeyIds?: readonly string[];
 };
 
@@ -287,18 +287,7 @@ export type RestoredCanvasVideoGenerationTask =
     | { readonly status: "credential-missing" };
 
 function canvasVideoProviderCredentials(provider: CanvasVideoTaskProviderConfig) {
-    const credentials: Array<{ apiKey: string; id: string }> = [];
-    const seen = new Set<string>();
-    const append = (keyValue: string | undefined, idValue: string | undefined) => {
-        const apiKey = String(keyValue || "").trim();
-        const id = String(idValue || "").trim();
-        if (!apiKey || !id || seen.has(apiKey)) return;
-        seen.add(apiKey);
-        credentials.push({ apiKey, id });
-    };
-    append(provider.apiKey, provider.apiKeyId);
-    (provider.apiKeys || []).forEach((apiKey, index) => append(apiKey, provider.apiKeyIds?.[index]));
-    return credentials;
+    return orderedProviderCredentialIds(provider).map((id) => ({ id }));
 }
 
 export function snapshotCanvasVideoGenerationTask(
@@ -307,9 +296,7 @@ export function snapshotCanvasVideoGenerationTask(
     attemptId?: string,
 ): CanvasVideoGenerationTask {
     const localProvider = task.route?.mode === "local" ? task.route.provider : undefined;
-    const credentialId = localProvider && task.apiKey
-        ? canvasVideoProviderCredentials(localProvider).find((credential) => credential.apiKey === task.apiKey)?.id
-        : undefined;
+    const credentialId = localProvider ? String(task.credentialId || "").trim() : undefined;
     return {
         id: task.id,
         provider: task.provider,
@@ -331,17 +318,18 @@ export function restoreCanvasVideoGenerationTask(
         return { status: "provider-mismatch" };
     }
     const providerCredentials = route.mode === "local" ? canvasVideoProviderCredentials(route.provider) : [];
-    const apiKey = snapshot.credentialId === undefined
-        ? undefined
-        : providerCredentials.find((credential) => credential.id === snapshot.credentialId)?.apiKey;
-    if (snapshot.credentialId !== undefined && !apiKey) return { status: "credential-missing" };
+    const credentialId = String(snapshot.credentialId || "").trim();
+    const credential = credentialId
+        ? providerCredentials.find((candidate) => candidate.id === credentialId)
+        : undefined;
+    if (credentialId && !credential) return { status: "credential-missing" };
     return {
         status: "ready",
         task: {
             id: snapshot.id,
             provider: snapshot.provider,
             model: snapshot.model,
-            ...(apiKey ? { apiKey } : {}),
+            ...(credentialId ? { credentialId } : {}),
             ...(snapshot.agnesVideoId ? { agnesVideoId: snapshot.agnesVideoId } : {}),
             ...(snapshot.expectedOutputs !== undefined ? { expectedOutputs: snapshot.expectedOutputs } : {}),
         },
@@ -421,7 +409,7 @@ export type CanvasNodeMetadata = {
     /** Auditable one-time recovery of an old node that lacked scope.operation. */
     videoGenerationOperationMigration?: {
         version: 1;
-        source: "task-snapshot" | "semantic-contract" | "single-capability-operation" | "auto-materials";
+        source: "task-snapshot" | "semantic-contract" | "single-capability-operation" | "auto-materials" | "user-selection";
         providerId: string;
         model: string;
         operation: VideoGenerationSettingsScope["operation"];

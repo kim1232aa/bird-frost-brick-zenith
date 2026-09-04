@@ -71,6 +71,7 @@ export function resolveVideoReferenceSlotContract({ capability, operation, refer
   }
   const submitted = [];
   const notSubmitted = [];
+  const allowsStorySemanticReferences = operation === "reference-to-video" && (capability.intentPolicy === "reference-set" || capability.intentPolicy === "r2v-with-first" || capability.intentPolicy === "frames-or-reference-set" || capability.intentPolicy === "reference-set-with-frames");
   let firstFrameCount = 0;
   let lastFrameCount = 0;
   let keyframeCount = 0;
@@ -81,7 +82,7 @@ export function resolveVideoReferenceSlotContract({ capability, operation, refer
     const useAs = normalizedUseAs(reference.useAs);
     if (reference.referenceOrigin === "story_auto") {
       if (capability.storyAutoReferencePolicy === "disabled") return reject(reference, "workflow-policy", "当前 service 未启用 Story 自动参考提交，该参考不会提交");
-      if (capability.storyAutoReferencePolicy === "current-shot" && reference.role !== "current_shot" && useAs === "reference_image") return reject(reference, "workflow-policy", "当前 Story 策略只自动提交时序分镜，该语义参考不会提交");
+      if (capability.storyAutoReferencePolicy === "current-shot" && !allowsStorySemanticReferences && reference.role !== "current_shot" && useAs === "reference_image") return reject(reference, "workflow-policy", "当前 Story 策略只自动提交时序分镜，该语义参考不会提交");
     }
     if (policy === "none" || operation === "text-to-video") return reject(reference, "operation-does-not-accept-images", "当前 operation 不接收图片");
     if (policy === "frames-or-reference-set") {

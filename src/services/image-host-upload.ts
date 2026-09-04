@@ -3,6 +3,7 @@ import axios from "axios";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { desktopApiUrl } from "@/services/desktop-api-url";
 import { imageToDataUrl } from "@/services/image-storage";
+import { persistImageHostCredential } from "@/stores/use-config-store";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { ReferenceImage } from "@/types/image";
 
@@ -35,11 +36,15 @@ export async function uploadImageToConfiguredHost(
     options: ImageHostUploadOptions = {},
 ) {
     const baseUrl = normalizeImageHostBaseUrl(config.imageHostBaseUrl, options);
+    const apiKey = String(config.imageHostApiKey || "").trim();
+    if (apiKey) {
+        // The one-time save request may carry the value to the authenticated
+        // server function; the actual upload request never carries a raw Key.
+        await persistImageHostCredential(baseUrl, apiKey);
+    }
     const formData = new FormData();
     formData.append("file", blob, filename);
     const headers: Record<string, string> = { "x-image-host-base-url": baseUrl };
-    const apiKey = String(config.imageHostApiKey || "").trim();
-    if (apiKey) headers["x-image-host-key"] = apiKey;
 
     let response;
     try {

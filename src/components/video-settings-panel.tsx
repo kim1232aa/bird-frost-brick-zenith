@@ -19,6 +19,7 @@ import {
 import {
     readVideoDimensionsDraft,
     updateVideoDimensionsDraft,
+    useConfigHydrationRuntimeStore,
     videoGenerationSettingsToRequest,
     type AiConfig,
     type VideoGenerationOperation,
@@ -29,6 +30,7 @@ import {
 type VideoSettingsPanelProps = {
     config: AiConfig;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "imageHostBaseUrl" | "imageHostApiKey", value: string) => void;
+    onImageHostCredentialBlur?: () => void;
     onGenerationSettingsChange?: (settings: VideoGenerationSettings, scope: VideoGenerationSettingsScope, capabilityId: string) => void;
     operation?: VideoGenerationOperation;
     theme: CanvasTheme;
@@ -106,6 +108,7 @@ function withGrokImagineControls(
 export function VideoSettingsPanel({
     config,
     onConfigChange,
+    onImageHostCredentialBlur,
     onGenerationSettingsChange,
     operation,
     theme,
@@ -186,7 +189,7 @@ export function VideoSettingsPanel({
                         <Hint text="这个模型没有可改的高级项，按默认出片就行。" />
                     ) : null}
                 </SettingGroup>
-                <ImageHostSettingGroup config={config} onConfigChange={onConfigChange} theme={theme} />
+                <ImageHostSettingGroup config={config} onConfigChange={onConfigChange} onImageHostCredentialBlur={onImageHostCredentialBlur} theme={theme} />
             </div>
         </ImageSettingsTheme>
     );
@@ -367,9 +370,11 @@ function operationLabel(operation?: VideoGenerationOperation) {
     } as const)[operation];
 }
 
-function ImageHostSettingGroup({ config, onConfigChange, theme }: Pick<VideoSettingsPanelProps, "config" | "onConfigChange" | "theme">) {
+function ImageHostSettingGroup({ config, onConfigChange, onImageHostCredentialBlur, theme }: Pick<VideoSettingsPanelProps, "config" | "onConfigChange" | "onImageHostCredentialBlur" | "theme">) {
+    const credentialError = useConfigHydrationRuntimeStore((state) => state.imageHostCredentialError);
     return (
         <SettingGroup title="图床（参考图公网化）" color={theme.node.muted}>
+            {credentialError ? <Hint text={credentialError} danger /> : null}
             <input
                 type="text"
                 placeholder="图床地址，如 https://img.example.com"
@@ -381,13 +386,17 @@ function ImageHostSettingGroup({ config, onConfigChange, theme }: Pick<VideoSett
             />
             <input
                 type="password"
-                placeholder="图床 API Key（不需要鉴权可留空）"
+                placeholder={config.imageHostHasApiKey ? "已保存到后端；输入新 Key 可替换" : "图床 API Key（不需要鉴权可留空）"}
                 className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
                 style={{ borderColor: theme.node.stroke, color: theme.node.text }}
                 value={config.imageHostApiKey || ""}
                 onChange={(event) => onConfigChange("imageHostApiKey", event.target.value)}
+                onBlur={onImageHostCredentialBlur}
                 onMouseDown={(event) => event.stopPropagation()}
             />
+            <div className="text-[11px] leading-5" style={{ color: theme.node.muted }}>
+                Key 保存到后端密钥库；浏览器上传请求不会携带明文。
+            </div>
         </SettingGroup>
     );
 }

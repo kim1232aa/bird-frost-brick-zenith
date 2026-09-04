@@ -325,6 +325,38 @@ test("Flux2 Dev capability exposes the official array LoRA contract without inve
   assert.equal(fields.seed.state, "supported");
 });
 
+test("wired Civitai catalog engine ids keep published size without a live service", () => {
+  const krea = resolveImageModelCapability({
+    model: "krea2-turbo",
+    operation: "generate",
+    provider,
+  });
+  assert.equal(krea.size.state, "supported");
+  if (krea.size.state !== "supported" || krea.size.kind !== "dimensions") return;
+  assert.equal(krea.size.rules.minWidth, 64);
+  assert.equal(krea.size.rules.maxWidth, 2048);
+  assert.equal(krea.size.rules.defaultWidth, 1024);
+  assert.equal(krea.serialization.sizeField, "width+height");
+  assert.equal(krea.outputCount.state, "supported");
+  if (krea.outputCount.state === "supported") assert.equal(krea.outputCount.max, 12);
+
+  const grok = resolveImageModelCapability({
+    model: "civitai-grok",
+    operation: "generate",
+    provider,
+  });
+  assert.equal(grok.size.state, "supported");
+  if (grok.size.state !== "supported" || grok.size.kind !== "enum") return;
+  assert.equal(grok.serialization.sizeField, "aspectRatio");
+
+  const unknown = resolveImageModelCapability({
+    model: "not-a-civitai-engine",
+    operation: "generate",
+    provider,
+  });
+  assert.equal(unknown.size.state, "unknown");
+});
+
 test("dynamic Civitai service without an exact serializer remains discoverable but non-runnable", () => {
   const capability = resolveImageModelCapability({
     model: "image/fal/unknown/createImage",

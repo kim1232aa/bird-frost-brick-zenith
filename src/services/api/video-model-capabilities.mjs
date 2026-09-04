@@ -479,12 +479,12 @@ const VIDEO_CAPABILITY_PROFILES = defineVideoCapabilityProfiles({
         provider: "openai",
         label: "xAI Grok Imagine Video",
         supportsFirstFrame: true,
-        supportsFirstLastFrame: true,
-        referenceImagePolicy: { supported: true, min: 1, max: 5 },
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: true, min: 1, max: 7 },
         storyAutoReferencePolicy: "current-shot",
-        supportsReferenceSetWithFirst: true,
-        supportsReferenceSetWithFrames: true,
-        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
+        supportsReferenceSetWithFirst: false,
+        supportsReferenceSetWithFrames: false,
+        supportedOperations: ["text-to-video", "image-to-video", "reference-to-video"],
         intentPolicy: "frames-or-reference-set",
     },
 });
@@ -612,12 +612,27 @@ const OPENAI_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
     resolution: unavailableParameter("unsupported", "OpenAI Videos 没有独立 resolution 档位字段；应使用 size"),
 });
 const XAI_IMAGINE_VIDEO_EVIDENCE = [
-    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-28; duration 1–15, aspect_ratio, resolution 480p/720p/1080p)",
+    "https://docs.x.ai/developers/model-capabilities/video/generation (verified 2026-08-30; duration 1–15, aspect_ratio, resolution 480p/720p/1080p, generate_audio=false for silent output)",
+    "https://docs.x.ai/developers/model-capabilities/video/image-to-video (verified 2026-08-30; image is the generated video's starting frame)",
+    "https://docs.x.ai/developers/model-capabilities/video/reference-to-video (verified 2026-08-30; up to 7 reference images and no first-frame lock)",
 ];
-const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract("xai:imagine-video", XAI_IMAGINE_VIDEO_EVIDENCE, "unsupported", {
-    duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", { enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], defaultValue: 8, integer: true, minimum: 1, maximum: 15 }),
-    resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", { enumValues: ["480p", "720p", "1080p"], defaultValue: "720p" }),
-    aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", { enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], defaultValue: "16:9" }),
+function xaiImagineVideoGenerationParameters(includeAudio) {
+    return makeVideoGenerationParameterContract("xai:imagine-video", XAI_IMAGINE_VIDEO_EVIDENCE, "unsupported", {
+        duration: supportedParameter("integer", "duration", "出片时长，1 到 15 秒", { enumValues: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], defaultValue: 8, integer: true, minimum: 1, maximum: 15 }),
+        resolution: supportedParameter("string", "resolution", "画面清晰度。1080p 只在 1.5 的文生视频/图生视频可用", { enumValues: ["480p", "720p", "1080p"], defaultValue: "720p" }),
+        aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例。图生视频不选时跟原图走", { enumValues: ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"], defaultValue: "16:9" }),
+        ...(includeAudio ? {
+            audio: supportedParameter("boolean", "generate_audio", "是否生成音轨；false 时请求静音视频（仅 grok-imagine-video-1.5）", { defaultValue: true }),
+        } : {}),
+    });
+}
+const XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(false);
+const XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS = xaiImagineVideoGenerationParameters(true);
+const XAI_RELAY_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract("xai-compatible-relay:imagine-video", ["已验证的 xAI-compatible relay /videos/generations 兼容 wire；不等同于 api.x.ai 官方枚举"], "unsupported", {
+    duration: supportedParameter("integer", "duration", "兼容 relay 原样接收整数 duration；不套用 api.x.ai 的 1..15 枚举", { integer: true }),
+    resolution: supportedParameter("string", "resolution", "兼容 relay 原样接收非空 resolution；不套用 api.x.ai 枚举"),
+    aspectRatio: supportedParameter("string", "aspect_ratio", "兼容 relay 原样接收非空 aspect_ratio；未填时与官方/serializer 一致走 16:9", { defaultValue: "16:9" }),
+    audio: supportedParameter("boolean", "generate_audio", "兼容 relay 的 generate_audio 布尔扩展；保留 true/false"),
 });
 const DASHSCOPE_SEED = supportedParameter("integer", "seed", "随机种子 0..2147483647", { minimum: 0, maximum: 2_147_483_647, integer: true });
 const DASHSCOPE_WATERMARK = supportedParameter("boolean", "watermark", "是否添加 provider 水印");
@@ -1008,6 +1023,10 @@ export function nativeVideoAdapterType(provider) {
     if (!provider)
         return "";
     const explicit = String(provider.adapterType || "").trim().toLowerCase();
+    if (explicit === "ark-plan")
+        return "ark";
+    if (explicit === "civitai")
+        return "civitai-orchestration";
     if (explicit)
         return explicit === "agnes" || explicit === "dashscope" || explicit === "ark" || explicit === "civitai-orchestration" ? explicit : "";
     const baseUrl = String(provider.baseUrl || "").trim();
@@ -1034,9 +1053,12 @@ export function nativeVideoSubmissionAdapterType(provider, model) {
   const native = nativeVideoAdapterType(provider);
   if (native) return native;
   const explicit = String(provider?.adapterType || "").trim().toLowerCase();
-  if (explicit !== "openai") return "";
   const capability = resolveVideoModelCapability({ model, provider });
-  return capability.id === "openai-video" ? "openai" : "";
+  if (explicit === "openai") return capability.id === "openai-video" ? "openai" : "";
+  if ((explicit === "xai-imagine" || explicit === "xai") && capability.id === "xai-imagine-video") {
+    return "xai-imagine";
+  }
+  return "";
 }
 
 export function videoCapabilityProfileCompatibility(provider, profileId) {
@@ -1051,6 +1073,12 @@ export function videoCapabilityProfileCompatibility(provider, profileId) {
             ? "openai"
             : "";
     if (adapter === profile.provider) return { compatible: true, adapter, reason: "" };
+    if (
+      profileId === "xai-imagine-video" &&
+      (explicitAdapter === "xai-imagine" || explicitAdapter === "xai")
+    ) {
+      return { compatible: true, adapter: "openai", reason: "" };
+    }
     const selected = adapter || explicitAdapter || "OpenAI-compatible";
     return {
         compatible: false,
@@ -1086,7 +1114,7 @@ export function resolveVideoModelCapability(options) {
     // explicit per-model capability profile.
     if (explicitAdapter === "openai" && isExactOpenAiVideoModel(model))
         return resolvedProfile("openai-video", model, provider, false);
-    if (/grok-imagine-video/i.test(model) || explicitAdapter === "xai-imagine" || explicitAdapter === "xai")
+    if ((explicitAdapter === "xai-imagine" || explicitAdapter === "xai") && isExactXaiImagineVideoModel(model))
         return resolvedProfile("xai-imagine-video", model, provider, false);
     return resolvedProfile("openai-unknown", model, provider, false);
 }
@@ -1738,10 +1766,27 @@ function dashscopeProfileForModel(model) {
     return "dashscope-unknown";
 }
 function isExactAgnesVideoModel(model) {
-    return normalizeModelKey(model) === "agnes-video-v2-0";
+    const key = normalizeModelKey(model);
+    return key === "agnes-video-v2-0" || key === "agnes-video-2-5-flash" || key === "agnes-video-2-5";
 }
 function isExactOpenAiVideoModel(model) {
     return OPENAI_VIDEO_MODEL_KEYS.has(normalizeModelKey(model));
+}
+function isXaiImagineVideo15Model(model) {
+    const normalized = normalizeModelKey(model);
+    return normalized === "grok-imagine-video-1-5" || normalized === "grok-imagine-video-1-5-preview";
+}
+function isExactXaiImagineVideoModel(model) {
+    return isXaiImagineVideo15Model(model) || normalizeModelKey(model) === "grok-imagine-video";
+}
+function isOfficialXaiProvider(provider) {
+    const baseUrl = String(provider?.baseUrl || "").trim();
+    try {
+        return new URL(baseUrl).hostname.toLowerCase() === "api.x.ai";
+    }
+    catch {
+        return false;
+    }
 }
 const OPENAI_VIDEO_MODEL_KEYS = new Set([
     "sora-2",
@@ -1767,8 +1812,13 @@ function arkProfileForModel(model) {
     return "ark-unknown";
 }
 function civitaiProfileForModel(model) {
-    if (String(model || "").trim().toLowerCase() === "kling-v3")
+    const shortModel = String(model || "").trim().toLowerCase();
+    if (shortModel === "kling-v3")
         return "civitai-frames-or-references";
+    if (shortModel === "ltx2.3" || shortModel === "ltx2-3")
+        return "civitai-first-last";
+    if (shortModel === "hunyuan")
+        return "civitai-text-video";
     return resolveCivitaiVideoMediaContract(model)?.profileId ?? "civitai-unknown";
 }
 function resolvedCivitaiProfile(model, provider) {
@@ -1787,23 +1837,35 @@ function resolvedCivitaiProfile(model, provider) {
 }
 function resolvedProfile(id, model, provider, profileConfigured) {
     const profile = VIDEO_CAPABILITY_PROFILES[id];
-    return {
+    const capability = {
         ...profile,
         model,
         providerLabel: String(provider?.displayName || provider?.name || "").trim() || profile.label,
         profileConfigured,
-        generationParameters: videoGenerationParametersForModel(profile.provider, model),
+        generationParameters: id === "xai-imagine-video"
+            ? (isXaiImagineVideo15Model(model) ? XAI_IMAGINE_VIDEO_15_GENERATION_PARAMETERS : XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS)
+            : videoGenerationParametersForModel(profile.provider, model),
+    };
+    if (capability.id !== "xai-imagine-video" || isOfficialXaiProvider(provider))
+        return capability;
+    return {
+        ...capability,
+        generationParameters: XAI_RELAY_VIDEO_GENERATION_PARAMETERS,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: true, min: 1, max: 5 },
+        supportsReferenceSetWithFirst: true,
+        supportsReferenceSetWithFrames: true,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video", "reference-to-video"],
     };
 }
 function videoGenerationParametersForModel(provider, model) {
     const normalized = normalizeModelKey(model);
     if (provider === "agnes") {
-        return normalized === "agnes-video-v2-0" ? AGNES_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("agnes", model);
+        return normalized === "agnes-video-v2-0" || normalized === "agnes-video-2-5-flash" || normalized === "agnes-video-2-5"
+            ? AGNES_VIDEO_GENERATION_PARAMETERS
+            : unknownGenerationParameters("agnes", model);
     }
     if (provider === "openai") {
-        if (/grok-imagine-video/i.test(model) || normalized.includes("grok-imagine-video")) {
-            return XAI_IMAGINE_VIDEO_GENERATION_PARAMETERS;
-        }
         return OPENAI_VIDEO_MODEL_KEYS.has(normalized) ? OPENAI_VIDEO_GENERATION_PARAMETERS : unknownGenerationParameters("openai", model);
     }
     if (provider === "ark") {

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createId } from "@/lib/create-id";
 
 export type StudioRole = "admin" | "user";
 
@@ -165,7 +166,7 @@ export const useAccountStore = create<AccountState>()(
           throw new Error("这个用户名已被注册，请直接登录");
         }
         const profile: StoredAccount = {
-          id: crypto.randomUUID(),
+          id: createId(),
           username: username.trim(),
           displayName: (displayName || username).trim(),
           email: normalizeEmail(email || ""),

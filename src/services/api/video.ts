@@ -4,18 +4,18 @@ import { desktopApiUrl } from "@/services/desktop-api-url";
 
 import { dataUrlToFile } from "@/lib/image-utils";
 import { explicitMediaRequestModel, resolveApiRequestRoute, routedLocalApiUrl, routedLocalHeaders, type ApiRequestRoute } from "@/services/api/ai-routing";
-import { agnesVideoOriginUrl, buildAgnesVideoPayload, isAgnesRoute, readAgnesVideoTaskIdentity } from "@/services/api/agnes";
+import { buildAgnesVideoPayload, isAgnesRoute, readAgnesVideoTaskIdentity } from "@/services/api/agnes";
 import { createDashscopeVideoTask, isDashscopeRoute, pollDashscopeVideoTask } from "@/services/api/dashscope";
 import { createCivitaiWorkflow, isCivitaiRoute, pollCivitaiWorkflow, resolveCivitaiRouteService } from "@/services/api/civitai-client";
 import { buildCivitaiVideoWorkflow, civitaiAllowsMatureContent } from "@/services/api/civitai-orchestration";
-import { resolveCivitaiVideoMediaContract } from "@/services/api/civitai-video-media-contract.mjs";
+import { resolveCivitaiVideoMediaContractForIntent } from "@/services/api/civitai-video-media-contract.mjs";
 import {
     createVideoGenerationResult,
     videoGenerationResultOutputs,
     type VideoGenerationOutput,
     type VideoGenerationResult,
 } from "@/services/api/video-generation-result";
-import { buildLocalRelayProxyHeaders, buildProviderProxyHeaders, rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, buildProviderProxyHeaders, selectRelayCredential } from "@/services/api/relay-proxy";
 import { describeTextTransportError, detectTextApiResponseError } from "@/services/api/text-response-errors";
 import { assertVideoResponseBlob, InvalidVideoResponseError, VIDEO_RESULT_DOWNLOAD_TIMEOUT_MS } from "@/services/api/video-download-policy";
 import {
@@ -42,6 +42,8 @@ import { videoPromptPreflightError } from "@/services/api/video-prompt-contract"
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { uploadImageToConfiguredHost } from "@/services/image-host-upload";
+import { resolveVideoReferenceImageUrl } from "@/services/api/video-reference-image-url";
+import { resolveLocalVideoResultDownload } from "@/services/api/video-result-url";
 import { buildSeedancePromptText, isSeedanceVideoConfig, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { providerDisplayName, type ApiBoardRouteKey } from "@/stores/api-relay-config";
 import {
@@ -102,7 +104,8 @@ export type VideoGenerationTask = {
     provider: "openai" | "seedance" | "dashscope" | "agnes" | "civitai" | "xai-imagine";
     model: string;
     route?: ApiRequestRoute;
-    apiKey?: string;
+    /** Opaque server-vault identity pinned to this task. */
+    credentialId?: string;
     agnesVideoId?: string;
     /** Requested provider batch cardinality; persisted so resumed polls enforce the same contract. */
     expectedOutputs?: number;
@@ -125,13 +128,22 @@ function aiApiUrl(config: AiConfig, route: ApiRequestRoute, path: string) {
     return route.mode === "local" ? routedLocalApiUrl(route, path) : `/api/v1${path}`;
 }
 
-async function aiHeaders(config: AiConfig, route: ApiRequestRoute, contentType?: string, overrideKey?: string) {
-    if (route.mode === "local") return overrideKey ? (buildLocalRelayProxyHeaders(route.provider, contentType, overrideKey) as Record<string, string>) : routedLocalHeaders(route, contentType);
+async function aiHeaders(config: AiConfig, route: ApiRequestRoute, contentType?: string, overrideKey?: string, credentialId?: string) {
+    if (route.mode === "local") {
+        if (overrideKey || credentialId) return buildLocalRelayProxyHeaders(route.provider, contentType, overrideKey, credentialId) as Record<string, string>;
+        return routedLocalHeaders(route, contentType);
+    }
     const token = (await getStoredAuthKey()) || useUserStore.getState().token;
     return {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(contentType ? { "Content-Type": contentType } : {}),
     };
+}
+
+function selectLocalTaskCredential(route: ApiRequestRoute) {
+    return route.mode === "local"
+        ? selectRelayCredential(route.provider)
+        : { apiKey: "", credentialId: "" };
 }
 
 function refreshRemoteUser(config: AiConfig) {
@@ -164,9 +176,6 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
         audioCount: audioReferences.length,
     });
     if (promptError) throw new Error(`${capability.providerLabel} / ${model}：${promptError}`);
-    if (route.mode === "local" && isCivitaiRoute(route)) {
-        preflightCivitaiMediaContract(model, references, videoReferences, audioReferences);
-    }
     const firstClipCount = videoReferences.filter((video) => video.useAs === "first_clip").length;
     const slotContract = resolveVideoReferenceSlotContract({
         capability,
@@ -308,10 +317,10 @@ async function createAgnesVideoTask(
         generationParameters,
         referenceIntent: publicIntent,
     });
+    const selected = selectLocalTaskCredential(route);
+    if (route.mode === "local" && !selected.credentialId) throw new Error("Agnes 视频任务凭据缺少稳定标识，未发送生成请求");
     try {
-        // Agnes 任务按 Key 分片；创建和全部轮询必须使用同一把 Key。
-        const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, route, "/videos"), payload, { headers: await aiHeaders(config, route, "application/json", pinnedKey || undefined), timeout: route.timeoutMs })).data);
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, route, "/videos"), payload, { headers: await aiHeaders(config, route, "application/json", selected.apiKey || undefined, selected.credentialId || undefined), timeout: route.timeoutMs })).data);
         const identity = readAgnesVideoTaskIdentity(created);
         if (!identity) throw new Error("Agnes 视频接口没有返回 id、task_id 或 video_id");
         return {
@@ -319,7 +328,7 @@ async function createAgnesVideoTask(
             provider: "agnes",
             model,
             route,
-            apiKey: pinnedKey || undefined,
+            ...(selected.credentialId ? { credentialId: selected.credentialId } : {}),
             ...(identity.videoId ? { agnesVideoId: identity.videoId } : {}),
         };
     } catch (error) {
@@ -366,12 +375,9 @@ async function pollAgnesVideoTask(config: AiConfig, route: ApiRequestRoute, task
 async function fetchAgnesVideoState(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask) {
     if (task.agnesVideoId && route.mode === "local") {
         try {
-            const originUrl = agnesVideoOriginUrl(route.provider.baseUrl, task.agnesVideoId);
-            const response = await axios.get<ApiVideoResponse>(desktopFetchedResourceUrl(originUrl), {
-                headers: {
-                    ...buildProviderProxyHeaders(route.provider),
-                    ...(task.apiKey ? { Authorization: `Bearer ${task.apiKey}` } : {}),
-                },
+            const response = await axios.get<ApiVideoResponse>(routedLocalApiUrl(route, "/agnesapi"), {
+                headers: buildLocalRelayProxyHeaders(route.provider, undefined, undefined, task.credentialId),
+                params: { video_id: task.agnesVideoId },
                 timeout: route.timeoutMs,
             });
             return unwrapVideoResponse(response.data);
@@ -383,7 +389,7 @@ async function fetchAgnesVideoState(config: AiConfig, route: ApiRequestRoute, ta
         }
     }
     return unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, route, `/videos/${encodeURIComponent(task.id)}`), {
-        headers: await aiHeaders(config, route, undefined, task.apiKey),
+        headers: await aiHeaders(config, route, undefined, undefined, task.credentialId),
         timeout: route.timeoutMs,
     })).data);
 }
@@ -447,19 +453,32 @@ async function createCivitaiVideoTask(
     audioReferences: ReferenceAudio[],
     generationParameters: VideoGenerationParameters,
 ): Promise<VideoGenerationTask> {
-    const contract = preflightCivitaiMediaContract(model, videoReferenceIntentItems(referenceIntent), videoReferences, audioReferences);
-    if (!contract.referenceKinds.includes(referenceIntent.kind)) {
-        throw new Error(`Civitai / ${model}：精确媒体合同不接受 ${referenceIntent.kind} intent，未解析或上传任何素材`);
-    }
+    const contract = preflightCivitaiMediaContract(
+        model,
+        videoReferenceIntentItems(referenceIntent),
+        videoReferences,
+        audioReferences,
+        referenceIntent.kind,
+    );
     if (referenceIntent.kind === "keyframes") {
         throw new Error(`Civitai / ${model}：当前工作流合同未定义 Agnes 多关键帧字段，已停止提交以避免错误降级`);
+    }
+    if (!contract.referenceKinds.some((kind) => kind === referenceIntent.kind)) {
+        throw new Error(`Civitai / ${model}：精确媒体合同不接受 ${referenceIntent.kind} intent，未解析或上传任何素材`);
     }
     const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent);
     const referenceParts = partitionCivitaiVideoReferences(publicIntent);
     const publicVideos = await Promise.all(videoReferences.map((video) => resolveHostedVideoUrl("Civitai", video)));
     const publicAudios = await Promise.all(audioReferences.map((audio) => resolveHostedAudioUrl("Civitai", audio)));
-    const pinnedApiKey = rotateRelayApiKey(route.provider);
-    const service = await resolveCivitaiRouteService(route, model, pinnedApiKey);
+    const selected = selectLocalTaskCredential(route);
+    if (!selected.credentialId) throw new Error("Civitai 视频任务凭据缺少稳定标识，未发送生成请求");
+    const service = await resolveCivitaiRouteService(
+        route,
+        model,
+        selected.apiKey,
+        selected.credentialId,
+        contract.serviceId,
+    );
     const workflow = buildCivitaiVideoWorkflow({
         model,
         service,
@@ -475,14 +494,14 @@ async function createCivitaiVideoTask(
         allowMatureContent: civitaiAllowsMatureContent(route.provider),
     });
     try {
-        const created = await createCivitaiWorkflow(route, workflow, 0, pinnedApiKey);
+        const created = await createCivitaiWorkflow(route, workflow, 0, selected.apiKey, selected.credentialId);
         if (created.state.status === "failed") throw new Error(created.state.error);
         return {
             id: created.state.workflowId,
             provider: "civitai",
             model,
             route,
-            apiKey: created.apiKey,
+            credentialId: created.credentialId,
             ...(typeof generationParameters.quantity === "number" ? { expectedOutputs: generationParameters.quantity } : {}),
         };
     } catch (error) {
@@ -495,8 +514,9 @@ function preflightCivitaiMediaContract(
     references: readonly { useAs?: string }[],
     videos: readonly ReferenceVideo[],
     audios: readonly ReferenceAudio[],
+    referenceKind = "none",
 ) {
-    const contract = resolveCivitaiVideoMediaContract(model);
+    const contract = resolveCivitaiVideoMediaContractForIntent(model, referenceKind);
     if (!contract) {
         throw new Error(`Civitai / ${model}：没有经过当前 live OpenAPI 验证的视频媒体合同，未解析或上传任何素材`);
     }
@@ -562,7 +582,7 @@ async function resolveHostedAudioUrl(providerLabel: string, audio: ReferenceAudi
 async function pollCivitaiVideoTask(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
     if (route.mode !== "local" || !isCivitaiRoute(route)) return { status: "failed", error: "Civitai 视频任务路由已失效，请检查 Provider 配置" };
     try {
-        const state = await pollCivitaiWorkflow(route, task.id, task.apiKey || route.provider.apiKey);
+        const state = await pollCivitaiWorkflow(route, task.id, "", route.timeoutMs, task.credentialId);
         if (state.status === "pending") return { status: "pending" };
         if (state.status === "failed") return { status: "failed", error: state.error };
         const providerLabel = `Civitai / ${task.model}`;
@@ -618,7 +638,11 @@ export async function downloadVideoResultFromUrl(url: string, route?: ApiRequest
 export async function storeGeneratedVideos(result: VideoGenerationResult, route?: ApiRequestRoute): Promise<readonly UploadedFile[]> {
     const outputs = videoGenerationResultOutputs(result);
     if (!outputs.length) throw new Error("视频接口没有返回可播放的视频");
-    return Promise.all(outputs.map((output) => storeGeneratedVideo(output, route)));
+    const stored: UploadedFile[] = [];
+    for (const output of outputs) {
+        stored.push(await storeGeneratedVideo(output, route));
+    }
+    return stored;
 }
 
 async function resolveOpenAIInputReferenceFile(intent: VideoReferenceIntent<VideoReferenceImage>): Promise<File | null> {
@@ -643,7 +667,7 @@ async function createXaiImagineVideoTask(
     prompt: string,
     generationParameters: VideoGenerationParameters,
 ): Promise<VideoGenerationTask> {
-    const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent);
+    const publicIntent = await resolveVideoReferenceIntent(config, referenceIntent, capability);
     const stills = Array.from(new Set(videoReferenceIntentItems(publicIntent).map((url) => String(url || "").trim()).filter(Boolean)));
     const official = route.mode === "local" && isOfficialXaiHost(route.provider.baseUrl);
     if (official && (publicIntent.kind === "first_last_frame" || publicIntent.kind === "last_frame" || publicIntent.kind === "reference_set_with_frames" || publicIntent.kind === "reference_set_with_first")) {
@@ -656,24 +680,27 @@ async function createXaiImagineVideoTask(
         if (publicIntent.kind === "first_frame") first = publicIntent.firstFrame;
         else if (publicIntent.kind === "reference_set") references = publicIntent.references.map((url) => String(url || "").trim()).filter(Boolean);
     } else {
-        if (publicIntent.kind === "first_frame" || publicIntent.kind === "reference_set_with_first") first = publicIntent.firstFrame;
-        else if (publicIntent.kind === "first_last_frame" || publicIntent.kind === "reference_set_with_frames") {
+        if (publicIntent.kind === "first_frame") first = publicIntent.firstFrame;
+        else if (publicIntent.kind === "first_last_frame") {
             first = publicIntent.firstFrame || stills[0] || "";
             last = publicIntent.lastFrame || stills[stills.length - 1] || "";
-        } else if (publicIntent.kind === "reference_set") {
-            first = stills[0] || "";
-            last = stills.length > 1 ? stills[stills.length - 1] : "";
-        } else if (publicIntent.kind !== "none" && stills.length) {
+        } else if (
+            publicIntent.kind === "reference_set" ||
+            publicIntent.kind === "reference_set_with_first" ||
+            publicIntent.kind === "reference_set_with_frames"
+        ) {
+            references = stills;
+        } else if (publicIntent.kind !== "none" && stills.length > 1) {
+            references = stills;
+        } else if (stills.length === 1) {
             first = stills[0];
-            last = stills.length > 1 ? stills[stills.length - 1] : "";
         }
-        if (!first) first = stills[0] || "";
         if (last && last === first) last = stills.find((url) => url !== first) || "";
     }
     const providedDuration = typeof generationParameters.duration === "number" ? generationParameters.duration : Number(config.videoSeconds);
     const duration = Number.isFinite(providedDuration) && providedDuration > 0 ? providedDuration : undefined;
     const providedResolution = String(generationParameters.resolution || (!official ? config.vquality : "") || "").trim();
-    const resolution = official && providedResolution
+    const resolution = providedResolution
         ? `${providedResolution.replace(/p$/i, "")}p`
         : providedResolution;
     const aspect = String(generationParameters.aspectRatio || (!official ? "16:9" : "")).trim();
@@ -687,19 +714,20 @@ async function createXaiImagineVideoTask(
         ...(generateAudio !== undefined ? { generateAudio } : {}),
         ...(first ? { image: { url: first } } : {}),
         ...(last ? { last_frame_image: { url: last } } : {}),
-        image_urls: official ? references : stills,
+        image_urls: official ? references : (references.length ? references : stills),
         profile: official ? "official" : "relay",
     });
+    const selected = selectLocalTaskCredential(route);
+    if (route.mode === "local" && !selected.credentialId) throw new Error("xAI Imagine 视频任务凭据缺少稳定标识，未发送生成请求");
     try {
-        const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";
         const response = await axios.post<unknown>(aiApiUrl(config, route, xaiImagineCreatePath()), body, {
-            headers: await aiHeaders(config, route, "application/json", pinnedKey || undefined),
+            headers: await aiHeaders(config, route, "application/json", selected.apiKey || undefined, selected.credentialId || undefined),
             timeout: route.timeoutMs,
         });
         const requestId = readXaiImagineRequestId(response.data);
         if (!requestId) throw new Error("xAI Imagine 没有返回 request_id");
         try { useMembershipStore.getState().record("video"); } catch { /* quota is advisory */ }
-        return { id: requestId, provider: "xai-imagine", model, route, apiKey: pinnedKey || undefined };
+        return { id: requestId, provider: "xai-imagine", model, route, ...(selected.credentialId ? { credentialId: selected.credentialId } : {}) };
     } catch (error) {
         throw new Error(readAxiosError(error, `${capability.providerLabel} / ${model} 视频任务创建失败`));
     }
@@ -708,13 +736,13 @@ async function createXaiImagineVideoTask(
 async function pollXaiImagineVideoTask(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
     try {
         const response = await axios.get<unknown>(aiApiUrl(config, route, xaiImaginePollPath(task.id)), {
-            headers: await aiHeaders(config, route, undefined, task.apiKey),
+            headers: await aiHeaders(config, route, undefined, undefined, task.credentialId),
             timeout: route.timeoutMs,
         });
         const state = readXaiImaginePoll(response.data);
         if (state.status === "completed" && state.url) {
             refreshRemoteUser(config);
-            return { status: "completed", result: await videoResultFromUrl(state.url, route) };
+            return { status: "completed", result: await videoResultFromUrl(state.url, route, config, task) };
         }
         if (state.status === "failed") return { status: "failed", error: state.error || "视频生成失败" };
         return { status: "pending" };
@@ -743,11 +771,12 @@ async function createOpenAIVideoTask(
     if (wireParameters.seconds !== undefined) body.append("seconds", wireParameters.seconds);
     if (wireParameters.size !== undefined) body.append("size", wireParameters.size);
     if (inputReference) body.append("input_reference", inputReference, inputReference.name);
+    const selected = selectLocalTaskCredential(route);
+    if (route.mode === "local" && !selected.credentialId) throw new Error("OpenAI 视频任务凭据缺少稳定标识，未发送生成请求");
     try {
-        const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";
-        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, route, "/videos"), body, { headers: await aiHeaders(config, route, undefined, pinnedKey || undefined), timeout: route.timeoutMs })).data);
+        const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, route, "/videos"), body, { headers: await aiHeaders(config, route, undefined, selected.apiKey || undefined, selected.credentialId || undefined), timeout: route.timeoutMs })).data);
         if (!created.id) throw new Error("视频接口没有返回任务 ID");
-        return { id: created.id, provider: "openai", model, route, apiKey: pinnedKey || undefined };
+        return { id: created.id, provider: "openai", model, route, ...(selected.credentialId ? { credentialId: selected.credentialId } : {}) };
     } catch (error) {
         throw new Error(readAxiosError(error, `OpenAI-compatible / ${model} 视频任务创建失败`));
     }
@@ -774,10 +803,10 @@ export function serializeOpenAIVideoGenerationParameters(
 
 async function pollOpenAIVideoTask(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
     try {
-        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, route, `/videos/${task.id}`), { headers: await aiHeaders(config, route, undefined, task.apiKey), params: route.mode === "remote" ? { model: task.model } : undefined, timeout: route.timeoutMs })).data);
+        const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, route, `/videos/${task.id}`), { headers: await aiHeaders(config, route, undefined, undefined, task.credentialId), params: route.mode === "remote" ? { model: task.model } : undefined, timeout: route.timeoutMs })).data);
         const status = normalizeVideoTaskProviderStatus(video.status);
         if (status === "completed" || status === "succeeded" || status === "success") {
-            const content = await axios.get<Blob>(aiApiUrl(config, route, `/videos/${task.id}/content`), { headers: await aiHeaders(config, route, undefined, task.apiKey), params: route.mode === "remote" ? { model: task.model } : undefined, responseType: "blob", timeout: route.timeoutMs });
+            const content = await axios.get<Blob>(aiApiUrl(config, route, `/videos/${task.id}/content`), { headers: await aiHeaders(config, route, undefined, undefined, task.credentialId), params: route.mode === "remote" ? { model: task.model } : undefined, responseType: "blob", timeout: route.timeoutMs });
             await assertVideoResponseBlob(content.data);
             refreshRemoteUser(config);
             return { status: "completed", result: { blob: content.data } };
@@ -812,8 +841,9 @@ async function createDashscopeTask(
         ...(video.useAs ? { useAs: video.useAs } : {}),
     })));
     const publicVoices = await Promise.all(audioReferences.map((audio) => resolveHostedAudioUrl(capability.providerLabel, audio)));
+    const selected = selectLocalTaskCredential(route);
+    if (route.mode === "local" && !selected.credentialId) throw new Error("DashScope 视频任务凭据缺少稳定标识，未发送生成请求");
     try {
-        const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";
         const taskId = await createDashscopeVideoTask(route, {
             model,
             prompt: buildVideoReferencePromptText(capability, text, referenceIntent),
@@ -824,9 +854,10 @@ async function createDashscopeTask(
             generationParameters,
             hasReferenceVideo: publicVideos.length > 0,
             timeoutMs: route.timeoutMs,
-            apiKey: pinnedKey || undefined,
+            apiKey: selected.apiKey || undefined,
+            credentialId: selected.credentialId || undefined,
         });
-        return { id: taskId, provider: "dashscope", model, route, apiKey: pinnedKey || undefined };
+        return { id: taskId, provider: "dashscope", model, route, ...(selected.credentialId ? { credentialId: selected.credentialId } : {}) };
     } catch (error) {
         throw new Error(readAxiosError(error, `${capability.providerLabel} / ${model} 视频任务创建失败`));
     }
@@ -855,7 +886,7 @@ function validateVideoInputs(capability: ResolvedVideoModelCapability, videos: r
 
 async function pollDashscopeTask(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
     try {
-        const state = await pollDashscopeVideoTask(route, task.id, route.timeoutMs, task.apiKey);
+        const state = await pollDashscopeVideoTask(route, task.id, route.timeoutMs, undefined, task.credentialId);
         if (state.status === "completed") {
             refreshRemoteUser(config);
             return { status: "completed", result: await videoResultFromUrl(state.url, route) };
@@ -906,11 +937,12 @@ async function createSeedanceTask(
         ...serializeArkSeedanceGenerationParameters(capability, generationParameters),
     };
 
+    const selected = selectLocalTaskCredential(route);
+    if (route.mode === "local" && !selected.credentialId) throw new Error("Seedance 视频任务凭据缺少稳定标识，未发送生成请求");
     try {
-        const pinnedKey = route.mode === "local" ? rotateRelayApiKey(route.provider) : "";
-        const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, route), payload, { headers: await aiHeaders(config, route, "application/json", pinnedKey || undefined), timeout: route.timeoutMs })).data);
+        const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, route), payload, { headers: await aiHeaders(config, route, "application/json", selected.apiKey || undefined, selected.credentialId || undefined), timeout: route.timeoutMs })).data);
         if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
-        return { id: created.id, provider: "seedance", model, route, apiKey: pinnedKey || undefined };
+        return { id: created.id, provider: "seedance", model, route, ...(selected.credentialId ? { credentialId: selected.credentialId } : {}) };
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
     }
@@ -941,7 +973,7 @@ async function pollSeedanceTask(config: AiConfig, route: ApiRequestRoute, task: 
     if (route.mode === "remote") return pollRelayVideoTask(config, route, task);
 
     try {
-        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, route, task.id), { headers: await aiHeaders(config, route, undefined, task.apiKey), timeout: route.timeoutMs })).data);
+        const state = unwrapSeedanceTask((await axios.get<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config, route, task.id), { headers: await aiHeaders(config, route, undefined, undefined, task.credentialId), timeout: route.timeoutMs })).data);
         if (state.status === "succeeded") {
             const url = state.content?.video_url;
             if (!url) return { status: "failed", error: "Seedance 任务成功但没有返回视频 URL" };
@@ -1247,25 +1279,24 @@ async function buildSeedanceContent(
     return content;
 }
 
-async function resolveVideoReferenceIntent(config: AiConfig, intent: VideoReferenceIntent<VideoReferenceImage>): Promise<VideoReferenceIntent<string>> {
+async function resolveVideoReferenceIntent(
+    config: AiConfig,
+    intent: VideoReferenceIntent<VideoReferenceImage>,
+    capability?: Pick<ResolvedVideoModelCapability, "id">,
+): Promise<VideoReferenceIntent<string>> {
     const images = videoReferenceIntentItems(intent);
     const urls: string[] = [];
     // Preserve frame order and avoid concurrent multipart uploads through the
     // desktop relay: some image hosts/proxies leave one parallel request open.
     for (const image of images) {
-        urls.push(await resolveSeedanceImageUrl(config, image));
+        urls.push(await resolveSeedanceImageUrl(config, image, capability));
     }
     const byImage = new Map(images.map((image, index) => [image, urls[index]]));
     return mapVideoReferenceIntent(intent, (image) => byImage.get(image) || "");
 }
 
-async function resolveSeedanceImageUrl(config: AiConfig, image: VideoReferenceImage) {
-    const directUrl = image.url || image.dataUrl;
-    if (isPublicMediaUrl(directUrl)) return directUrl;
-    const dataUrl = await imageToDataUrl(image);
-    if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    const file = dataUrlToFile({ ...image, dataUrl });
-    return uploadImageToConfiguredHost(config, file, file.name, { requirePublicResult: true });
+async function resolveSeedanceImageUrl(config: AiConfig, image: VideoReferenceImage, capability?: Pick<ResolvedVideoModelCapability, "id">) {
+    return resolveVideoReferenceImageUrl(config, image, capability);
 }
 
 async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
@@ -1300,12 +1331,31 @@ function desktopFetchedResourceUrl(url: string) {
     return `${desktopApiUrl("/client-api/fetch-url")}?url=${encodeURIComponent(url)}`;
 }
 
-async function videoResultFromUrl(url: string, route?: ApiRequestRoute): Promise<VideoGenerationResult> {
+async function videoResultFromUrl(
+    url: string,
+    route?: ApiRequestRoute,
+    config?: AiConfig,
+    task?: Pick<VideoGenerationTask, "credentialId">,
+): Promise<VideoGenerationResult> {
     // A provider-aware result must preserve that provider's direct/custom
     // transport choice. Do not probe the URL in WebView first, because that
     // would silently bypass an explicitly selected proxy.
     if (route?.mode === "local") {
-        const response = await axios.get<Blob>(desktopFetchedResourceUrl(url), {
+        const download = resolveLocalVideoResultDownload(url);
+        if (download.kind === "relay") {
+            const requestConfig = config || ({} as AiConfig);
+            const response = await axios.get<Blob>(aiApiUrl(requestConfig, route, download.path), {
+                headers: await aiHeaders(requestConfig, route, undefined, undefined, task?.credentialId),
+                responseType: "blob",
+                timeout: VIDEO_RESULT_DOWNLOAD_TIMEOUT_MS,
+            });
+            await assertVideoResponseBlob(response.data);
+            return { blob: response.data };
+        }
+        if (download.kind !== "fetch-url") {
+            throw new Error("视频结果地址无效，无法下载");
+        }
+        const response = await axios.get<Blob>(desktopFetchedResourceUrl(download.url), {
             headers: buildProviderProxyHeaders(route.provider),
             responseType: "blob",
             timeout: VIDEO_RESULT_DOWNLOAD_TIMEOUT_MS,

@@ -1,3 +1,5 @@
+import { sha256Hex } from "../../../lib/sha256.mjs";
+
 export function buildSeedance2BatchRewritePrompt(input) {
   const textShots = input.shots.map(({ sourceImage, ...shot }) => ({
     ...shot,
@@ -29,16 +31,14 @@ export function buildSeedance2BatchRewritePrompt(input) {
 export const SEEDANCE2_PROMPT_REWRITE_MAX_SHOTS_PER_REQUEST = 3;
 
 export async function createSeedance2PromptRewriteFingerprint(value) {
-  const bytes = new TextEncoder().encode(stableFingerprintValue(value));
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(stableFingerprintValue(value));
 }
 
 export function safeSeedance2PromptRewriteError(error) {
   const message = error instanceof Error ? error.message : String(error || "");
   const trimmed = message.replace(/\s+/g, " ").trim();
   if (!trimmed) return "Seedance2 整批提示词改写失败";
-  if (trimmed.length > 500 || /https?:\/\/|[{}\[\]]|\b(?:authorization|bearer|api[_ -]?key|access[_ -]?key|token|secret|password|credential)\b|\bsk-[a-z0-9_-]+|\b(?:request|response)\s*(?:body|payload)\b/i.test(trimmed)) {
+  if (trimmed.length > 500 || /https?:\/\/|[{}[\]]|\b(?:authorization|bearer|api[_ -]?key|access[_ -]?key|token|secret|password|credential)\b|\bsk-[a-z0-9_-]+|\b(?:request|response)\s*(?:body|payload)\b/i.test(trimmed)) {
     return "Seedance2 提示词改写失败：上游拒绝或中断请求，请检查网络、账户或模型权限后重试";
   }
   if (/余额|balance/i.test(trimmed)) return "Seedance2 提示词改写失败：上游拒绝请求，请检查账户或模型权限后重试";

@@ -69,7 +69,7 @@ export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, u
   }
 
   if (refs.length === 1) body.image = imagineImagePart(refs[0]);
-  else body.images = refs.map(imagineImagePart);
+  else if (refs.length > 1) body.images = refs.map(imagineImagePart);
   if (refs.length > 1 && isImage2) {
     const aspectRatio = normalizeXaiImagineAspectRatio(input.aspectRatio);
     if (aspectRatio) body.aspect_ratio = aspectRatio;
@@ -87,7 +87,7 @@ export const xaiImagineAdapter: StudioAdapter = {
   docs: "https://docs.x.ai/developers/model-capabilities/images/editing",
   async generateImage(ctx, input) {
     const body = buildXaiImagineImageBody(input);
-    const editing = "image" in body || "images" in body;
+    const editing = Boolean(body.image) || (Array.isArray(body.images) && body.images.length > 0);
     const data = await studioProxyJson({
       provider: ctx.provider,
       path: editing ? "/images/edits" : "/images/generations",
@@ -167,9 +167,7 @@ export const xaiImagineAdapter: StudioAdapter = {
     const path = state.url.startsWith("/v1/") ? state.url.replace(/^\/v1/, "") : `/videos/${taskId}/content`;
     const response = await fetch(`/local-relay-proxy${path.startsWith("/") ? path : `/${path}`}`, {
       headers: {
-        Authorization: ctx.provider.apiKey ? `Bearer ${ctx.provider.apiKey}` : "",
-        "x-local-relay-base-url": ctx.provider.baseUrl,
-        "x-boundless-relay-id": ctx.provider.id,
+        ...(ctx.provider.id ? { "x-boundless-relay-id": ctx.provider.id } : {}),
         "Accept-Encoding": "identity",
       },
     });
@@ -190,7 +188,7 @@ export const xaiImagineAdapter: StudioAdapter = {
         ],
         ...(input.json ? { response_format: { type: "json_object" } } : {}),
       },
-      timeoutMs: 90_000,
+      timeoutMs: input.timeoutMs || 90_000,
     });
     const text = data.choices?.[0]?.message?.content?.trim() || "";
     if (!text) throw new Error("Grok 没有返回文本");

@@ -1,306 +1,10 @@
-import { i as __toESM, r as __require, t as __commonJSMin } from "../../_runtime.mjs";
-import { n as require_react, r as require_jsx_runtime } from "../react+tanstack__react-query.mjs";
+import { i as __require, o as __toESM, t as __commonJSMin } from "../../_runtime.mjs";
+import { _ as require_react } from "../@ant-design/cssinjs+[...].mjs";
 import { r as parseHref } from "../tanstack__history.mjs";
+import { o as require_jsx_runtime } from "../@radix-ui/react-collection+[...].mjs";
+import { K as require_react_dom } from "../@ant-design/cssinjs-utils+[...].mjs";
 import { PassThrough, Readable } from "node:stream";
 import { ReadableStream as ReadableStream$1 } from "node:stream/web";
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
-/**
-* @license React
-* use-sync-external-store-shim.production.js
-*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJSMin(((exports) => {
-	var React = require_react();
-	function is(x, y) {
-		return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
-	}
-	var objectIs = "function" === typeof Object.is ? Object.is : is;
-	var useState = React.useState;
-	var useEffect = React.useEffect;
-	var useLayoutEffect = React.useLayoutEffect;
-	var useDebugValue = React.useDebugValue;
-	function useSyncExternalStore$2(subscribe, getSnapshot) {
-		var value = getSnapshot(), _useState = useState({ inst: {
-			value,
-			getSnapshot
-		} }), inst = _useState[0].inst, forceUpdate = _useState[1];
-		useLayoutEffect(function() {
-			inst.value = value;
-			inst.getSnapshot = getSnapshot;
-			checkIfSnapshotChanged(inst) && forceUpdate({ inst });
-		}, [
-			subscribe,
-			value,
-			getSnapshot
-		]);
-		useEffect(function() {
-			checkIfSnapshotChanged(inst) && forceUpdate({ inst });
-			return subscribe(function() {
-				checkIfSnapshotChanged(inst) && forceUpdate({ inst });
-			});
-		}, [subscribe]);
-		useDebugValue(value);
-		return value;
-	}
-	function checkIfSnapshotChanged(inst) {
-		var latestGetSnapshot = inst.getSnapshot;
-		inst = inst.value;
-		try {
-			var nextValue = latestGetSnapshot();
-			return !objectIs(inst, nextValue);
-		} catch (error) {
-			return !0;
-		}
-	}
-	function useSyncExternalStore$1(subscribe, getSnapshot) {
-		return getSnapshot();
-	}
-	var shim = "undefined" === typeof window || "undefined" === typeof window.document || "undefined" === typeof window.document.createElement ? useSyncExternalStore$1 : useSyncExternalStore$2;
-	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
-}));
-//#endregion
-//#region node_modules/use-sync-external-store/shim/index.js
-var require_shim = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	module.exports = require_use_sync_external_store_shim_production();
-}));
-//#endregion
-//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.production.js
-/**
-* @license React
-* use-sync-external-store-shim/with-selector.production.js
-*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-var require_with_selector_production = /* @__PURE__ */ __commonJSMin(((exports) => {
-	var React = require_react();
-	var shim = require_shim();
-	function is(x, y) {
-		return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
-	}
-	var objectIs = "function" === typeof Object.is ? Object.is : is;
-	var useSyncExternalStore = shim.useSyncExternalStore;
-	var useRef = React.useRef;
-	var useEffect = React.useEffect;
-	var useMemo = React.useMemo;
-	var useDebugValue = React.useDebugValue;
-	exports.useSyncExternalStoreWithSelector = function(subscribe, getSnapshot, getServerSnapshot, selector, isEqual) {
-		var instRef = useRef(null);
-		if (null === instRef.current) {
-			var inst = {
-				hasValue: !1,
-				value: null
-			};
-			instRef.current = inst;
-		} else inst = instRef.current;
-		instRef = useMemo(function() {
-			function memoizedSelector(nextSnapshot) {
-				if (!hasMemo) {
-					hasMemo = !0;
-					memoizedSnapshot = nextSnapshot;
-					nextSnapshot = selector(nextSnapshot);
-					if (void 0 !== isEqual && inst.hasValue) {
-						var currentSelection = inst.value;
-						if (isEqual(currentSelection, nextSnapshot)) return memoizedSelection = currentSelection;
-					}
-					return memoizedSelection = nextSnapshot;
-				}
-				currentSelection = memoizedSelection;
-				if (objectIs(memoizedSnapshot, nextSnapshot)) return currentSelection;
-				var nextSelection = selector(nextSnapshot);
-				if (void 0 !== isEqual && isEqual(currentSelection, nextSelection)) return memoizedSnapshot = nextSnapshot, currentSelection;
-				memoizedSnapshot = nextSnapshot;
-				return memoizedSelection = nextSelection;
-			}
-			var hasMemo = !1, memoizedSnapshot, memoizedSelection, maybeGetServerSnapshot = void 0 === getServerSnapshot ? null : getServerSnapshot;
-			return [function() {
-				return memoizedSelector(getSnapshot());
-			}, null === maybeGetServerSnapshot ? void 0 : function() {
-				return memoizedSelector(maybeGetServerSnapshot());
-			}];
-		}, [
-			getSnapshot,
-			getServerSnapshot,
-			selector,
-			isEqual
-		]);
-		var value = useSyncExternalStore(subscribe, instRef[0], instRef[1]);
-		useEffect(function() {
-			inst.hasValue = !0;
-			inst.value = value;
-		}, [value]);
-		useDebugValue(value);
-		return value;
-	};
-}));
-//#endregion
-//#region node_modules/use-sync-external-store/shim/with-selector.js
-var require_with_selector = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	module.exports = require_with_selector_production();
-}));
-//#endregion
-//#region node_modules/react-dom/cjs/react-dom.production.js
-/**
-* @license React
-* react-dom.production.js
-*
-* Copyright (c) Meta Platforms, Inc. and affiliates.
-*
-* This source code is licensed under the MIT license found in the
-* LICENSE file in the root directory of this source tree.
-*/
-var require_react_dom_production = /* @__PURE__ */ __commonJSMin(((exports) => {
-	var React = require_react();
-	function formatProdErrorMessage(code) {
-		var url = "https://react.dev/errors/" + code;
-		if (1 < arguments.length) {
-			url += "?args[]=" + encodeURIComponent(arguments[1]);
-			for (var i = 2; i < arguments.length; i++) url += "&args[]=" + encodeURIComponent(arguments[i]);
-		}
-		return "Minified React error #" + code + "; visit " + url + " for the full message or use the non-minified dev environment for full errors and additional helpful warnings.";
-	}
-	function noop() {}
-	var Internals = {
-		d: {
-			f: noop,
-			r: function() {
-				throw Error(formatProdErrorMessage(522));
-			},
-			D: noop,
-			C: noop,
-			L: noop,
-			m: noop,
-			X: noop,
-			S: noop,
-			M: noop
-		},
-		p: 0,
-		findDOMNode: null
-	};
-	var REACT_PORTAL_TYPE = Symbol.for("react.portal");
-	function createPortal$1(children, containerInfo, implementation) {
-		var key = 3 < arguments.length && void 0 !== arguments[3] ? arguments[3] : null;
-		return {
-			$$typeof: REACT_PORTAL_TYPE,
-			key: null == key ? null : "" + key,
-			children,
-			containerInfo,
-			implementation
-		};
-	}
-	var ReactSharedInternals = React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-	function getCrossOriginStringAs(as, input) {
-		if ("font" === as) return "";
-		if ("string" === typeof input) return "use-credentials" === input ? input : "";
-	}
-	exports.__DOM_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE = Internals;
-	exports.createPortal = function(children, container) {
-		var key = 2 < arguments.length && void 0 !== arguments[2] ? arguments[2] : null;
-		if (!container || 1 !== container.nodeType && 9 !== container.nodeType && 11 !== container.nodeType) throw Error(formatProdErrorMessage(299));
-		return createPortal$1(children, container, null, key);
-	};
-	exports.flushSync = function(fn) {
-		var previousTransition = ReactSharedInternals.T, previousUpdatePriority = Internals.p;
-		try {
-			if (ReactSharedInternals.T = null, Internals.p = 2, fn) return fn();
-		} finally {
-			ReactSharedInternals.T = previousTransition, Internals.p = previousUpdatePriority, Internals.d.f();
-		}
-	};
-	exports.preconnect = function(href, options) {
-		"string" === typeof href && (options ? (options = options.crossOrigin, options = "string" === typeof options ? "use-credentials" === options ? options : "" : void 0) : options = null, Internals.d.C(href, options));
-	};
-	exports.prefetchDNS = function(href) {
-		"string" === typeof href && Internals.d.D(href);
-	};
-	exports.preinit = function(href, options) {
-		if ("string" === typeof href && options && "string" === typeof options.as) {
-			var as = options.as, crossOrigin = getCrossOriginStringAs(as, options.crossOrigin), integrity = "string" === typeof options.integrity ? options.integrity : void 0, fetchPriority = "string" === typeof options.fetchPriority ? options.fetchPriority : void 0;
-			"style" === as ? Internals.d.S(href, "string" === typeof options.precedence ? options.precedence : void 0, {
-				crossOrigin,
-				integrity,
-				fetchPriority
-			}) : "script" === as && Internals.d.X(href, {
-				crossOrigin,
-				integrity,
-				fetchPriority,
-				nonce: "string" === typeof options.nonce ? options.nonce : void 0
-			});
-		}
-	};
-	exports.preinitModule = function(href, options) {
-		if ("string" === typeof href) if ("object" === typeof options && null !== options) {
-			if (null == options.as || "script" === options.as) {
-				var crossOrigin = getCrossOriginStringAs(options.as, options.crossOrigin);
-				Internals.d.M(href, {
-					crossOrigin,
-					integrity: "string" === typeof options.integrity ? options.integrity : void 0,
-					nonce: "string" === typeof options.nonce ? options.nonce : void 0
-				});
-			}
-		} else options ?? Internals.d.M(href);
-	};
-	exports.preload = function(href, options) {
-		if ("string" === typeof href && "object" === typeof options && null !== options && "string" === typeof options.as) {
-			var as = options.as, crossOrigin = getCrossOriginStringAs(as, options.crossOrigin);
-			Internals.d.L(href, as, {
-				crossOrigin,
-				integrity: "string" === typeof options.integrity ? options.integrity : void 0,
-				nonce: "string" === typeof options.nonce ? options.nonce : void 0,
-				type: "string" === typeof options.type ? options.type : void 0,
-				fetchPriority: "string" === typeof options.fetchPriority ? options.fetchPriority : void 0,
-				referrerPolicy: "string" === typeof options.referrerPolicy ? options.referrerPolicy : void 0,
-				imageSrcSet: "string" === typeof options.imageSrcSet ? options.imageSrcSet : void 0,
-				imageSizes: "string" === typeof options.imageSizes ? options.imageSizes : void 0,
-				media: "string" === typeof options.media ? options.media : void 0
-			});
-		}
-	};
-	exports.preloadModule = function(href, options) {
-		if ("string" === typeof href) if (options) {
-			var crossOrigin = getCrossOriginStringAs(options.as, options.crossOrigin);
-			Internals.d.m(href, {
-				as: "string" === typeof options.as && "script" !== options.as ? options.as : void 0,
-				crossOrigin,
-				integrity: "string" === typeof options.integrity ? options.integrity : void 0
-			});
-		} else Internals.d.m(href);
-	};
-	exports.requestFormReset = function(form) {
-		Internals.d.r(form);
-	};
-	exports.unstable_batchedUpdates = function(fn, a) {
-		return fn(a);
-	};
-	exports.useFormState = function(action, initialState, permalink) {
-		return ReactSharedInternals.H.useFormState(action, initialState, permalink);
-	};
-	exports.useFormStatus = function() {
-		return ReactSharedInternals.H.useHostTransitionStatus();
-	};
-	exports.version = "19.2.8";
-}));
-//#endregion
-//#region node_modules/react-dom/index.js
-var require_react_dom = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-	function checkDCE() {
-		if (typeof __REACT_DEVTOOLS_GLOBAL_HOOK__ === "undefined" || typeof __REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE !== "function") return;
-		try {
-			__REACT_DEVTOOLS_GLOBAL_HOOK__.checkDCE(checkDCE);
-		} catch (err) {
-			console.error(err);
-		}
-	}
-	checkDCE();
-	module.exports = require_react_dom_production();
-}));
-//#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/not-found.js
 /** Determine if a value is a TanStack Router not-found error. */
 function isNotFound(obj) {
@@ -354,6 +58,11 @@ function isRedirect(obj) {
 /** True if value is a redirect with a resolved `href` location. */
 function isResolvedRedirect(obj) {
 	return isRedirect(obj) && !!obj.options.href;
+}
+/** Parse a serialized redirect object back into a redirect Response. */
+/** Parse a serialized redirect object back into a redirect Response. */
+function parseRedirect(obj) {
+	if (obj !== null && typeof obj === "object" && obj.isSerializedRedirect) return redirect(obj);
 }
 //#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/ssr/ssr-match-id.js
@@ -807,11 +516,13 @@ function parseSegments(defaultCaseSensitive, data, route, start, node, depth, dy
 				case 1:
 				case 3:
 				case 2: {
-					const prefix_raw = path.substring(start, segment[1]);
-					const suffix_raw = path.substring(segment[4], end);
-					const actuallyCaseSensitive = caseSensitive && !!(prefix_raw || suffix_raw);
-					const prefix = !prefix_raw ? void 0 : actuallyCaseSensitive ? prefix_raw : prefix_raw.toLowerCase();
-					const suffix = !suffix_raw ? void 0 : actuallyCaseSensitive ? suffix_raw : suffix_raw.toLowerCase();
+					let prefix = path.substring(start, segment[1]);
+					let suffix = path.substring(segment[4], end);
+					const actuallyCaseSensitive = caseSensitive && !!(prefix || suffix);
+					if (!caseSensitive) {
+						prefix = prefix.toLowerCase();
+						suffix = suffix.toLowerCase();
+					}
 					const siblings = kind === 1 ? node.dynamic : kind === 3 ? node.optional : node.wildcard;
 					const existingNode = kind !== 2 && !parseParams && siblings?.find((s) => !s.parse && s.caseSensitive === actuallyCaseSensitive && s.prefix === prefix && s.suffix === suffix);
 					if (existingNode) nextNode = existingNode;
@@ -1057,9 +768,9 @@ function extractParams(path, parts, leaf) {
 		if (node.kind === 1) {
 			nodeParts ??= leaf.node.fullPath.split("/");
 			const nodePart = nodeParts[segmentCount];
-			const preLength = node.prefix?.length ?? 0;
+			const preLength = node.prefix.length;
 			if (nodePart.charCodeAt(preLength) === 123) {
-				const sufLength = node.suffix?.length ?? 0;
+				const sufLength = node.suffix.length;
 				const name = nodePart.substring(preLength + 2, nodePart.length - sufLength - 1);
 				const value = part.substring(preLength, part.length - sufLength);
 				rawParams[name] = decodeURIComponent(value);
@@ -1075,14 +786,14 @@ function extractParams(path, parts, leaf) {
 			}
 			nodeParts ??= leaf.node.fullPath.split("/");
 			const nodePart = nodeParts[segmentCount];
-			const preLength = node.prefix?.length ?? 0;
-			const sufLength = node.suffix?.length ?? 0;
+			const preLength = node.prefix.length;
+			const sufLength = node.suffix.length;
 			const name = nodePart.substring(preLength + 3, nodePart.length - sufLength - 1);
 			const value = node.suffix || node.prefix ? part.substring(preLength, part.length - sufLength) : part;
 			if (value) rawParams[name] = decodeURIComponent(value);
 		} else if (node.kind === 2) {
 			const n = node;
-			const value = path.substring(currentPathIndex + (n.prefix?.length ?? 0), path.length - (n.suffix?.length ?? 0));
+			const value = path.substring(currentPathIndex + n.prefix.length, path.length - n.suffix.length);
 			const splat = decodeURIComponent(value);
 			rawParams["*"] = splat;
 			rawParams._splat = splat;
@@ -1179,8 +890,9 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 			}
 			if (suffix) {
 				if (isBeyondPath) continue;
-				const end = parts.slice(index).join("/").slice(-suffix.length);
-				if ((segment.caseSensitive ? end : end.toLowerCase()) !== suffix) continue;
+				const end = parts.slice(index).join("/");
+				const suffixPart = end.slice(-suffix.length);
+				if ((segment.caseSensitive ? suffixPart : suffixPart.toLowerCase()) !== suffix || end.length - suffix.length < prefix.length) continue;
 			}
 			stack.push({
 				node: segment,
@@ -1214,7 +926,7 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 				if (prefix || suffix) {
 					const casePart = segment.caseSensitive ? part : lowerPart ??= part.toLowerCase();
 					if (prefix && !casePart.startsWith(prefix)) continue;
-					if (suffix && !casePart.endsWith(suffix)) continue;
+					if (suffix && casePart.indexOf(suffix, casePart.length - suffix.length) < prefix.length) continue;
 				}
 				stack.push({
 					node: segment,
@@ -1234,7 +946,7 @@ function getNodeMatch(path, parts, segmentTree, fuzzy) {
 			if (prefix || suffix) {
 				const casePart = segment.caseSensitive ? part : lowerPart ??= part.toLowerCase();
 				if (prefix && !casePart.startsWith(prefix)) continue;
-				if (suffix && !casePart.endsWith(suffix)) continue;
+				if (suffix && casePart.indexOf(suffix, casePart.length - suffix.length) < prefix.length) continue;
 			}
 			stack.push({
 				node: segment,
@@ -2339,7 +2051,7 @@ var RouterCore = class {
 			for (const controller of abort) controller.abort();
 		};
 		this.loadRouteChunk = loadRouteChunk;
-		this.preloadRoute = (opts, builtLocation) => preloadClientRoute(this, opts, 0, builtLocation);
+		this.preloadRoute = (opts) => preloadClientRoute(this, opts);
 		this.matchRoute = (location, opts) => {
 			const matchLocation = {
 				...location,
@@ -2655,11 +2367,11 @@ function preloadComponent(route, type) {
 }
 function loadComponents(route, onPendingReady) {
 	const component = preloadComponent(route, "component");
-	const pending = preloadComponent(route, "pendingComponent");
-	const pendingReady = onPendingReady && pending ? pending.then(onPendingReady) : pending;
-	if (onPendingReady && !pending) onPendingReady();
-	if (component && pendingReady) return Promise.all([component, pendingReady]).then(() => {});
-	return component ?? pendingReady;
+	let pending = preloadComponent(route, "pendingComponent");
+	if (onPendingReady) if (pending) pending = pending.then(onPendingReady);
+	else onPendingReady();
+	if (component && pending) return Promise.all([component, pending]).then(() => {});
+	return component ?? pending;
 }
 function loadRouteChunk(route, componentType, onPendingReady) {
 	const afterLazy = () => componentType === false ? void 0 : componentType ? preloadComponent(route, componentType) : loadComponents(route, onPendingReady);
@@ -2725,8 +2437,9 @@ function normalize$1(value, rejected, routeId) {
 		value.routeId ||= routeId;
 		return [NOT_FOUND$1, value];
 	}
-	if (rejected && typeof value?.then === "function") value = new Error("A Promise was thrown", { cause: value });
-	return rejected ? [ERROR$1, value] : [SUCCESS$1, value];
+	if (!rejected) return [SUCCESS$1, value];
+	if (typeof value?.then === "function") value = new Error("A Promise was thrown", { cause: value });
+	return [ERROR$1, value];
 }
 function normalizeError$1(route, cause) {
 	let outcome = normalize$1(cause, true, route.id);
@@ -2765,19 +2478,16 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane, r
 			matches,
 			routeId: route.id
 		};
-		let context = parentContext;
 		try {
-			let routeContext = match._ctx;
-			if (!routeContext && route.options.context) routeContext = match._ctx = route.options.context({
+			const routeContext = match._ctx ||= route.options.context ? route.options.context({
 				...common,
 				deps: match.loaderDeps,
 				context: parentContext
-			}) || {};
-			context = {
+			}) || {} : void 0;
+			match.context = {
 				...parentContext,
 				...routeContext
 			};
-			match.context = context;
 		} catch (cause) {
 			releaseFlight(router, match);
 			return [index, normalizeLaneError(router, lane, route, cause, options)];
@@ -2790,12 +2500,6 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane, r
 		}
 		const beforeLoad = route.options.beforeLoad;
 		if (!beforeLoad) continue;
-		const beforeLoadContext = {
-			...common,
-			search: match.search,
-			context,
-			...router.options.additionalContext
-		};
 		const previousStatus = match.status;
 		if (index >= retainedEnd) {
 			match.status = "pending";
@@ -2803,7 +2507,12 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane, r
 		}
 		try {
 			setFetching(router, match, "beforeLoad", options[0]);
-			const result = await waitFor$1(beforeLoad(beforeLoadContext), signal);
+			const result = await waitFor$1(beforeLoad({
+				...common,
+				search: match.search,
+				context: match.context,
+				...router.options.additionalContext
+			}), signal);
 			if (signal.aborted) return [index, CANCELED_OUTCOME];
 			const outcome = materializeRedirect$1(router, lane, route, normalize$1(result, false, route.id), options);
 			if (outcome[0] !== SUCCESS$1) {
@@ -2811,14 +2520,14 @@ async function contextualize$1(router, lane, options, end, planSuccessfulLane, r
 				return [index, outcome];
 			}
 			match.context = {
-				...context,
+				...match.context,
 				...result
 			};
 		} catch (cause) {
 			releaseFlight(router, match);
 			return [index, normalizeLaneError(router, lane, route, cause, options)];
 		} finally {
-			if (match.status === "pending") match.status = previousStatus;
+			match.status = previousStatus;
 			setFetching(router, match, false, options[0]);
 		}
 	}
@@ -2925,18 +2634,15 @@ async function loadResource(router, lane, match, route, loader, parentMatchPromi
 	}
 }
 function settleInto(match, result, preload) {
+	if (result[0] === REDIRECTED$1) return;
+	match.status = "success";
+	match.error = void 0;
 	if (result[0] === SUCCESS$1) {
 		match.loaderData = result[1];
-		match.error = void 0;
-		match.status = "success";
 		match.invalid = false;
 		match.updatedAt = Date.now();
 		match.preload = preload;
-	} else if (result[0] !== REDIRECTED$1) {
-		match.status = "success";
-		match.error = void 0;
-		match.invalid = true;
-	}
+	} else match.invalid = true;
 }
 function cacheLoaderMatch(router, match, planned) {
 	const current = router._cache.get(match.id);
@@ -2975,7 +2681,7 @@ function createLoaderTask$1(router, lane, index, tasks, semanticParent, options,
 		}
 		if (!reloadFailure) if (match.status !== "success") reload = true;
 		else {
-			const staleAge = options[3] || match.preload ? route.options.preloadStaleTime ?? router.options.defaultPreloadStaleTime ?? 3e4 : route.options.staleTime ?? router.options.defaultStaleTime ?? 0;
+			const staleAge = preload || match.preload ? route.options.preloadStaleTime ?? router.options.defaultPreloadStaleTime ?? 3e4 : route.options.staleTime ?? router.options.defaultStaleTime ?? 0;
 			reload = !!(match.invalid || configured || configured === void 0 && Date.now() - match.updatedAt >= staleAge && (options[5] || match.cause === "enter" || options[2].some((candidate) => candidate.routeId === match.routeId && candidate.id !== match.id)));
 		}
 	} catch (cause) {
@@ -2984,13 +2690,15 @@ function createLoaderTask$1(router, lane, index, tasks, semanticParent, options,
 		reloadFailure = normalizeLaneError(router, lane, route, cause, options);
 	}
 	const routeLoader = route.options.loader;
-	const loader = typeof routeLoader === "function" ? routeLoader : routeLoader?.handler;
-	let donor = (!preload || route.options.preload !== false) && routeLoader && true ? router._flights?.get(match.id) : void 0;
+	const isLoaderFn = typeof routeLoader === "function";
+	const loader = isLoaderFn ? routeLoader : routeLoader?.handler;
+	const preloadable = !preload || route.options.preload !== false;
+	let donor = preloadable && routeLoader && true ? router._flights?.get(match.id) : void 0;
 	if (donor === match._flight || reloadFailure) donor = void 0;
 	else if (donor && !reload && !preload && configured === void 0) reload = true;
 	else if (!reload) donor = void 0;
-	const background = !!(routeLoader && reload && match.status === "success" && !preload && !options[4] && ((typeof routeLoader === "function" ? void 0 : routeLoader?.staleReloadMode) ?? router.options.defaultStaleReloadMode) !== "blocking");
-	const loaded = reload && (!preload || route.options.preload !== false);
+	const background = !!(routeLoader && reload && match.status === "success" && !preload && !options[4] && ((isLoaderFn ? void 0 : routeLoader.staleReloadMode) ?? router.options.defaultStaleReloadMode) !== "blocking");
+	const loaded = reload && preloadable;
 	const blocking = loaded && !background && (match.status !== "success" || !!routeLoader);
 	const onReady = index >= retainedEnd ? options[7] : void 0;
 	const onLazyReady = route.lazyFn && route._lazy !== true ? onReady : void 0;
@@ -3098,9 +2806,10 @@ async function settleTasks(tasks, serialFailure, redirectTasks, gate) {
 function materializeRedirect$1(router, lane, route, outcome, options, failed) {
 	while (outcome[0] === REDIRECTED$1) {
 		const redirect = outcome[1];
-		if (redirect.options.reloadDocument ? options[3] : options[1] >= 20) return outcome;
+		const redirectOptions = redirect.options;
+		if (redirectOptions.reloadDocument ? options[3] : options[1] >= 20) return outcome;
 		try {
-			if (redirect.options.href && redirect.options.reloadDocument) {
+			if (redirectOptions.href && redirectOptions.reloadDocument) {
 				router.resolveRedirect(redirect);
 				return outcome;
 			}
@@ -3108,7 +2817,7 @@ function materializeRedirect$1(router, lane, route, outcome, options, failed) {
 				REDIRECTED$1,
 				redirect,
 				router.buildLocation({
-					...redirect.options,
+					...redirectOptions,
 					_fromLocation: lane[0],
 					_includeValidateSearch: true
 				})
@@ -3238,11 +2947,9 @@ async function executeClientLane(router, location, matches, options) {
 		const presented = router.stores.matches.get();
 		let plannedBoundary = matches.findIndex((match) => match._notFound);
 		if (router.options.notFoundMode !== "root" && plannedBoundary >= 0) {
-			const boundary = await getNotFoundBoundary$1(router, matched[1], void 0, signal, plannedBoundary);
-			if (boundary !== plannedBoundary) {
-				matches[plannedBoundary]._notFound = void 0;
-				matches[boundary]._notFound = true;
-			}
+			const boundary = await getNotFoundBoundary$1(router, matches, void 0, signal, plannedBoundary);
+			matches[plannedBoundary]._notFound = void 0;
+			matches[boundary]._notFound = true;
 			plannedBoundary = boundary;
 		}
 		let end = plannedBoundary < 0 ? matches.length : plannedBoundary + 1;
@@ -3256,7 +2963,7 @@ async function executeClientLane(router, location, matches, options) {
 		}
 		const tasks = [];
 		const start = options[6] ?? 0;
-		let semanticParent = start ? Promise.resolve(matched[1][start - 1]) : void 0;
+		let semanticParent = start ? Promise.resolve(matches[start - 1]) : void 0;
 		const planSuccessfulLane = () => {
 			for (let index = start; index < end; index++) {
 				if (signal.aborted) break;
@@ -3268,7 +2975,7 @@ async function executeClientLane(router, location, matches, options) {
 			options[4] = true;
 			end = failure[0];
 			if (failure[1][0] === NOT_FOUND$1) {
-				const boundary = await getNotFoundBoundary$1(router, matched[1], failure, signal);
+				const boundary = await getNotFoundBoundary$1(router, matches, failure, signal);
 				failure[2] = boundary;
 				end = Math.min(end, boundary + 1);
 			} else if (failure[1][0] >= REDIRECTED$1) end = 0;
@@ -3283,7 +2990,7 @@ async function executeClientLane(router, location, matches, options) {
 			for (const controller of abort) controller.abort();
 		}
 		const reduction = reduceLane(router, matched, tasks, options[0], settleTasks(tasks, failure, matched[2]), options[7]);
-		if (matched[2]?.length) matched[3] = settleTasks(matched[2], void 0, void 0, reduction.then((foreground) => isControl(foreground) ? 0 : _getRenderedMatches(foreground[1]).length, () => 0));
+		if (matched[2]?.length) matched[3] = settleTasks(matched[2], void 0, void 0, reduction.then((foreground) => isControl(foreground) ? 0 : _getRenderedMatches(matches).length, () => 0));
 		reduced = await reduction;
 	} catch (cause) {
 		discardBackground(router, matched);
@@ -3291,41 +2998,41 @@ async function executeClientLane(router, location, matches, options) {
 		throw cause;
 	}
 	if (isControl(reduced)) return reduced;
-	return projectLane$1(router, reduced, signal, options[6] === reduced[1].length ? options[6] : 0);
+	return projectLane$1(router, reduced, signal, options[6] === matches.length ? options[6] : 0);
 }
-async function preloadClientRoute(router, opts, redirects = 0, builtLocation) {
-	const location = builtLocation ?? router.buildLocation(opts);
-	const base = router._committed;
-	const controller = new AbortController();
-	let matches;
-	try {
-		matches = router.matchRoutes(location, { _controller: controller });
-		acquireMatchResources(matches);
-	} catch (cause) {
-		controller.abort();
-		if (!isNotFound(cause)) console.error(cause);
-		return;
-	}
-	(router._preloads ??= /* @__PURE__ */ new Map()).set(controller, matches);
-	let active;
-	try {
+async function preloadClientRoute(router, opts) {
+	let location = router.buildLocation(opts);
+	for (let redirects = 0;; redirects++) {
+		const base = router._committed;
+		const controller = new AbortController();
+		let matches;
+		let active;
 		let result;
 		try {
-			result = await executeClientLane(router, location, matches, [
-				controller,
-				redirects,
-				base,
-				true
-			]);
-		} finally {
-			active = router._preloads.delete(controller);
-			transferMatchResources(router, matches);
-			controller.abort();
+			try {
+				matches = router.matchRoutes(location, { _controller: controller });
+				acquireMatchResources(matches);
+				active = (router._preloads ??= /* @__PURE__ */ new Map()).set(controller, matches);
+				result = await executeClientLane(router, location, matches, [
+					controller,
+					redirects,
+					base,
+					true
+				]);
+			} finally {
+				if (active) {
+					active = active.delete(controller);
+					transferMatchResources(router, matches);
+				}
+				controller.abort();
+			}
+			if (!isControl(result)) return result[1];
+			if (!active || result.length < 3 || false) return;
+			location = result[2];
+		} catch (cause) {
+			if (!isNotFound(cause)) console.error(cause);
+			return;
 		}
-		if (!isControl(result)) return result[1];
-		if (active && result[0] === REDIRECTED$1 && !result[1].options.reloadDocument) return preloadClientRoute(router, result[1].options, redirects + 1, result[2]);
-	} catch (cause) {
-		if (!isNotFound(cause)) console.error(cause);
 	}
 }
 //#endregion
@@ -3915,7 +3622,8 @@ async function loadServerRoute(router, opts) {
 	router._commitPromise?.resolve();
 	router._commitPromise = void 0;
 }
-require_with_selector();
+//#endregion
+//#region node_modules/@tanstack/react-router/dist/esm/utils.js
 var import_react = /* @__PURE__ */ __toESM(require_react(), 1);
 /**
 * React.use if available (React 19+), undefined otherwise.
@@ -4077,11 +3785,11 @@ var BaseRootRoute = class extends BaseRoute {
 };
 //#endregion
 //#region node_modules/@tanstack/router-core/dist/esm/ssr/constants.js
-var import_jsx_runtime = require_jsx_runtime();
 var GLOBAL_TSR = "$_TSR";
 var TSR_SCRIPT_BARRIER_ID = "$tsr-stream-barrier";
 //#endregion
 //#region node_modules/@tanstack/react-router/dist/esm/CatchBoundary.js
+var import_jsx_runtime = require_jsx_runtime();
 var CatchBoundary = class extends import_react.Component {
 	constructor(..._args) {
 		super(..._args);
@@ -4431,6 +4139,146 @@ function purgeDeps(sub) {
 	let dep = depsTail !== void 0 ? depsTail.nextDep : sub.deps;
 	while (dep !== void 0) dep = unlink(dep, sub);
 }
+//#endregion
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim.production.js
+/**
+* @license React
+* use-sync-external-store-shim.production.js
+*
+* Copyright (c) Meta Platforms, Inc. and affiliates.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+var require_use_sync_external_store_shim_production = /* @__PURE__ */ __commonJSMin(((exports) => {
+	var React = require_react();
+	function is(x, y) {
+		return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
+	}
+	var objectIs = "function" === typeof Object.is ? Object.is : is;
+	var useState = React.useState;
+	var useEffect = React.useEffect;
+	var useLayoutEffect = React.useLayoutEffect;
+	var useDebugValue = React.useDebugValue;
+	function useSyncExternalStore$2(subscribe, getSnapshot) {
+		var value = getSnapshot(), _useState = useState({ inst: {
+			value,
+			getSnapshot
+		} }), inst = _useState[0].inst, forceUpdate = _useState[1];
+		useLayoutEffect(function() {
+			inst.value = value;
+			inst.getSnapshot = getSnapshot;
+			checkIfSnapshotChanged(inst) && forceUpdate({ inst });
+		}, [
+			subscribe,
+			value,
+			getSnapshot
+		]);
+		useEffect(function() {
+			checkIfSnapshotChanged(inst) && forceUpdate({ inst });
+			return subscribe(function() {
+				checkIfSnapshotChanged(inst) && forceUpdate({ inst });
+			});
+		}, [subscribe]);
+		useDebugValue(value);
+		return value;
+	}
+	function checkIfSnapshotChanged(inst) {
+		var latestGetSnapshot = inst.getSnapshot;
+		inst = inst.value;
+		try {
+			var nextValue = latestGetSnapshot();
+			return !objectIs(inst, nextValue);
+		} catch (error) {
+			return !0;
+		}
+	}
+	function useSyncExternalStore$1(subscribe, getSnapshot) {
+		return getSnapshot();
+	}
+	var shim = "undefined" === typeof window || "undefined" === typeof window.document || "undefined" === typeof window.document.createElement ? useSyncExternalStore$1 : useSyncExternalStore$2;
+	exports.useSyncExternalStore = void 0 !== React.useSyncExternalStore ? React.useSyncExternalStore : shim;
+}));
+//#endregion
+//#region node_modules/use-sync-external-store/shim/index.js
+var require_shim = /* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = require_use_sync_external_store_shim_production();
+}));
+//#endregion
+//#region node_modules/use-sync-external-store/cjs/use-sync-external-store-shim/with-selector.production.js
+/**
+* @license React
+* use-sync-external-store-shim/with-selector.production.js
+*
+* Copyright (c) Meta Platforms, Inc. and affiliates.
+*
+* This source code is licensed under the MIT license found in the
+* LICENSE file in the root directory of this source tree.
+*/
+var require_with_selector_production = /* @__PURE__ */ __commonJSMin(((exports) => {
+	var React = require_react();
+	var shim = require_shim();
+	function is(x, y) {
+		return x === y && (0 !== x || 1 / x === 1 / y) || x !== x && y !== y;
+	}
+	var objectIs = "function" === typeof Object.is ? Object.is : is;
+	var useSyncExternalStore = shim.useSyncExternalStore;
+	var useRef = React.useRef;
+	var useEffect = React.useEffect;
+	var useMemo = React.useMemo;
+	var useDebugValue = React.useDebugValue;
+	exports.useSyncExternalStoreWithSelector = function(subscribe, getSnapshot, getServerSnapshot, selector, isEqual) {
+		var instRef = useRef(null);
+		if (null === instRef.current) {
+			var inst = {
+				hasValue: !1,
+				value: null
+			};
+			instRef.current = inst;
+		} else inst = instRef.current;
+		instRef = useMemo(function() {
+			function memoizedSelector(nextSnapshot) {
+				if (!hasMemo) {
+					hasMemo = !0;
+					memoizedSnapshot = nextSnapshot;
+					nextSnapshot = selector(nextSnapshot);
+					if (void 0 !== isEqual && inst.hasValue) {
+						var currentSelection = inst.value;
+						if (isEqual(currentSelection, nextSnapshot)) return memoizedSelection = currentSelection;
+					}
+					return memoizedSelection = nextSnapshot;
+				}
+				currentSelection = memoizedSelection;
+				if (objectIs(memoizedSnapshot, nextSnapshot)) return currentSelection;
+				var nextSelection = selector(nextSnapshot);
+				if (void 0 !== isEqual && isEqual(currentSelection, nextSelection)) return memoizedSnapshot = nextSnapshot, currentSelection;
+				memoizedSnapshot = nextSnapshot;
+				return memoizedSelection = nextSelection;
+			}
+			var hasMemo = !1, memoizedSnapshot, memoizedSelection, maybeGetServerSnapshot = void 0 === getServerSnapshot ? null : getServerSnapshot;
+			return [function() {
+				return memoizedSelector(getSnapshot());
+			}, null === maybeGetServerSnapshot ? void 0 : function() {
+				return memoizedSelector(maybeGetServerSnapshot());
+			}];
+		}, [
+			getSnapshot,
+			getServerSnapshot,
+			selector,
+			isEqual
+		]);
+		var value = useSyncExternalStore(subscribe, instRef[0], instRef[1]);
+		useEffect(function() {
+			inst.hasValue = !0;
+			inst.value = value;
+		}, [value]);
+		useDebugValue(value);
+		return value;
+	};
+}));
+(/* @__PURE__ */ __commonJSMin(((exports, module) => {
+	module.exports = require_with_selector_production();
+})))();
 /**
 * Read and select the nearest or targeted route match.
 * @link https://tanstack.com/router/latest/docs/framework/react/api/router/useMatchHook
@@ -14721,4 +14569,4 @@ var renderRouterToStream = async ({ request, router, responseHeaders, children }
 	throw new Error("No renderToReadableStream or renderToPipeableStream found in react-dom/server. Ensure you are using a version of react-dom that supports streaming.");
 };
 //#endregion
-export { invariant as A, createInlineCssStyleAsset as C, resolveManifestCssLink as D, resolveManifestAssetLink as E, isResolvedRedirect as F, rootRouteId as I, isNotFound as L, decodePath as M, dehydrateSsrMatchId as N, _getRenderedMatches as O, isRedirect as P, require_react_dom as R, createInlineCssPlaceholderAsset as S, getStylesheetHref as T, createRootRoute as _, isSsrResponse as a, GLOBAL_TSR as b, stripSsrResponseBody as c, useRouterState as d, RouterProvider as f, createFileRoute as g, lazyRouteComponent as h, disposeSsrResponseDetached as i, createLRUCache as j, executeRewriteInput as k, Scripts as l, Outlet as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, createRouter as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, HeadContent as u, Link as v, getScriptPreloadAttrs as w, TSR_SCRIPT_BARRIER_ID as x, useRouter as y, require_with_selector as z };
+export { _getRenderedMatches as A, rootRouteId as B, TSR_SCRIPT_BARRIER_ID as C, getStylesheetHref as D, getScriptPreloadAttrs as E, dehydrateSsrMatchId as F, isRedirect as I, isResolvedRedirect as L, invariant as M, createLRUCache as N, resolveManifestAssetLink as O, decodePath as P, parseRedirect as R, GLOBAL_TSR as S, createInlineCssStyleAsset as T, isNotFound as V, createRootRoute as _, isSsrResponse as a, useSearch as b, stripSsrResponseBody as c, useRouterState as d, RouterProvider as f, createFileRoute as g, lazyRouteComponent as h, disposeSsrResponseDetached as i, executeRewriteInput as j, resolveManifestCssLink as k, Scripts as l, Outlet as m, bindSsrResponseToRequest as n, normalizeSsrResponse as o, createRouter as p, defineHandlerCallback as r, replaceSsrResponse as s, renderRouterToStream as t, HeadContent as u, Link as v, createInlineCssPlaceholderAsset as w, useRouter as x, useNavigate as y, redirect as z };

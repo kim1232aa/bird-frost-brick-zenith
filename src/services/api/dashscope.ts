@@ -2,7 +2,7 @@ import axios from "axios";
 import { NativeImageTaskTerminalError } from "@/services/api/native-image-task";
 
 import { routedLocalApiUrl, type ApiRequestRoute } from "@/services/api/ai-routing";
-import { buildLocalRelayProxyHeaders, rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, rotateRelayApiKey, selectRelayCredential } from "@/services/api/relay-proxy";
 import {
     nativeVideoAdapterType,
     serializeDashscopeVideoInput,
@@ -65,10 +65,10 @@ function dashscopeRequestUrl(route: ApiRequestRoute, path: string) {
     return routedLocalApiUrl(route, normalizedPath);
 }
 
-function dashscopeHeaders(route: ApiRequestRoute, contentType?: string, async = false, apiKey?: string) {
+function dashscopeHeaders(route: ApiRequestRoute, contentType?: string, async = false, apiKey?: string, credentialId?: string) {
     if (route.mode !== "local") throw new Error("DashScope 仅支持本地中转路由");
     return {
-        ...buildLocalRelayProxyHeaders({ ...route.provider, baseUrl: dashscopeNativeBaseUrl(route.provider.baseUrl), apiKey: route.provider.apiKey }, contentType, apiKey),
+        ...buildLocalRelayProxyHeaders({ ...route.provider, baseUrl: dashscopeNativeBaseUrl(route.provider.baseUrl), apiKey: route.provider.apiKey }, contentType, apiKey, credentialId),
         ...(async ? DASHSCOPE_ASYNC_HEADER : {}),
     };
 }
@@ -214,8 +214,8 @@ export function dashscopeImagePollDelay(attempt: number) {
 
 export type DashscopeImageTaskSubmission = {
     readonly taskId: string;
-    /** The relay credential selected for creation. Polling must keep using it. */
-    readonly apiKey: string;
+    /** Opaque server-vault identity selected for creation and polling. */
+    readonly credentialId: string;
     /** ISO timestamp captured before the paid create request is dispatched. */
     readonly startedAt: string;
     readonly expectedOutputs: number;
@@ -274,7 +274,9 @@ export async function requestDashscopeImages(
             wait: options.wait,
         });
     }
-    const pinnedKey = rotateRelayApiKey(route.mode === "local" ? route.provider : { baseUrl: "", apiKey: "" });
+    const selected = route.mode === "local"
+        ? selectRelayCredential(route.provider)
+        : { apiKey: "", credentialId: "" };
     const content = [
         ...references.map((image) => ({ image })),
         { text: options.prompt },
@@ -286,7 +288,7 @@ export async function requestDashscopeImages(
             input: { messages: [{ role: "user", content }] },
             parameters,
         },
-        { headers: dashscopeHeaders(route, "application/json", false, pinnedKey), timeout: options.timeoutMs || 300_000, responseType: interleaved ? "text" : "json" },
+        { headers: dashscopeHeaders(route, "application/json", false, selected.apiKey, selected.credentialId), timeout: options.timeoutMs || 300_000, responseType: interleaved ? "text" : "json" },
     );
     const error = typeof response.data === "string" ? "" : readDashscopeError(response.data);
     const urls = parseDashscopeImageUrls(response.data);
@@ -305,7 +307,10 @@ export async function createDashscopeImageTask(
     }
     if (references.length) throw new Error(`${options.model} 异步文生图合同不接受参考图片`);
     const parameters = serializeDashscopeImageParameters(options.model, options);
-    const apiKey = rotateRelayApiKey(route.mode === "local" ? route.provider : { baseUrl: "", apiKey: "" });
+    const selected = route.mode === "local"
+        ? selectRelayCredential(route.provider)
+        : { apiKey: "", credentialId: "" };
+    if (!selected.credentialId) throw new Error("DashScope 图片任务凭据缺少稳定标识，未发送生成请求");
     const startedAt = new Date().toISOString();
     const response = await axios.post<DashscopeTaskResponse>(
         dashscopeRequestUrl(route, "/services/aigc/text2image/image-synthesis"),
@@ -314,11 +319,11 @@ export async function createDashscopeImageTask(
             input: { prompt: options.prompt },
             parameters,
         },
-        { headers: dashscopeHeaders(route, "application/json", true, apiKey), timeout: Math.min(options.timeoutMs || 120_000, 120_000) },
+        { headers: dashscopeHeaders(route, "application/json", true, selected.apiKey, selected.credentialId), timeout: Math.min(options.timeoutMs || 120_000, 120_000) },
     );
     const taskId = String(response.data?.output?.task_id || "").trim();
     if (!taskId) throw new Error(readDashscopeError(response.data) || "阿里云百炼没有返回图片任务 ID");
-    return { taskId, apiKey, startedAt, expectedOutputs: 1 };
+    return { taskId, credentialId: selected.credentialId, startedAt, expectedOutputs: 1 };
 }
 
 function requireCompleteDashscopeReferences(values: readonly string[] | undefined): string[] {
@@ -333,10 +338,10 @@ function requireCompleteDashscopeReferences(values: readonly string[] | undefine
 export async function pollDashscopeImageTask(
     route: ApiRequestRoute,
     taskId: string,
-    options: { apiKey: string; requestTimeoutMs?: number },
+    options: { credentialId?: string; requestTimeoutMs?: number },
 ): Promise<DashscopeImageTaskState> {
     const response = await axios.get<DashscopeTaskResponse>(dashscopeRequestUrl(route, `/tasks/${encodeURIComponent(taskId)}`), {
-        headers: dashscopeHeaders(route, undefined, false, options.apiKey),
+        headers: dashscopeHeaders(route, undefined, false, undefined, options.credentialId),
         timeout: Math.min(options.requestTimeoutMs || 60_000, 60_000),
     });
     return parseDashscopeImageTaskState(response.data);
@@ -348,7 +353,7 @@ export async function waitForDashscopeImageTask(
     options: DashscopeImageWaitOptions = {},
 ): Promise<string[]> {
     return pollDashscopeImageTaskUntilComplete(route, task.taskId, {
-        apiKey: task.apiKey,
+        credentialId: task.credentialId,
         startedAt: task.startedAt,
         ...options,
     });
@@ -358,7 +363,7 @@ export async function pollDashscopeImageTaskUntilComplete(
     route: ApiRequestRoute,
     taskId: string,
     options: {
-        apiKey: string;
+        credentialId?: string;
         startedAt?: string;
         requestTimeoutMs?: number;
         taskTimeoutMs?: number;
@@ -376,7 +381,7 @@ export async function pollDashscopeImageTaskUntilComplete(
         try {
             const remainingMs = taskTimeoutMs - (Date.now() - startedAt);
             const state = await pollDashscopeImageTask(route, taskId, {
-                apiKey: options.apiKey,
+                credentialId: options.credentialId,
                 requestTimeoutMs: Math.min(options.requestTimeoutMs || 60_000, remainingMs),
             });
             if (state.status === "completed") return state.urls;
@@ -416,6 +421,7 @@ export async function createDashscopeVideoTask(
         duration?: number;
         timeoutMs?: number;
         apiKey?: string;
+        credentialId?: string;
     },
 ): Promise<string> {
     const model = options.model.trim();
@@ -441,7 +447,7 @@ export async function createDashscopeVideoTask(
             input,
             parameters,
         },
-        { headers: dashscopeHeaders(route, "application/json", true, options.apiKey), timeout: options.timeoutMs || 120_000 },
+        { headers: dashscopeHeaders(route, "application/json", true, options.apiKey, options.credentialId), timeout: options.timeoutMs || 120_000 },
     );
     const taskId = String(response.data?.output?.task_id || "").trim();
     if (!taskId) throw new Error(readDashscopeError(response.data) || "阿里云百炼没有返回视频任务 ID");
@@ -609,9 +615,9 @@ export type DashscopeVideoTaskState =
     | { status: "completed"; url: string }
     | { status: "failed"; error: string };
 
-export async function pollDashscopeVideoTask(route: ApiRequestRoute, taskId: string, timeoutMs?: number, apiKey?: string): Promise<DashscopeVideoTaskState> {
+export async function pollDashscopeVideoTask(route: ApiRequestRoute, taskId: string, timeoutMs?: number, apiKey?: string, credentialId?: string): Promise<DashscopeVideoTaskState> {
     const response = await axios.get<DashscopeTaskResponse>(dashscopeRequestUrl(route, `/tasks/${encodeURIComponent(taskId)}`), {
-        headers: dashscopeHeaders(route, undefined, false, apiKey),
+        headers: dashscopeHeaders(route, undefined, false, apiKey, credentialId),
         timeout: timeoutMs || 60_000,
     });
     const output = response.data?.output;

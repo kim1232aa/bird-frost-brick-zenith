@@ -23,7 +23,9 @@ import {
   readOpenAiCompatPoll,
   readProviderError,
   sniffMedia,
+  STUDIO_LTX_POLL_WINDOW_MS,
   STUDIO_VIDEO_POLL_WINDOW_MS,
+  studioVideoPollWindowMs,
   studioEndpoint,
   toStudioVideoWire,
   videoPollPath,
@@ -533,10 +535,41 @@ test("xAI toStudioVideoWire uses relay profile for non-api.x.ai hosts", () => {
     },
     { baseUrl: "https://superxihe.com/v1" },
   );
-  assert.deepEqual(body.image, { url: "https://example.test/a.png" });
-  assert.deepEqual(body.last_frame_image, { url: "https://example.test/b.png" });
-  assert.ok(Array.isArray(body.image_urls));
-  assert.equal("reference_images" in body, false);
+  assert.equal("image" in body, false);
+  assert.equal("last_frame_image" in body, false);
+  assert.equal("image_urls" in body, false);
+  assert.deepEqual(body.reference_images, [
+    { url: "https://example.test/a.png" },
+    { url: "https://example.test/c.png" },
+    { url: "https://example.test/b.png" },
+  ]);
+});
+
+test("xAI relay R2V sends only reference_images and never mixes image or last_frame", () => {
+  const body = buildXaiImagineVideoBody({
+    model: "grok-imagine-video",
+    prompt: "p",
+    profile: "relay",
+    image_urls: ["https://example.test/a.png", "https://example.test/b.png"],
+  });
+  assert.deepEqual(body.reference_images, [
+    { url: "https://example.test/a.png" },
+    { url: "https://example.test/b.png" },
+  ]);
+  assert.equal("image" in body, false);
+  assert.equal("last_frame_image" in body, false);
+  assert.equal("image_urls" in body, false);
+});
+
+test("xAI relay normalizes numeric resolution 720 to 720p", () => {
+  const body = buildXaiImagineVideoBody({
+    model: "grok-imagine-video",
+    prompt: "p",
+    profile: "relay",
+    resolution: "720",
+    image_urls: ["https://example.test/a.png", "https://example.test/b.png"],
+  });
+  assert.equal(body.resolution, "720p");
 });
 
 test("xAI toStudioVideoWire on api.x.ai stays official and refuses last_frame", () => {
@@ -576,6 +609,19 @@ test("openai-compat official poll helper used by live adapter reads nested error
 
 test("Studio wait window covers official multi-minute video jobs", () => {
   assert.ok(STUDIO_VIDEO_POLL_WINDOW_MS >= 10 * 60_000);
+  assert.ok(studioVideoPollWindowMs() >= STUDIO_VIDEO_POLL_WINDOW_MS);
+  assert.ok(studioVideoPollWindowMs("ltx2.3") >= STUDIO_VIDEO_POLL_WINDOW_MS);
+  assert.ok(studioVideoPollWindowMs("hunyuan") >= 30 * 60_000);
+});
+
+test("LTX wait window outlasts official 2–5 min jobs and the 10 min UI abort", () => {
+  // Live OpenAPI GetWorkflow 202 = still running; recipe: LTX2.3 720p/5s is typically 2–5 min
+  // and can exceed the 100s wait. A 10 min studio abort refunded a still-202 distilled job.
+  // https://developer.civitai.com/orchestration/recipes/ltx2
+  assert.ok(STUDIO_LTX_POLL_WINDOW_MS >= 20 * 60_000);
+  assert.equal(studioVideoPollWindowMs("ltx2.3"), STUDIO_LTX_POLL_WINDOW_MS);
+  assert.equal(studioVideoPollWindowMs("preset-civitai::ltx2.3"), STUDIO_LTX_POLL_WINDOW_MS);
+  assert.ok(studioVideoPollWindowMs("ltx2.3") > STUDIO_VIDEO_POLL_WINDOW_MS);
 });
 
 test("openai-compat protocol preset does not default to api.openai.com", () => {
@@ -1128,7 +1174,8 @@ test("xAI relay preserves compatibility extensions without applying official enu
   assert.equal(body.resolution, "2k");
   assert.equal(body.aspect_ratio, "21:9");
   assert.equal(body.generate_audio, false);
-  assert.deepEqual(body.image_urls, refs);
+  assert.deepEqual(body.reference_images, refs.map((url) => ({ url })));
+  assert.equal("image_urls" in body, false);
 });
 
 test("xAI official poll path stays /videos/{id} and create stays /videos/generations", () => {

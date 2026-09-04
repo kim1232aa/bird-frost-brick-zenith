@@ -1605,6 +1605,77 @@ export function isExactCivitaiOpenAIGptImage2Service(service: ImageCapabilitySer
 
 const CIVITAI_Z_IMAGE_CREATE_SERVICE = /^image\/sdcpp\/zimage\/(turbo|base)\/createimage$/;
 
+/**
+ * Studio catalog engines are short ids (`krea2-turbo`), while size contracts
+ * are keyed off live OpenAPI service ids (`image/comfy/krea2/turbo/createImage`).
+ * Without this mapping, generate UI hid aspect chips and sent the 1:1 default.
+ */
+const CIVITAI_CATALOG_ENGINE_SERVICES: Readonly<Record<string, ImageCapabilityService>> = {
+    "krea2-turbo": { id: "image/comfy/krea2/turbo/createImage", step: "imageGen", parameters: { engine: "comfy", ecosystem: "krea2", model: "turbo", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "krea2-raw": { id: "image/comfy/krea2/raw/createImage", step: "imageGen", parameters: { engine: "comfy", ecosystem: "krea2", model: "raw", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    flux1: { id: "image/comfy/flux1/createImage", step: "imageGen", parameters: { engine: "comfy", ecosystem: "flux1", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "flux2-klein": { id: "image/flux2/klein/createImage/9b", step: "imageGen", parameters: { engine: "flux2", model: "klein", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "flux2-pro": { id: "image/flux2/pro/createImage", step: "imageGen", parameters: { engine: "flux2", model: "pro", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "flux2-dev": { id: "image/flux2/dev/createImage", step: "imageGen", parameters: { engine: "flux2", model: "dev", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "z-image-turbo": { id: "image/sdcpp/zImage/turbo/createImage", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "zImage", model: "turbo", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "civitai-grok": { id: "image/grok/v1.0/createImage", step: "imageGen", parameters: { engine: "grok", version: "v1.0", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    sdxl: { id: "image/sdcpp/sdxl/createImage", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "sdxl", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    anima: { id: "image/sdcpp/anima/createImage", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "anima", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "qwen-3.0-pro": { id: "image/qwen/createImage/3.0-pro", step: "imageGen", parameters: { engine: "qwen", model: "3.0-pro", operation: "createImage" }, modalities: { input: ["text"], output: ["image"] } },
+    "seedream-4.5": { id: "image/seedream/v4.5", step: "imageGen", parameters: { engine: "seedream", version: "v4.5" }, modalities: { input: ["text", "image"], output: ["image"] } },
+    "seedream-5.0-pro": { id: "image/seedream/v5.0-pro", step: "imageGen", parameters: { engine: "seedream", version: "v5.0-pro" }, modalities: { input: ["text", "image"], output: ["image"] } },
+};
+
+function civitaiCatalogEngineService(model: string, operation: ImageOperation): ImageCapabilityService | undefined {
+    const key = String(model || "").trim().toLowerCase();
+    const generate = CIVITAI_CATALOG_ENGINE_SERVICES[key];
+    if (!generate) return undefined;
+    if (operation === "generate") return generate;
+    if (operation === "edit") {
+        if (key === "krea2-turbo" || key === "krea2-raw") {
+            return { id: "image/comfy/krea2/edit/editImage", step: "imageGen", parameters: { engine: "comfy", ecosystem: "krea2", model: "edit", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "flux2-klein") {
+            return { id: "image/flux2/klein/editImage/9b", step: "imageGen", parameters: { engine: "flux2", model: "klein", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "flux2-pro") {
+            return { id: "image/flux2/pro/editImage", step: "imageGen", parameters: { engine: "flux2", model: "pro", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "flux2-dev") {
+            return { id: "image/flux2/dev/editImage", step: "imageGen", parameters: { engine: "flux2", model: "dev", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "civitai-grok") {
+            return { id: "image/grok/v1.0/editImage", step: "imageGen", parameters: { engine: "grok", version: "v1.0", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "qwen-3.0-pro") {
+            return { id: "image/qwen/editImage/3.0-pro", step: "imageGen", parameters: { engine: "qwen", model: "3.0-pro", operation: "editImage" }, modalities: { input: ["text", "image"], output: ["image"] } };
+        }
+        if (key === "flux1") {
+            return { id: "image/comfy/flux1/createVariant", step: "imageGen", parameters: { engine: "comfy", ecosystem: "flux1", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+        if (key === "sdxl") {
+            return { id: "image/sdcpp/sdxl/createVariant", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "sdxl", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+        if (key === "seedream-4.5" || key === "seedream-5.0-pro") return generate;
+        return undefined;
+    }
+    if (operation === "variation") {
+        if (key === "flux1") {
+            return { id: "image/comfy/flux1/createVariant", step: "imageGen", parameters: { engine: "comfy", ecosystem: "flux1", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+        if (key === "sdxl") {
+            return { id: "image/sdcpp/sdxl/createVariant", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "sdxl", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+        if (key === "flux2-klein") {
+            return { id: "image/sdcpp/flux2Klein/createVariant/9b", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "flux2Klein", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+        if (key === "flux2-dev") {
+            return { id: "image/sdcpp/flux2Dev/createVariant", step: "imageGen", parameters: { engine: "sdcpp", ecosystem: "flux2Dev", operation: "createVariant" }, modalities: { input: ["image"], output: ["image"] } };
+        }
+    }
+    return undefined;
+}
+
 function isExactCivitaiZImageCreateService(id: string, service: ImageCapabilityService | undefined) {
     const match = CIVITAI_Z_IMAGE_CREATE_SERVICE.exec(id);
     if (!match) return false;
@@ -1628,6 +1699,7 @@ function resolveCivitai(
     provider: ImageCapabilityProvider | undefined,
     service: ImageCapabilityService | undefined,
 ) {
+    service = service || civitaiCatalogEngineService(model, operation);
     const id = String(service?.id || model).trim().toLowerCase();
     const parameters = service?.parameters || {};
     const engine = String(parameters.engine || "").toLowerCase();

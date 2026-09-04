@@ -23,7 +23,8 @@ export type CivitaiWorkflowState =
     | { readonly status: "failed"; readonly workflowId: string; readonly error: string };
 
 export function isCivitaiAdapterType(value: unknown) {
-    return String(value || "").trim().toLowerCase() === "civitai-orchestration";
+    const adapter = String(value || "").trim().toLowerCase();
+    return adapter === "civitai" || adapter === "civitai-orchestration";
 }
 
 /** Bump when the default Civitai mature policy changes so old false values can be migrated. */

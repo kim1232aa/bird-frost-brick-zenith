@@ -31,12 +31,16 @@ const HOP_HEADERS = [
   "forwarded",
 ];
 
+// Fixed client control header for selecting an opaque server-vault credential.
+const RELAY_CREDENTIAL_ID_HEADER = "x-boundless-relay-credential-id";
+
 const CONTROL_HEADERS = [
   "x-boundless-desktop-token",
   "x-local-relay-base-url",
   "x-local-relay-proxy-url",
   "x-boundless-builtin",
   "x-boundless-relay-id",
+  RELAY_CREDENTIAL_ID_HEADER,
   "x-image-host-base-url",
   "x-image-host-key",
   "x-grok-identity",
@@ -139,7 +143,7 @@ export function buildRelayTarget(baseUrl: string, relayPath: string, search: str
   const parsed = new URL(normalized);
   const trimmedRelay = String(relayPath || "").replace(/^\/+|\/+$/g, "");
   const lowerRelay = trimmedRelay.toLowerCase();
-  const pathOnly = trimmedRelay.split("?")[0] || "";
+  let pathOnly = trimmedRelay.split("?")[0] || "";
   const relayName = (lowerRelay.split("?")[0] || "").replace(/\/+$/, "");
 
   if (isCivitaiOrchestration(parsed) && (lowerRelay === "services" || lowerRelay.startsWith("services?"))) {
@@ -170,6 +174,10 @@ export function buildRelayTarget(baseUrl: string, relayPath: string, search: str
   } else if (!hasApiSuffix && !isCivitaiOrchestration(parsed)) {
     parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/v1`;
   }
+  const joinedHasV1 = parsed.pathname.replace(/\/+$/, "").toLowerCase().endsWith("/v1");
+  if (joinedHasV1 && /^v1(\/|$)/i.test(pathOnly)) {
+    pathOnly = pathOnly.replace(/^v1\/?/i, "");
+  }
   parsed.pathname = `${parsed.pathname.replace(/\/+$/, "")}/${pathOnly}`.replace(/\/+$/, "") || "/";
   applyRelaySearch(parsed, trimmedRelay, search);
   return parsed;
@@ -183,37 +191,123 @@ function hasUsableAuth(headers: Headers) {
   return Boolean(auth.replace(/^(Bearer|Key)\s+/i, "").trim());
 }
 
-async function requireServerManagedKeyAccess() {
-  const { requireUserId } = await import("./auth/verify.server.ts");
+async function requireServerManagedKeyAccess(requireProductionIdentity = false) {
+  const { authConfigured, requireUserId } = await import("./auth/verify.server.ts");
+  if (
+    requireProductionIdentity &&
+    process.env.NODE_ENV === "production" &&
+    process.env.DATABASE_URL?.trim()
+  ) {
+    const { gateIdentityEnabled } = await import("./auth/gate-identity.server.ts");
+    const authEnabled = authConfigured === true && process.env.VITE_AUTH_ENABLED?.trim().toLowerCase() !== "false";
+    if (!authEnabled && !gateIdentityEnabled()) {
+      throw relayRequestError(503, "生产环境普通中转必须启用 auth 或 gate 身份认证");
+    }
+  }
   await requireUserId();
 }
 
-async function attachVaultKey(headers: Headers, relayId: string, fallbackBaseUrl: string) {
-  if (!relayId || hasUsableAuth(headers)) return fallbackBaseUrl;
-  await requireServerManagedKeyAccess();
+function relayRequestError(status: number, message: string) {
+  const error = new Error(message) as Error & { status: number };
+  error.status = status;
+  return error;
+}
+
+function configuredRelayOrigin() {
+  const raw = (process.env.BETTER_AUTH_URL || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = new URL(raw);
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || parsed.username || parsed.password) return "";
+    return parsed.origin;
+  } catch {
+    return "";
+  }
+}
+
+function forwardedRelayOrigin(request: Request) {
+  const forwardedHost = (request.headers.get("x-forwarded-host") || "").trim();
+  const forwardedProto = (request.headers.get("x-forwarded-proto") || "").trim().toLowerCase();
+  // A comma-separated chain is ambiguous here: without a trusted proxy hop
+  // count, accepting any element would let a caller choose the effective host.
+  if (!forwardedHost || !forwardedProto || forwardedHost.includes(",") || forwardedProto.includes(",")) return "";
+  if (forwardedProto !== "http" && forwardedProto !== "https") return "";
+  try {
+    const parsed = new URL(`${forwardedProto}://${forwardedHost}`);
+    if (parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash) return "";
+    return parsed.origin;
+  } catch {
+    return "";
+  }
+}
+
+function assertSameOriginRelayRequest(request: Request) {
+  const fetchSite = (request.headers.get("sec-fetch-site") || "").trim().toLowerCase();
+  if (fetchSite && fetchSite !== "same-origin") {
+    throw relayRequestError(403, "中转仅接受同源请求");
+  }
+
+  const rawOrigin = (request.headers.get("origin") || "").trim();
+  if (!rawOrigin) return;
+  try {
+    const requestOrigin = new URL(request.url).origin;
+    if (new URL(rawOrigin).origin === requestOrigin) return;
+
+    // Forwarded headers alone are untrusted; only the deployer-configured
+    // public origin can authorize a rewritten request origin.
+    const configured = configuredRelayOrigin();
+    const forwarded = forwardedRelayOrigin(request);
+    if (configured && forwarded === configured && new URL(rawOrigin).origin === configured) return;
+  } catch {
+    /* reject malformed browser origins below */
+  }
+  throw relayRequestError(403, "中转仅接受同源请求");
+}
+
+async function attachVaultKey(headers: Headers, relayId: string, credentialId?: string) {
+  headers.delete("Authorization");
+  headers.delete("x-api-key");
+  if (!relayId) throw relayRequestError(401, "普通中转请求缺少 relay-id");
+  await requireServerManagedKeyAccess(true);
+
+  let secret: Awaited<ReturnType<typeof import("@/studio/server/relay-vault")["readRelayVaultKey"]>>;
   try {
     const { readRelayVaultKey } = await import("@/studio/server/relay-vault");
-    const secret = await readRelayVaultKey(relayId);
-    if (!secret?.apiKey) return fallbackBaseUrl;
-    if (secret.authScheme === "x-api-key") headers.set("x-api-key", secret.apiKey);
-    else headers.set("Authorization", `${secret.authScheme} ${secret.apiKey}`);
-    if (!secret.baseUrl) throw new Error("密钥库中转缺少有效的 Base URL");
-    return secret.baseUrl;
+    secret = credentialId
+      ? await readRelayVaultKey(relayId, credentialId)
+      : await readRelayVaultKey(relayId);
   } catch (error) {
-    if (error instanceof Error && error.message === "Unauthorized") throw error;
+    if (errorStatus(error)) throw error;
+    if (error instanceof Error && error.message === "Unauthorized") {
+      throw relayRequestError(401, "无权读取中转密钥库");
+    }
     throw new Error(`密钥库读取失败：${error instanceof Error ? error.message : String(error)}`);
   }
+
+  if (!secret?.apiKey) throw relayRequestError(401, "密钥库中转不存在或没有可用 Key");
+  const baseUrl = normalizeHttpUrl(secret.baseUrl);
+  if (!baseUrl) throw relayRequestError(400, "密钥库中转缺少有效的 Base URL");
+  if (new URL(baseUrl).protocol !== "https:") {
+    throw relayRequestError(400, "密钥库中转 Base URL 必须使用 HTTPS");
+  }
+  if (secret.authScheme === "x-api-key") headers.set("x-api-key", secret.apiKey);
+  else headers.set("Authorization", `${secret.authScheme} ${secret.apiKey}`);
+  return baseUrl;
 }
 
 export async function proxyLocalRelay(request: Request, splat: string) {
   try {
+    assertSameOriginRelayRequest(request);
     const method = (request.method || "GET").toUpperCase();
     let baseUrl = request.headers.get("x-local-relay-base-url") || "";
     const builtin = (request.headers.get("x-boundless-builtin") || "").trim().toLowerCase();
     const relayId = (request.headers.get("x-boundless-relay-id") || "").trim();
+    const credentialId = (request.headers.get(RELAY_CREDENTIAL_ID_HEADER) || "").trim();
     const headers = stripHeaders(request.headers);
+    headers.delete("Authorization");
+    headers.delete("x-api-key");
     if (builtin !== "xai") {
-      baseUrl = await attachVaultKey(headers, relayId, baseUrl);
+      baseUrl = await attachVaultKey(headers, relayId, credentialId || undefined);
     }
 
     let target: URL;
@@ -235,7 +329,7 @@ export async function proxyLocalRelay(request: Request, splat: string) {
     if (builtin === "xai") {
       const key = process.env.XAI_API_KEY;
       if (!key) return jsonError(503, "当前环境未接入 xAI，请改用自定义中转并填写 API Key");
-      await requireServerManagedKeyAccess();
+      await requireServerManagedKeyAccess(true);
       headers.set("Authorization", `Bearer ${key}`);
     } else if (!hasUsableAuth(headers)) {
       return jsonError(401, "中转没有密钥。打开接线确认 Key 已保存，或重新粘贴后再试。");
@@ -246,7 +340,7 @@ export async function proxyLocalRelay(request: Request, splat: string) {
         ? null
         : Buffer.from(await request.arrayBuffer());
     let response = await forward(method, target, headers, RELAY_TIMEOUT_MS, body);
-    if (response.status >= 500) {
+    if ((method === "GET" || method === "HEAD") && response.status >= 500) {
       await new Promise((resolve) => setTimeout(resolve, 400));
       response = await forward(method, target, headers, RELAY_TIMEOUT_MS, body);
     }
@@ -318,9 +412,9 @@ export async function proxyFetchUrl(request: Request) {
     return proxyErrorResponse(error, "资源地址无效或指向受保护的网络", 400);
   }
 
+  // This endpoint downloads public media only. Never forward a caller's
+  // Authorization header to an arbitrary URL selected by its query string.
   const headers = new Headers();
-  const authorization = request.headers.get("Authorization");
-  if (authorization) headers.set("Authorization", authorization);
 
   try {
     const upstream = await fetchSafeRedirecting(
@@ -343,6 +437,9 @@ export async function proxyFetchUrl(request: Request) {
 
 export async function proxyImageHostUpload(request: Request) {
   if (request.method !== "POST") return jsonError(405, "不支持的请求方法");
+  if ((request.headers.get("x-image-host-key") || "").trim()) {
+    return jsonError(400, "图床 Key 必须先保存到后端密钥库；浏览器明文 Key 已被拒绝");
+  }
   const rawBaseUrl = normalizeHttpUrl(request.headers.get("x-image-host-base-url") || "");
   if (!rawBaseUrl) return jsonError(400, "图床地址无效");
 
@@ -362,9 +459,10 @@ export async function proxyImageHostUpload(request: Request) {
   const headers = new Headers();
   const contentType = request.headers.get("Content-Type");
   if (contentType) headers.set("Content-Type", contentType);
-  const apiKey = (request.headers.get("x-image-host-key") || "").trim();
-  if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
   try {
+    const { readImageHostVaultKey } = await import("@/studio/server/relay-vault");
+    const credential = await readImageHostVaultKey(rawBaseUrl);
+    if (credential?.apiKey) headers.set("Authorization", `Bearer ${credential.apiKey}`);
     const upstream = await fetchSafeRedirecting(
       targetUrl,
       {
@@ -379,7 +477,7 @@ export async function proxyImageHostUpload(request: Request) {
     );
     return await toClientResponse(upstream);
   } catch (error) {
-    return proxyErrorResponse(error, "图床上传失败，请检查地址和网络后重试", 502);
+    return proxyErrorResponse(error, "图床上传失败，请检查地址、后端密钥库和网络后重试", 502);
   }
 }
 

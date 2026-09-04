@@ -94,7 +94,7 @@ export function EcommerceSuitePage() {
       });
       patch(shot.id, { status: "done", url: result.url });
       record("image");
-      addHistory({ kind: "ecommerce", title: `${pack.label} · ${shot.label}`, prompt: product, model: result.model, urls: [result.url] });
+      addHistory({ kind: "ecommerce", title: `${pack.label} · ${shot.label}`, prompt: product, model: result.model, providerId: result.providerId, urls: [result.url] });
       return { ok: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -216,7 +216,7 @@ export function EcommerceSuitePage() {
             </button>
           ))}
         </div>
-        <p className="studio-kicker">② 出片方式</p>
+        <p className="studio-kicker">③ 出片方式</p>
         <div className="chip-row">
           <button type="button" className={batch ? "is-active" : undefined} onClick={() => setBatch(true)}>
             连续套图 · {pack.shots.length} 张
@@ -234,7 +234,7 @@ export function EcommerceSuitePage() {
         </p>
         <StudioModelField kind="image" value={selection} onChange={setSelection} label="生图模型" />
         <label>
-          ③ 平台方案
+          ④ 平台方案
           <select value={packId} onChange={(event) => setPackId(event.target.value)}>
             {ECOMMERCE_PACKS.map((item) => (
               <option key={item.id} value={item.id}>
@@ -260,7 +260,7 @@ export function EcommerceSuitePage() {
       </aside>
       <section className="bench-main story-board">
         <header className="story-logline">
-          <p className="studio-kicker">分镜台</p>
+          <p className="studio-kicker">套图台</p>
           <h2>
             {pack.label} · {ECOMMERCE_SCENES.find((item) => item.id === sceneId)?.label} · {doneCount}/{pack.shots.length} 已完成
           </h2>

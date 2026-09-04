@@ -244,7 +244,7 @@ test("customerVideoCreatedTaskId prefers Agnes video_id over task_id", async () 
   assert.equal(customerVideoCreatedTaskId({ id: "video_openai" }), "video_openai");
 });
 
-test("canvasCustomerVideoSubmitGuard does not intercept labeled I2V when there is no local adapter", async () => {
+test("canvasCustomerVideoSubmitGuard blocks direct browser video endpoints and keeps local labeled I2V", async () => {
   const { canvasCustomerVideoSubmitGuard } = await loadCustomerVideoContracts();
   const i2v = canvasCustomerVideoSubmitGuard({
     hasLocalAdapter: false,
@@ -254,8 +254,8 @@ test("canvasCustomerVideoSubmitGuard does not intercept labeled I2V when there i
     references: [{ useAs: "first_frame", value: "https://example.test/first.png" }],
     videoCount: 0,
   });
-  assert.equal(i2v.kind, "customer");
-  assert.equal(i2v.reason, undefined);
+  assert.equal(i2v.kind, "block");
+  assert.match(String(i2v.reason), /同源后端中转|浏览器直接发送|API Key/u);
 
   const keyframes = canvasCustomerVideoSubmitGuard({
     hasLocalAdapter: false,
@@ -353,7 +353,7 @@ test("canvasCustomerVideoSubmitGuard still blocks empty local adapter T2V and I2
     videoCount: 0,
   });
   assert.equal(i2vNoFrames.kind, "block");
-  assert.match(String(i2vNoFrames.reason), /text-to-video|image-to-video/);
+  assert.match(String(i2vNoFrames.reason), /同源后端中转|浏览器直接发送|API Key/u);
 
   const native = canvasCustomerVideoSubmitGuard({
     hasLocalAdapter: true,
@@ -412,6 +412,15 @@ test("customer request forwards every validated scalar setting from wirePayload 
   assert.doesNotMatch(source, /image_urls:\s*wirePayload\.image_urls/);
   assert.doesNotMatch(source, /payload\.duration \|\| 5/);
   assert.doesNotMatch(source, /payload\.ratio \|\| ["']16:9["']/);
+});
+
+test("customer video requests pin only an opaque credential id and never construct browser Authorization", () => {
+  const source = pageSource();
+  assert.match(source, /buildLocalRelayProxyHeaders\([\s\S]*?apiConfig\.credentialId/);
+  assert.doesNotMatch(source, /headers\.Authorization\s*=\s*`Bearer/);
+  assert.doesNotMatch(source, /apiConfig\.apiKey/);
+  assert.doesNotMatch(source, /strictResume\.apiKey/);
+  assert.doesNotMatch(source, /customerLocalCredential\.apiKey/);
 });
 
 test("Fal customer builder remains refused rather than relaxing validation", () => {

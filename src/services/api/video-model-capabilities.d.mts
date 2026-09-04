@@ -73,6 +73,16 @@ export type VideoCapabilityProfile = {
     sharedImageVideoMaximum?: number | null;
     supportsReferenceSetWithFirst: boolean;
     supportsReferenceSetWithFrames?: boolean;
+    storyAutoReferencePolicy?: "disabled" | "current-shot" | "semantic-references";
+    supportedOperations?: readonly (
+        | "text-to-video"
+        | "image-to-video"
+        | "reference-to-video"
+        | "first-last-frame-to-video"
+        | "keyframes-to-video"
+        | "continuation"
+        | "video-edit"
+    )[];
     referenceContractBlockReason?: string;
     requiresExplicitProfile?: boolean;
     intentPolicy: "single-frame" | "keyframes" | "i2v" | "r2v-with-first" | "reference-set" | "frames-or-reference-set" | "reference-set-with-frames" | "blocked" | "none";
@@ -83,10 +93,21 @@ export type ResolvedVideoModelCapability = VideoCapabilityProfile & {
     providerLabel: string;
     profileConfigured: boolean;
     generationParameters: Record<VideoGenerationParameterName, VideoGenerationParameterFieldContract> & {
+        id?: string;
         durationMaximumWhenReferenceVideo?: number;
     };
 };
 
+export function nativeVideoAdapterType(provider?: VideoCapabilityProvider): string;
+export function nativeVideoSubmissionAdapterType(provider: VideoCapabilityProvider | undefined, model: string): string;
+export function videoCapabilityProfileCompatibility(
+    provider: VideoCapabilityProvider | undefined,
+    profileId: VideoCapabilityProfileId,
+): { readonly compatible: boolean; readonly adapter: VideoCapabilityProfile["provider"] | ""; readonly reason: string };
+export function assertConfiguredVideoCapabilityProfileCompatibility(
+    provider: VideoCapabilityProvider | undefined,
+    model: string,
+): void;
 export function resolveVideoModelCapability(options: {
     model: string;
     provider?: VideoCapabilityProvider;

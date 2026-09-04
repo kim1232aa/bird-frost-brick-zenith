@@ -260,17 +260,15 @@ export async function planStory(input: {
   const selection = splitModel(input.textModel || "");
   const ask = async (prompt: string) => {
     const { generateStudioText } = await import("@/studio/generate/text");
-    const result = await Promise.race([
-      generateStudioText({
-        relays: input.relays,
-        json: true,
-        providerId: selection.providerId || undefined,
-        model: selection.model || undefined,
-        system: "You are a film director and continuity supervisor. Return compact JSON only. No markdown.",
-        prompt,
-      }),
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("分析超时")), 45000)),
-    ]);
+    const result = await generateStudioText({
+      relays: input.relays,
+      json: true,
+      providerId: selection.providerId || undefined,
+      model: selection.model || undefined,
+      system: "You are a film director and continuity supervisor. Return compact JSON only. No markdown.",
+      prompt,
+      timeoutMs: 180_000,
+    });
     return result.text;
   };
   try {
@@ -283,8 +281,8 @@ export async function planStory(input: {
       );
       return parseAnalysis(repaired, count, fallback, style);
     }
-  } catch {
-    return fallback;
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : "故事分析失败");
   }
 }
 

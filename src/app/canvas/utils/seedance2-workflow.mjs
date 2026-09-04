@@ -25,7 +25,7 @@ export function buildSeedance2WorkflowNodes(options = {}) {
   const mode = 'slice';
   const origin = options.origin || { x: 0, y: 0 };
   const model = options.model || "";
-  const ratio = normalizeSeedance2CreationAspectRatio(options.ratio || '9:16');
+  const ratio = normalizeSeedance2CreationAspectRatio(options.ratio || '16:9');
   const duration = normalizeSeedance2Duration(options.duration);
   const resolution = normalizeSeedance2Resolution(options.resolution);
   const generateCount = 1;
@@ -103,10 +103,11 @@ export function buildSeedance2WorkflowNodes(options = {}) {
 
 export function createSeedance2VideoPlaceholderMetadata(options = {}) {
   const mode = options.mode === 'slice' ? 'slice' : 'continuous';
-  const model = options.model || "";
+  const model = String(options.model || "").trim();
+  const modelProviderId = String(options.modelProviderId || "").trim();
   const sourceAspectRatio = seedance2SourceRatioFromImageNode(options.sourceImageNode);
   const sourceLayoutRatio = seedance2LayoutRatioFromImageNode(options.sourceImageNode);
-  const ratio = normalizeSeedance2CreationAspectRatio(options.ratio || sourceLayoutRatio || '9:16');
+  const ratio = normalizeSeedance2CreationAspectRatio(options.ratio || sourceLayoutRatio || '16:9');
   const duration = normalizeSeedance2Duration(options.duration);
   const resolution = normalizeSeedance2Resolution(options.resolution);
   const generateCount = clampInt(options.generateCount ?? (mode === 'slice' ? 3 : 1), 1, 10);
@@ -119,6 +120,7 @@ export function createSeedance2VideoPlaceholderMetadata(options = {}) {
     status: 'idle',
     generationMode: 'video',
     model,
+    ...(modelProviderId ? { modelProviderId } : {}),
     size: ratio,
     ...(duration ? { seconds: duration } : {}),
     ...(resolution ? { vquality: resolution } : {}),
@@ -150,9 +152,10 @@ export function createSeedance2VideoPlaceholderMetadata(options = {}) {
 
 export function createSeedance2ResultMetadata(options = {}) {
   const sourceMeta = options.sourcePlaceholder?.metadata || {};
-  const ratio = normalizeSeedance2ResultRatio(
-    String(options.paramsSnapshot?.ratio || sourceMeta.seedanceRatio || sourceMeta.size || '16:9'),
-  );
+  const ratio = submittedSeedance2ResultRatio({
+    paramsSnapshot: options.paramsSnapshot,
+    sourcePlaceholder: options.sourcePlaceholder,
+  });
   const duration = String(options.paramsSnapshot?.duration || sourceMeta.seedanceDuration || sourceMeta.seconds || '');
   const model = String(options.paramsSnapshot?.model || sourceMeta.seedanceModel || sourceMeta.model || "");
   const content = options.url || options.fileUrls?.[0] || '';
@@ -183,6 +186,10 @@ export function createSeedance2ResultMetadata(options = {}) {
     seedanceParamsSnapshot: options.paramsSnapshot || {},
     seedancePromptSnapshot: sourceMeta.prompt || '',
     seedanceCreatedAt: new Date().toISOString(),
+    ...(sourceMeta.videoWireFormat ? { videoWireFormat: sourceMeta.videoWireFormat } : {}),
+    ...(sourceMeta.videoGenerationSettings
+      ? { videoGenerationSettings: sourceMeta.videoGenerationSettings }
+      : {}),
   };
 }
 
@@ -284,7 +291,7 @@ export function seedance2LayoutRatioFromImageNode(sourceImageNode) {
   const width = Number(sourceImageNode.metadata?.naturalWidth || sourceImageNode.width);
   const height = Number(sourceImageNode.metadata?.naturalHeight || sourceImageNode.height);
   if (!width || !height) return '';
-  return seedance2RatioFromNaturalSize(width, height, '9:16');
+  return seedance2RatioFromNaturalSize(width, height, '16:9');
 }
 
 export function seedance2SourceRatioFromImageNode(sourceImageNode) {
@@ -320,9 +327,9 @@ export function resolveSeedance2WorkflowRatioSelection({ selection, inheritSourc
 
 export function resolveSeedance2WorkflowRatio({ storedRatio, selection, upstreamRatio } = {}) {
   if (selection === 'manual') {
-    return normalizeSeedance2CreationAspectRatio(storedRatio || '9:16');
+    return normalizeSeedance2CreationAspectRatio(storedRatio || '16:9');
   }
-  return normalizeSeedance2CreationAspectRatio(upstreamRatio || storedRatio || '9:16');
+  return normalizeSeedance2CreationAspectRatio(upstreamRatio || storedRatio || '16:9');
 }
 
 export function normalizeSeedance2AspectRatio(value) {
@@ -339,6 +346,39 @@ export function normalizeSeedance2AspectRatio(value) {
 export function normalizeSeedance2ResultRatio(value) {
   const ratio = normalizeSeedance2AspectRatio(value || '16:9');
   return SEEDANCE2_RESULT_RATIO_VALUES.includes(ratio) ? ratio : '16:9';
+}
+
+function firstAspectRatioToken(...values) {
+  for (const value of values) {
+    const token = String(value || '').trim();
+    if (token) return token;
+  }
+  return '';
+}
+
+export function submittedSeedance2ResultRatio(input = {}) {
+  const params = input.paramsSnapshot || {};
+  const meta = input.sourcePlaceholder?.metadata;
+  const wireFormat =
+    params.wireFormat && typeof params.wireFormat === 'object'
+      ? params.wireFormat
+      : meta?.videoWireFormat && typeof meta.videoWireFormat === 'object'
+        ? meta.videoWireFormat
+        : undefined;
+  const settings =
+    params.settings && typeof params.settings === 'object'
+      ? params.settings
+      : meta?.videoGenerationSettings && typeof meta.videoGenerationSettings === 'object'
+        ? meta.videoGenerationSettings
+        : undefined;
+  return normalizeSeedance2ResultRatio(
+    firstAspectRatioToken(
+      params.aspectRatio,
+      wireFormat?.aspectRatio,
+      settings?.aspectRatio,
+      params.ratio,
+    ) || '16:9',
+  );
 }
 
 export function seedance2PlaceholderSize(value) {
@@ -479,10 +519,10 @@ export function normalizeSeedance2CreationAspectRatio(value) {
   const normalized = String(value || '').trim();
   if (SEEDANCE2_ASPECT_RATIO_VALUES.includes(normalized)) return normalized;
   const match = normalized.match(/^(\d+(?:\.\d+)?)[x:](\d+(?:\.\d+)?)$/i);
-  if (!match) return '9:16';
+  if (!match) return '16:9';
   const width = Number(match[1]);
   const height = Number(match[2]);
-  if (!width || !height) return '9:16';
+  if (!width || !height) return '16:9';
   return nearestSeedance2AspectRatio(width / height);
 }
 

@@ -26,6 +26,7 @@ import {
     imageLoraResolutionError,
     readImageAdvancedSettings,
     resetImageLoraResolution,
+    useConfigHydrationRuntimeStore,
     type AiConfig,
     type ImageAdvancedSettings,
     type ImageAdvancedSettingsScope,
@@ -100,8 +101,10 @@ export function ImageSettingsPanel({
 }
 
 function MiaohuaImageHostSettings({ config, onConfigChange, theme }: Pick<ImageSettingsPanelProps, "config" | "onConfigChange" | "theme">) {
+    const credentialError = useConfigHydrationRuntimeStore((state) => state.imageHostCredentialError);
     return (
         <SettingGroup title="秒画参考图公网化" color={theme.node.muted}>
+            {credentialError ? <Hint text={credentialError} danger /> : null}
             <TextInput
                 value={config.imageHostBaseUrl || ""}
                 placeholder="图床地址，如 https://img.example.com"
@@ -111,13 +114,13 @@ function MiaohuaImageHostSettings({ config, onConfigChange, theme }: Pick<ImageS
             <input
                 type="password"
                 value={config.imageHostApiKey || ""}
-                placeholder="图床 API Key（不需要鉴权可留空）"
+                placeholder={config.imageHostHasApiKey ? "已保存到后端；输入新 Key 可替换" : "图床 API Key（不需要鉴权可留空）"}
                 className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
                 style={{ borderColor: theme.node.stroke, color: theme.node.text }}
                 onChange={(event) => onConfigChange("imageHostApiKey", event.target.value)}
                 onMouseDown={(event) => event.stopPropagation()}
             />
-            <Hint text="仅用于秒画编辑将本地原图转为公网 URL；配置保存在全局设置，不写入节点或画布。原图须为 JPG/JPEG/PNG/WebP、小于 8 MiB，宽高 256–6000。" />
+            <Hint text="仅用于秒画编辑将本地原图转为公网 URL；Key 保存到后端密钥库，浏览器上传请求、节点和画布都不携带明文。原图须为 JPG/JPEG/PNG/WebP、小于 8 MiB，宽高 256–6000。" />
         </SettingGroup>
     );
 }

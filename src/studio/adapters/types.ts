@@ -118,6 +118,7 @@ export type TextGenInput = {
   system?: string;
   json?: boolean;
   imageUrl?: string;
+  timeoutMs?: number;
 };
 
 export type AudioGenInput = {

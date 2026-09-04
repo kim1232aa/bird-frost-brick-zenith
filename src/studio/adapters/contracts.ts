@@ -34,7 +34,27 @@ export const DASHSCOPE_TASK_POLL_WINDOW_MS = 10 * 60_000;
 export const DASHSCOPE_TASK_POLL_INTERVAL_MS = 15_000;
 /** Studio UI wait loop for OpenAI / xAI / Ark single-GET polls. Official jobs regularly exceed 4 minutes. */
 export const STUDIO_VIDEO_POLL_WINDOW_MS = 10 * 60_000;
+/**
+ * Civitai LTX2.3 720p / 5s is typically 2–5 minutes and can keep returning HTTP 202
+ * from GetWorkflow `wait` until the Comfy worker finishes. A 10-minute abort refunded
+ * a still-202 distilled job. Recipe: submit wait=0, poll until terminal.
+ * https://developer.civitai.com/orchestration/recipes/ltx2
+ */
+export const STUDIO_LTX_POLL_WINDOW_MS = 20 * 60_000;
+/**
+ * Civitai HunyuanVideo is compute-heavy. Official recipe: expect 5–30 minutes;
+ * this 720p / 5s / 40-step job finished in ~24 minutes after the UI had already
+ * thrown 视频生成超时. https://developer.civitai.com/orchestration/recipes/hunyuan
+ */
+export const STUDIO_HUNYUAN_POLL_WINDOW_MS = 30 * 60_000;
 export const STUDIO_VIDEO_POLL_INTERVAL_MS = 4_000;
+
+export function studioVideoPollWindowMs(model?: string) {
+  const id = String(model || "").trim();
+  if (/(?:^|[/:])hunyuan(?:$|[/:])/i.test(id)) return STUDIO_HUNYUAN_POLL_WINDOW_MS;
+  if (/(?:^|[/:])ltx2(?:\.3)?(?:$|[/:])/i.test(id)) return STUDIO_LTX_POLL_WINDOW_MS;
+  return STUDIO_VIDEO_POLL_WINDOW_MS;
+}
 
 export type XaiImagineVideoProfile = "official" | "relay";
 
@@ -96,7 +116,8 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
   const profile = input.profile || "official";
   const duration = input.duration;
   const aspectRatio = String(input.aspect_ratio || "").trim();
-  const resolution = String(input.resolution || "").trim();
+  const rawResolution = String(input.resolution || "").trim();
+  const resolution = /^\d{3,4}$/.test(rawResolution) ? `${rawResolution}p` : rawResolution;
   if (duration !== undefined && (!Number.isFinite(duration) || !Number.isInteger(duration))) {
     throw new Error(`xAI 视频 duration 必须是整数，收到 ${String(duration)}；不会静默改值。`);
   }
@@ -158,10 +179,13 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
   const extras = Array.from(new Set(listed.filter((url) => url !== first)));
 
   if (profile === "relay") {
+    const urls = Array.from(new Set([first, ...extras, last].filter(Boolean)));
+    if (urls.length > 1 || extras.length) {
+      body.reference_images = urls.map((url) => ({ url }));
+      return body;
+    }
     if (first) body.image = { url: first };
     if (last && last !== first) body.last_frame_image = { url: last };
-    const urls = Array.from(new Set([first, ...extras, last].filter(Boolean)));
-    if (urls.length && (extras.length || last)) body.image_urls = urls;
     return body;
   }
 

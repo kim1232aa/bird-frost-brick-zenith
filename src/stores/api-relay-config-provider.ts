@@ -167,16 +167,22 @@ export function normalizeApiRelayProvider(provider: ApiRelayProvider): ApiRelayP
         typeof provider.apiKey === "string" ? provider.apiKey : "",
         persistedApiKeys,
     );
+    const identityIds = Array.from(new Set([
+        providerApiKeyId,
+        ...(persistedApiKeyIds || []).map((id) => String(id || "").trim()),
+    ].filter(Boolean)));
     const apiKeyIds = credentials.apiKeys
         ? reconcileProviderCredentialIds(credentials.apiKeys, persistedApiKeys, persistedApiKeyIds)
-        : undefined;
+        : identityIds.length > 1
+            ? identityIds.slice(1)
+            : undefined;
     return {
         ...provider,
         name: providerName || "中转 API",
         baseUrl: providerBaseUrl,
         apiKey: credentials.apiKey,
-        ...(typeof provider.hasApiKey === "boolean" ? { hasApiKey: provider.hasApiKey || Boolean(credentials.apiKey || credentials.apiKeys?.length) } : {}),
-        apiKeyId: credentials.apiKey ? providerApiKeyId || createProviderCredentialId() : undefined,
+        ...(typeof provider.hasApiKey === "boolean" ? { hasApiKey: provider.hasApiKey || Boolean(credentials.apiKey || credentials.apiKeys?.length || identityIds.length) } : {}),
+        apiKeyId: credentials.apiKey ? providerApiKeyId || createProviderCredentialId() : identityIds[0] || undefined,
         apiKeys: credentials.apiKeys ? [...credentials.apiKeys] : undefined,
         apiKeyIds,
         proxyMode: provider.proxyMode === "custom" ? "custom" : "direct",

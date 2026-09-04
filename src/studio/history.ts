@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createId } from "../lib/create-id.ts";
+import { persistUrl } from "./persist-url.ts";
 
 export type StudioHistoryKind = "image" | "video" | "story" | "ecommerce";
+
+export type StudioHistoryPersistStatus = "pending" | "saved" | "failed";
 
 export type StudioHistoryItem = {
   id: string;
@@ -9,53 +13,105 @@ export type StudioHistoryItem = {
   title: string;
   prompt: string;
   model: string;
+  /** Public provider identity only; never a key or credential. */
+  providerId?: string;
   urls: string[];
   createdAt: number;
+  persistStatus?: StudioHistoryPersistStatus;
+  persistError?: string;
+  persistWarning?: string;
 };
+
+type NewStudioHistoryItem = Omit<StudioHistoryItem, "id" | "createdAt" | "persistStatus" | "persistError" | "persistWarning">;
 
 type HistoryState = {
   items: StudioHistoryItem[];
   hydrated: boolean;
-  add: (item: Omit<StudioHistoryItem, "id" | "createdAt">) => StudioHistoryItem;
+  add: (item: NewStudioHistoryItem) => StudioHistoryItem;
   remove: (id: string) => void;
   clear: () => void;
   hydrate: () => Promise<void>;
 };
 
-async function persistUrl(url: string) {
-  if (!url) return url;
-  if (url.startsWith("data:") || url.startsWith("http") || url.startsWith("/")) return url;
-  if (!url.startsWith("blob:")) return url;
-  try {
-    const blob = await fetch(url).then((res) => res.blob());
-    if (blob.size > 3_500_000) return url;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    let binary = "";
-    for (const byte of bytes) binary += String.fromCharCode(byte);
-    return `data:${blob.type || "image/png"};base64,${btoa(binary)}`;
-  } catch {
-    return url;
+const persistWaiters = new Map<string, Promise<StudioHistoryItem>>();
+
+export function isStableHistoryUrl(url: string) {
+  return url.startsWith("data:") || url.startsWith("/gallery/") || url.startsWith("/works/");
+}
+
+export function studioHistoryPersistStatus(item: Pick<StudioHistoryItem, "persistStatus" | "persistError">): StudioHistoryPersistStatus {
+  if (item.persistStatus) return item.persistStatus;
+  return item.persistError ? "failed" : "saved";
+}
+
+export function isSavedStudioHistoryItem(item: Pick<StudioHistoryItem, "urls" | "persistStatus" | "persistError">) {
+  return studioHistoryPersistStatus(item) === "saved" && item.urls.some(Boolean);
+}
+
+export function isFailedStudioHistoryItem(item: Pick<StudioHistoryItem, "urls" | "persistStatus" | "persistError">) {
+  return studioHistoryPersistStatus(item) === "failed" && item.urls.some(Boolean);
+}
+
+export function sameStudioHistoryPayload(
+  left: Pick<StudioHistoryItem, "kind" | "urls">,
+  right: Pick<StudioHistoryItem, "kind" | "urls">,
+) {
+  return left.kind === right.kind
+    && left.urls.length === right.urls.length
+    && left.urls.every((url, index) => url === right.urls[index]);
+}
+
+export function mergeStudioHistoryItems(
+  remote: readonly StudioHistoryItem[],
+  local: readonly StudioHistoryItem[],
+) {
+  const seen = new Set<string>();
+  const merged: StudioHistoryItem[] = [];
+  for (const item of [...remote, ...local]) {
+    if (!item.id || seen.has(item.id) || !item.urls.length) continue;
+    if (!item.urls.every(isStableHistoryUrl)) continue;
+    seen.add(item.id);
+    merged.push({
+      ...item,
+      persistStatus: studioHistoryPersistStatus(item),
+    });
   }
+  return merged.sort((a, b) => b.createdAt - a.createdAt).slice(0, 80);
 }
 
 async function persistItem(item: StudioHistoryItem) {
-  const urls = (await Promise.all(item.urls.map(persistUrl))).filter(Boolean);
-  const next = { ...item, urls };
-  if (!urls[0]) return next;
-  try {
-    const { saveStudioWork } = await import("@/studio/server/works");
-    const saved = await saveStudioWork({ data: next });
-    if (saved?.item?.urls?.[0]) return saved.item;
-  } catch {
-    /* keep the local copy if the vault is down */
+  const urls: string[] = [];
+  for (const [index, url] of item.urls.entries()) {
+    const persisted = await persistUrl(url, { kind: item.kind, index });
+    if (persisted) urls.push(persisted);
   }
-  return next;
+  const next = {
+    ...item,
+    urls,
+    persistStatus: "pending" as const,
+    persistError: undefined,
+    persistWarning: undefined,
+  };
+  if (!urls[0]) throw new Error("作品没有可保存的文件");
+  const { saveStudioWork } = await import("@/studio/server/works");
+  const saved = await saveStudioWork({ data: next });
+  if (saved?.ok && saved.item?.urls?.[0]) {
+    return {
+      ...saved.item,
+      persistStatus: "saved" as const,
+      persistWarning: saved.warning || undefined,
+    };
+  }
+  throw new Error(saved && "error" in saved && saved.error ? saved.error : "作品未能写入服务器");
 }
 
-export function recordGeneratedWork(item: Omit<StudioHistoryItem, "id" | "createdAt">) {
+export async function recordGeneratedWork(item: NewStudioHistoryItem) {
   if (typeof window === "undefined") return;
   if (!item.urls?.[0]) return;
-  useStudioHistory.getState().add(item);
+  const row = useStudioHistory.getState().add(item);
+  const pending = persistWaiters.get(row.id);
+  if (pending) return pending;
+  return row;
 }
 
 export const useStudioHistory = create<HistoryState>()(
@@ -64,16 +120,38 @@ export const useStudioHistory = create<HistoryState>()(
       items: [],
       hydrated: false,
       add: (item) => {
-        const first = item.urls?.[0] || "";
-        if (first) {
-          const existing = get().items.find((row) => row.urls[0] === first);
-          if (existing) return existing;
-        }
-        const row: StudioHistoryItem = { ...item, id: crypto.randomUUID(), createdAt: Date.now() };
+        const existing = get().items.find((row) =>
+          studioHistoryPersistStatus(row) !== "failed" && sameStudioHistoryPayload(row, item),
+        );
+        if (existing) return existing;
+        const row: StudioHistoryItem = {
+          ...item,
+          id: createId(),
+          createdAt: Date.now(),
+          persistStatus: "pending",
+          persistError: undefined,
+          persistWarning: undefined,
+        };
         set({ items: [row, ...get().items].slice(0, 80) });
-        void persistItem(row).then((next) => {
-          set({ items: get().items.map((current) => (current.id === row.id ? next : current)) });
-        });
+        const pending = persistItem(row)
+          .then((next) => {
+            persistWaiters.delete(row.id);
+            set({ items: get().items.map((current) => (current.id === row.id ? next : current)) });
+            return next;
+          })
+          .catch((err) => {
+            persistWaiters.delete(row.id);
+            const raw = err instanceof Error ? err.message : "作品未能写入服务器";
+            const persistError = /Failed to fetch|NetworkError|Load failed/i.test(raw)
+              ? "作品未能写入服务器（浏览器跨域或网络失败）"
+              : raw;
+            const failed = { ...row, persistStatus: "failed" as const, persistError };
+            set({
+              items: get().items.map((current) => (current.id === row.id ? failed : current)),
+            });
+            return failed;
+          });
+        persistWaiters.set(row.id, pending);
         return row;
       },
       remove: (id) => {
@@ -92,19 +170,12 @@ export const useStudioHistory = create<HistoryState>()(
       hydrate: async () => {
         try {
           const { listStudioWorks } = await import("@/studio/server/works");
-          const remote = await listStudioWorks();
-          const local = get().items;
-          const seen = new Set<string>();
-          const merged: StudioHistoryItem[] = [];
-          for (const item of [...(remote || []), ...local]) {
-            if (!item.id || seen.has(item.id) || !item.urls[0]) continue;
-            seen.add(item.id);
-            merged.push(item);
-          }
-          merged.sort((a, b) => b.createdAt - a.createdAt);
-          set({ items: merged.slice(0, 80), hydrated: true });
+          set({
+            items: mergeStudioHistoryItems(await listStudioWorks(), get().items),
+            hydrated: true,
+          });
         } catch {
-          set({ hydrated: true });
+          set({ items: mergeStudioHistoryItems([], get().items), hydrated: true });
         }
       },
     }),

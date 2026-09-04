@@ -270,6 +270,12 @@ export function resolveVideoReferenceSlotContract<T extends VideoReferenceContra
     reasonCode: VideoReferenceNotSubmittedReasonCode;
     reason: string;
   }> = [];
+  const allowsStorySemanticReferences = operation === "reference-to-video" && (
+    capability.intentPolicy === "reference-set" ||
+    capability.intentPolicy === "r2v-with-first" ||
+    capability.intentPolicy === "frames-or-reference-set" ||
+    capability.intentPolicy === "reference-set-with-frames"
+  );
   let firstFrameCount = 0;
   let lastFrameCount = 0;
   let keyframeCount = 0;
@@ -291,6 +297,7 @@ export function resolveVideoReferenceSlotContract<T extends VideoReferenceContra
       }
       if (
         capability.storyAutoReferencePolicy === "current-shot" &&
+        !allowsStorySemanticReferences &&
         reference.role !== "current_shot" &&
         useAs === "reference_image"
       ) {

@@ -367,7 +367,7 @@ function CanvasInner() {
         patchNode(id, { cast: [...next], status: "已分析" });
         const existing = nodesRef.current.find((item) => item.type === "character" && item.data.name === next[i].name);
         if (existing) patchNode(existing.id, { url: result.url, look: next[i].look, status: "已定妆" });
-        addHistory({ kind: "image", title: `角色 ${next[i].name}`, prompt: next[i].look, model: result.model, urls: [result.url] });
+        addHistory({ kind: "image", title: `角色 ${next[i].name}`, prompt: next[i].look, model: result.model, providerId: result.providerId, urls: [result.url] });
       } catch (err) {
         setError(err instanceof Error ? err.message : "角色图失败");
         setBusy("");
@@ -410,7 +410,7 @@ function CanvasInner() {
         });
         const filled = next.map((shot, i) => (i < 9 ? { ...shot, url: result.url, status: "done" } : shot));
         patchNode(id, { shots: filled, status: "已分析" });
-        addHistory({ kind: "image", title: "九宫格分镜", prompt: chunk[0]?.prompt || "", model: result.model, urls: [result.url] });
+        addHistory({ kind: "image", title: "九宫格分镜", prompt: chunk[0]?.prompt || "", model: result.model, providerId: result.providerId, urls: [result.url] });
       } catch (err) {
         setError(err instanceof Error ? err.message : "九宫格失败");
         setBusy("");
@@ -477,7 +477,7 @@ function CanvasInner() {
           edgesRef.current = nextEdges;
           setEdges(nextEdges);
         }
-        addHistory({ kind: "image", title: next[i].title, prompt: next[i].prompt, model: result.model, urls: [result.url] });
+        addHistory({ kind: "image", title: next[i].title, prompt: next[i].prompt, model: result.model, providerId: result.providerId, urls: [result.url] });
       } catch (err) {
         setError(err instanceof Error ? err.message : "分镜失败");
         setBusy("");
@@ -550,7 +550,7 @@ function CanvasInner() {
         });
         const url = await waitStudioVideo({ relays, providerId: created.providerId, taskId: created.id, model: created.model });
         patchNode(id, { url, status: "完成" });
-        addHistory({ kind: "video", title: (prompt || "画布视频").slice(0, 40), prompt, model: created.model, urls: [url] });
+        addHistory({ kind: "video", title: (prompt || "画布视频").slice(0, 40), prompt, model: created.model, providerId: created.providerId, urls: [url] });
         return;
       }
       const result = await generateStudioImage({
@@ -566,7 +566,7 @@ function CanvasInner() {
         n: node.data.count,
       });
       patchNode(id, { url: result.url, status: "完成" });
-      addHistory({ kind: "image", title: (prompt || "画布生图").slice(0, 40), prompt, model: result.model, urls: [result.url] });
+      addHistory({ kind: "image", title: (prompt || "画布生图").slice(0, 40), prompt, model: result.model, providerId: result.providerId, urls: [result.url] });
     } catch (err) {
       const message = err instanceof Error ? err.message : "运行失败";
       setError(message);

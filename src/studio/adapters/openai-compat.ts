@@ -161,7 +161,7 @@ export const openaiCompatAdapter: StudioAdapter = {
         ],
         ...(input.json ? { response_format: { type: "json_object" } } : {}),
       },
-      timeoutMs: 90_000,
+      timeoutMs: input.timeoutMs || 90_000,
     });
     const text = data.choices?.[0]?.message?.content?.trim() || "";
     if (!text) throw new Error("文本模型没有返回内容");

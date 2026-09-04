@@ -32,6 +32,7 @@ import { Route as CanvasWorkspaceRouteImport } from './routes/canvas/workspace'
 import { Route as ClientApiFetchUrlRouteImport } from './routes/client-api/fetch-url'
 import { Route as ClientApiHealthRouteImport } from './routes/client-api/health'
 import { Route as ClientApiUploadImageHostRouteImport } from './routes/client-api/upload-image-host'
+import { Route as ClientApiUploadWorkMediaRouteImport } from './routes/client-api/upload-work-media'
 import { Route as LocalRelayProxySplatRouteImport } from './routes/local-relay-proxy/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
@@ -151,6 +152,12 @@ const ClientApiUploadImageHostRoute =
     path: '/client-api/upload-image-host',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ClientApiUploadWorkMediaRoute =
+  ClientApiUploadWorkMediaRouteImport.update({
+    id: '/client-api/upload-work-media',
+    path: '/client-api/upload-work-media',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LocalRelayProxySplatRoute = LocalRelayProxySplatRouteImport.update({
   id: '/local-relay-proxy/$',
   path: '/local-relay-proxy/$',
@@ -185,6 +192,7 @@ export interface FileRoutesByFullPath {
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
+  '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/canvas/': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -212,6 +220,7 @@ export interface FileRoutesByTo {
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
+  '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/canvas': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -240,6 +249,7 @@ export interface FileRoutesById {
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
+  '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/canvas/': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/client-api/fetch-url'
     | '/client-api/health'
     | '/client-api/upload-image-host'
+    | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
     | '/canvas/'
     | '/api/auth/$'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/client-api/fetch-url'
     | '/client-api/health'
     | '/client-api/upload-image-host'
+    | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
     | '/canvas'
     | '/api/auth/$'
@@ -323,6 +335,7 @@ export interface FileRouteTypes {
     | '/client-api/fetch-url'
     | '/client-api/health'
     | '/client-api/upload-image-host'
+    | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
     | '/canvas/'
     | '/api/auth/$'
@@ -351,6 +364,7 @@ export interface RootRouteChildren {
   ClientApiFetchUrlRoute: typeof ClientApiFetchUrlRoute
   ClientApiHealthRoute: typeof ClientApiHealthRoute
   ClientApiUploadImageHostRoute: typeof ClientApiUploadImageHostRoute
+  ClientApiUploadWorkMediaRoute: typeof ClientApiUploadWorkMediaRoute
   LocalRelayProxySplatRoute: typeof LocalRelayProxySplatRoute
   CanvasIndexRoute: typeof CanvasIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -519,6 +533,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientApiUploadImageHostRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/client-api/upload-work-media': {
+      id: '/client-api/upload-work-media'
+      path: '/client-api/upload-work-media'
+      fullPath: '/client-api/upload-work-media'
+      preLoaderRoute: typeof ClientApiUploadWorkMediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/local-relay-proxy/$': {
       id: '/local-relay-proxy/$'
       path: '/local-relay-proxy/$'
@@ -559,6 +580,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClientApiFetchUrlRoute: ClientApiFetchUrlRoute,
   ClientApiHealthRoute: ClientApiHealthRoute,
   ClientApiUploadImageHostRoute: ClientApiUploadImageHostRoute,
+  ClientApiUploadWorkMediaRoute: ClientApiUploadWorkMediaRoute,
   LocalRelayProxySplatRoute: LocalRelayProxySplatRoute,
   CanvasIndexRoute: CanvasIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

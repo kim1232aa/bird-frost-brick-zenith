@@ -62,6 +62,34 @@ export function shouldSkipLegacyImageTaskResume(
   );
 }
 
+const NATIVE_IMAGE_TASK_PROVIDERS = new Set(["dashscope", "miaohua", "civitai"]);
+
+function nativeImageTaskSnapshot(metadata: { imageGenerationTask?: unknown } | undefined) {
+  const binding = metadata?.imageGenerationTask as
+    | { snapshot?: { provider?: unknown; taskId?: unknown } }
+    | undefined;
+  const snapshot = binding?.snapshot;
+  if (!snapshot || typeof snapshot !== "object") return undefined;
+  const provider = String(snapshot.provider || "").trim();
+  const taskId = String(snapshot.taskId || "").trim();
+  if (!NATIVE_IMAGE_TASK_PROVIDERS.has(provider) || !taskId) return undefined;
+  if (isLegacyCanvasImageTaskId(taskId)) return undefined;
+  return snapshot;
+}
+
+/** Native poll snapshot or a real remote task id. Local `canvas-*` attempt ids cannot resume after reload. */
+export function isResumableCanvasImageTask(
+  metadata:
+    | (LegacyImageTaskRecoveryMetadata & { imageGenerationTask?: unknown })
+    | undefined,
+) {
+  if (nativeImageTaskSnapshot(metadata)) return true;
+  const sourceTaskId = String(metadata?.sourceImageTaskId || "").trim();
+  if (!sourceTaskId || isLegacyCanvasImageTaskId(sourceTaskId)) return false;
+  if (shouldSkipLegacyImageTaskResume(metadata)) return false;
+  return true;
+}
+
 export function recoveredLegacyImageMetadataPatch(
   metadata: LegacyImageTaskRecoveryMetadata | undefined,
 ) {
@@ -71,5 +99,31 @@ export function recoveredLegacyImageMetadataPatch(
     errorDetails: undefined,
     sourceImageTaskId: undefined,
     imageGenerationAttemptId: undefined,
+  };
+}
+
+const INTERRUPTED_LOCAL_IMAGE_TASK =
+  "旧任务在刷新后无法恢复；已停止且不会重新提交付费请求";
+
+/** Reload-only. Live in-flight canvas-* attempts stay loading until this runs. */
+export function recoverInterruptedCanvasImageNode<
+  T extends {
+    type?: string;
+    metadata?: (LegacyImageTaskRecoveryMetadata & { imageGenerationTask?: unknown }) | undefined;
+  },
+>(node: T): T {
+  if (node.type !== "image") return node;
+  if (node.metadata?.status !== "loading") return node;
+  if (isResumableCanvasImageTask(node.metadata)) return node;
+  return {
+    ...node,
+    metadata: {
+      ...node.metadata,
+      status: "error",
+      errorDetails: INTERRUPTED_LOCAL_IMAGE_TASK,
+      sourceImageTaskId: undefined,
+      imageGenerationAttemptId: undefined,
+      imageGenerationTask: undefined,
+    },
   };
 }

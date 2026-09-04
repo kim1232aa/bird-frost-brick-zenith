@@ -26,7 +26,11 @@ register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.
 
 // image.ts keeps a type-only config import, but Node's strip-types loader still
 // evaluates the module; keep this integration test free of persistence startup.
-mock.module("@/stores/use-config-store", { namedExports: {} });
+mock.module("@/stores/use-config-store", {
+  namedExports: {
+    persistImageHostCredential: async () => ({ ok: true, baseUrl: "", hasApiKey: false }),
+  },
+});
 
 const dynamicService = {
   id: "image/comfy/flux1/createImage",

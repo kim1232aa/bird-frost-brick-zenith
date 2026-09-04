@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { createId } from "@/lib/create-id";
 import { getSql } from "@/lib/db";
 
 async function ensure(userId: string) {
@@ -38,7 +39,7 @@ export const grantCredits = createServerFn({ method: "POST" })
     const profile = (await sql<{ role: string }>`select role from studio_profiles where user_id = ${context.userId}`)[0];
     if (profile?.role !== "admin") throw new Error("只有管理员能发放额度");
     await sql`update studio_credits set balance = balance + ${data.amount} where user_id = ${context.userId} and kind = ${data.kind}`;
-    await sql`insert into studio_ledger (id, user_id, kind, delta, reason, model, ok) values (${crypto.randomUUID()}, ${context.userId}, ${data.kind}, ${data.amount}, ${data.reason}, '', true)`;
-    await sql`insert into studio_audit (id, user_id, action, detail) values (${crypto.randomUUID()}, ${context.userId}, '发放额度', ${`${data.kind} ${data.amount}`})`;
+    await sql`insert into studio_ledger (id, user_id, kind, delta, reason, model, ok) values (${createId()}, ${context.userId}, ${data.kind}, ${data.amount}, ${data.reason}, '', true)`;
+    await sql`insert into studio_audit (id, user_id, action, detail) values (${createId()}, ${context.userId}, '发放额度', ${`${data.kind} ${data.amount}`})`;
     return { ok: true };
   });

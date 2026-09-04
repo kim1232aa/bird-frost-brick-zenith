@@ -1,6 +1,15 @@
+import { resolveImageModelCapability, type ImageCapabilityProvider } from "@/services/api/image-model-capabilities";
 import type { StoryCast, StoryShot } from "./plan";
 
 export const MAX_STORY_IMAGE_REFS = 5;
+
+export function storyImageReferenceMax(model: string, provider?: ImageCapabilityProvider) {
+  const capability = resolveImageModelCapability({ model, operation: "edit", provider });
+  if (capability.referenceCount.state === "supported" && capability.referenceCount.max !== null) {
+    return Math.max(1, capability.referenceCount.max);
+  }
+  return MAX_STORY_IMAGE_REFS;
+}
 
 export function stillSizeForQuality(quality: string, ratio: string) {
   const portrait = ratio === "9:16";

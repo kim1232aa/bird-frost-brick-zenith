@@ -2,7 +2,7 @@ import axios from "axios";
 import { NativeImageTaskTerminalError } from "@/services/api/native-image-task";
 
 import { routedLocalApiUrl, type ApiRequestRoute } from "@/services/api/ai-routing";
-import { buildLocalRelayProxyHeaders, rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, selectRelayCredential } from "@/services/api/relay-proxy";
 
 /**
  * 商汤日日新 SenseNova 的生图端点本身是 OpenAI 兼容的（POST /images/generations），
@@ -77,7 +77,8 @@ type MiaohuaResultResponse = {
 
 export type MiaohuaImageTask = Readonly<{
     taskId: string;
-    apiKey: string;
+    /** Opaque server-vault identity selected for creation and polling. */
+    credentialId: string;
     startedAt: string;
     expectedOutputs: number;
 }>;
@@ -113,7 +114,9 @@ export async function createMiaohuaImageTask(
     options: MiaohuaImageCreateOptions,
 ): Promise<MiaohuaImageTask> {
     if (route.mode !== "local") throw new Error("秒画仅支持本地中转路由");
-    const apiKey = rotateRelayApiKey(route.provider);
+    const selected = selectRelayCredential(route.provider);
+    if (!selected.credentialId) throw new Error("秒画图片任务凭据缺少稳定标识，未发送生成请求");
+    const { apiKey, credentialId } = selected;
     const startedAt = new Date().toISOString();
     const create = await axios.post<MiaohuaCreateResponse>(
         routedLocalApiUrl(route, "/imgenstd/imgen"),
@@ -127,13 +130,13 @@ export async function createMiaohuaImageTask(
             ...(options.imageUrl ? { img_url: options.imageUrl } : {}),
         },
         {
-            headers: buildLocalRelayProxyHeaders(route.provider, "application/json", apiKey),
+            headers: buildLocalRelayProxyHeaders(route.provider, "application/json", apiKey, credentialId),
             timeout: Math.min(options.timeoutMs || route.timeoutMs || 120_000, 120_000),
         },
     );
     const taskId = String(create.data?.task_id || "").trim();
     if (!taskId) throw new Error(String(create.data?.message || "秒画没有返回任务 ID"));
-    return { taskId, apiKey, startedAt, expectedOutputs: options.count };
+    return { taskId, credentialId, startedAt, expectedOutputs: options.count };
 }
 
 export async function pollMiaohuaImageTask(
@@ -145,7 +148,7 @@ export async function pollMiaohuaImageTask(
     const result = await axios.get<MiaohuaResultResponse>(
         routedLocalApiUrl(route, `/imgenstd/result/${encodeURIComponent(task.taskId)}`),
         {
-            headers: buildLocalRelayProxyHeaders(route.provider, undefined, task.apiKey),
+            headers: buildLocalRelayProxyHeaders(route.provider, undefined, undefined, task.credentialId),
             timeout: Math.min(options.timeoutMs || route.timeoutMs || 60_000, 60_000),
         },
     );

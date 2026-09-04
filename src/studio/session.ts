@@ -62,14 +62,31 @@ function readPersisted(value: unknown): PersistedSession {
   };
 }
 
+function relayHasStoredKey(item: Pick<ApiRelayProvider, "apiKey" | "apiKeys" | "hasApiKey">) {
+  return Boolean(item.hasApiKey || item.apiKey || item.apiKeys?.some(Boolean));
+}
+
+function redactBrowserRelay(item: ApiRelayProvider): ApiRelayProvider {
+  return {
+    ...item,
+    apiKey: "",
+    apiKeys: undefined,
+    hasApiKey: Boolean(
+      relayHasStoredKey(item)
+      || item.apiKeyId
+      || item.apiKeyIds?.length,
+    ),
+  };
+}
+
 export function vaultSnapshot(state: Pick<StudioSession, "relays" | "hiddenPresetIds">) {
   return JSON.stringify({
     hiddenPresetIds: state.hiddenPresetIds,
     relays: state.relays.map((item) => ({
       id: item.id,
-      apiKey: item.apiKey,
-      apiKeys: item.apiKeys,
-      hasApiKey: item.hasApiKey,
+      apiKey: "",
+      hasApiKey: relayHasStoredKey(item),
+      pendingKey: Boolean(item.apiKey || item.apiKeys?.some(Boolean)),
       baseUrl: item.baseUrl,
       enabled: item.enabled,
       name: item.name,
@@ -111,7 +128,7 @@ export const useStudioSession = create<StudioSession>()(
       vaultMessage: "",
       setRelayKey: (id, apiKey) => {
         set({
-          relays: get().relays.map((item) => (item.id === id ? { ...item, apiKey, hasApiKey: Boolean(apiKey.trim()), enabled: true } : item)),
+          relays: get().relays.map((item) => (item.id === id ? { ...item, apiKey, apiKeys: undefined, hasApiKey: Boolean(apiKey.trim()), enabled: true } : item)),
         });
         scheduleFlush();
       },
@@ -201,8 +218,9 @@ export const useStudioSession = create<StudioSession>()(
         set({ vaultStatus: "syncing" });
         try {
           await saveRelayVault({ data: { relays: state.relays, hiddenPresetIds: state.hiddenPresetIds } });
-          lastPushed = snap;
-          set({ vaultStatus: "ok", vaultMessage: "密钥已保存到数据库" });
+          const redacted = state.relays.map(redactBrowserRelay);
+          lastPushed = vaultSnapshot({ relays: redacted, hiddenPresetIds: state.hiddenPresetIds });
+          set({ relays: redacted, vaultStatus: "ok", vaultMessage: "密钥已保存到数据库" });
         } catch (err) {
           set({
             vaultStatus: "error",
@@ -216,7 +234,7 @@ export const useStudioSession = create<StudioSession>()(
       version: 13,
       skipHydration: typeof window === "undefined",
       partialize: (state) => ({
-        relays: state.relays,
+        relays: state.relays.map(redactBrowserRelay),
         hiddenPresetIds: state.hiddenPresetIds,
       }),
       migrate: (persisted) => {

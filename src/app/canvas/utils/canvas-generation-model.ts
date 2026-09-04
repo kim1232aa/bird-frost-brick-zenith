@@ -87,9 +87,20 @@ export function resolveCanvasGenerationModelSelection(
     metadata?.modelProviderId,
     mode === "video" ? metadata?.videoGenerationScope?.providerId : undefined,
   );
+  const route = config.apiRouting[mode];
+  const fallbackSelection = route?.providerId && route.model
+    ? { selection: { providerId: route.providerId, model: route.model }, legacyModel: "" }
+    : { selection: null, legacyModel: "" };
 
   if (model && providerId) {
-    return { selection: { providerId, model }, legacyModel: "" };
+    // Explicit provider/model pairs are authoritative, unless the provider
+    // itself classifies the model for a different capability. That stale pair
+    // happens after a mode switch and must not make an image model masquerade
+    // as the selected video model.
+    if (modelMatchesExplicitProviderCapability(config, providerId, model, mode)) {
+      return { selection: { providerId, model }, legacyModel: "" };
+    }
+    return fallbackSelection;
   }
   if (model) {
     const resolution = resolveProviderModelSelection(config, mode, model);
@@ -98,14 +109,7 @@ export function resolveCanvasGenerationModelSelection(
       : { selection: null, legacyModel: model };
   }
 
-  const route = config.apiRouting[mode];
-  if (route?.providerId && route.model) {
-    return {
-      selection: { providerId: route.providerId, model: route.model },
-      legacyModel: "",
-    };
-  }
-  return { selection: null, legacyModel: "" };
+  return fallbackSelection;
 }
 
 /**
@@ -170,4 +174,22 @@ function firstNonEmptyModel(...values: unknown[]) {
     if (text) return text;
   }
   return "";
+}
+
+function modelMatchesExplicitProviderCapability(
+  config: AiConfig,
+  providerId: string,
+  model: string,
+  mode: CanvasGenerationMode,
+) {
+  const capability = mode as ApiCapability;
+  const provider = ensureApiRelaySettings({ ...config, channelMode: "local" })
+    .apiRelays.find((candidate) => candidate.id === providerId);
+  if (!provider) return false;
+  const declaredCapabilities = API_CAPABILITIES.filter((candidateCapability) =>
+    provider.capabilities.includes(candidateCapability) &&
+    providerModelsForCapability(provider, candidateCapability).includes(model),
+  );
+  if (declaredCapabilities.length) return declaredCapabilities.includes(capability);
+  return modelMatchesCapability(model, capability);
 }

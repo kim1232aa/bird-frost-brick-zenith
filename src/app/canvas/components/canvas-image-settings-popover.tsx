@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
-import { Button } from "antd";
+import { App, Button } from "antd";
 
 import { ImageSettingsPanel, imageAdvancedSettingsLabel, imageQualityLabel, imageSizeLabel, resolveImageSettingsContext, type ImageSettingsSection } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import type { ImageOperation } from "@/services/api/image-model-capabilities";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useConfigStore, readImageAdvancedSettings, writeImageAdvancedSettings, type AiConfig, type ImageAdvancedSettings, type ImageAdvancedSettingsScope } from "@/stores/use-config-store";
+import { flushConfigStore, persistApiSettingsBeforeClose, useConfigStore, readImageAdvancedSettings, writeImageAdvancedSettings, type AiConfig, type ImageAdvancedSettings, type ImageAdvancedSettingsScope } from "@/stores/use-config-store";
 
 type CanvasImageSettingsPopoverProps = {
     config: AiConfig;
@@ -28,10 +28,12 @@ type CanvasImageSettingsPopoverProps = {
 };
 
 export function CanvasImageSettingsPopover({ config, operation, onConfigChange, onAdvancedSettingsChange, onOpenChange, buttonClassName, placement = "topLeft", trigger, sections, showTitle }: CanvasImageSettingsPopoverProps) {
+    const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const updateGlobalConfig = useConfigStore((state) => state.updateConfig);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const closeInFlightRef = useRef(false);
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
     const imageContext = resolveImageSettingsContext(config, operation);
@@ -40,10 +42,29 @@ export function CanvasImageSettingsPopover({ config, operation, onConfigChange, 
     const quality = imageQualityLabel(scopedSettings.quality || "", capability);
     const count = Number.isInteger(Number(scopedSettings.count)) && Number(scopedSettings.count) > 0 ? Number(scopedSettings.count) : 1;
     const activeSize = scopedSettings.size || "provider 默认";
-    const updateOpen = (nextOpen: boolean) => {
+    const applyOpen = useCallback((nextOpen: boolean) => {
         setOpen(nextOpen);
         onOpenChange?.(nextOpen);
-    };
+    }, [onOpenChange]);
+    const requestOpen = useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
+            applyOpen(true);
+            return;
+        }
+        if (!useConfigStore.getState().config.imageHostApiKey.trim()) {
+            applyOpen(false);
+            return;
+        }
+        if (closeInFlightRef.current) return;
+        closeInFlightRef.current = true;
+        void persistApiSettingsBeforeClose(
+            flushConfigStore,
+            () => applyOpen(false),
+            (error) => { message.error(error); },
+        ).finally(() => {
+            closeInFlightRef.current = false;
+        });
+    }, [applyOpen, message]);
 
     useEffect(() => {
         if (!open) return;
@@ -53,8 +74,7 @@ export function CanvasImageSettingsPopover({ config, operation, onConfigChange, 
             if (!(target instanceof Node)) return;
             if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return;
             if (document.activeElement instanceof HTMLElement && panelRef.current?.contains(document.activeElement)) document.activeElement.blur();
-            setOpen(false);
-            onOpenChange?.(false);
+            requestOpen(false);
         };
 
         syncPosition();
@@ -66,7 +86,7 @@ export function CanvasImageSettingsPopover({ config, operation, onConfigChange, 
             window.removeEventListener("scroll", syncPosition, true);
             window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
         };
-    }, [onOpenChange, open]);
+    }, [open, requestOpen]);
 
     const handleConfigChange = (key: keyof AiConfig, value: string) => {
         if (key === "imageHostBaseUrl" || key === "imageHostApiKey") {
@@ -93,19 +113,19 @@ export function CanvasImageSettingsPopover({ config, operation, onConfigChange, 
                     className="group block min-w-0 rounded-lg outline-none transition focus-visible:ring-2 focus-visible:ring-white/70"
                     onClick={(event) => {
                         event.stopPropagation();
-                        updateOpen(!open);
+                        requestOpen(!open);
                     }}
                     onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
                         event.preventDefault();
-                        updateOpen(!open);
+                        requestOpen(!open);
                     }}
                 >
                     {trigger}
                 </span>
             ) : (
                 <span ref={buttonRef} className="inline-flex min-w-0">
-                    <Button size="small" type="text" className={buttonClassName || "!h-auto !min-h-10 !min-w-[7.5rem] !justify-start !rounded-xl !px-2.5 !py-1"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => updateOpen(!open)}>
+                    <Button size="small" type="text" className={buttonClassName || "!h-auto !min-h-10 !min-w-[7.5rem] !justify-start !rounded-xl !px-2.5 !py-1"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => requestOpen(!open)}>
                         <span className="flex min-w-0 flex-col items-start leading-4">
                             <span>图片参数</span>
                             <span className="text-[10px] opacity-70">

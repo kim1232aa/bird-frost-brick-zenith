@@ -111,35 +111,26 @@ export async function studioProxyJson<T = unknown>(input: {
   extraHeaders?: Record<string, string>;
 }): Promise<T> {
   const path = input.path.startsWith("/") ? input.path : `/${input.path}`;
-  const { rotateRelayApiKey } = await import("../../services/api/relay-proxy.ts");
-  const apiKey = rotateRelayApiKey(input.provider as ApiRelayProvider) || input.provider.apiKey;
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), input.timeoutMs || 120_000);
-  const scheme = input.authScheme || "Bearer";
   const method = input.method || "POST";
   const baseUrl = input.baseUrl || input.provider.baseUrl;
-  let builtinHeader: Record<string, string> = {};
-  try {
-    if (new URL(baseUrl).hostname.toLowerCase() === "api.x.ai") {
-      builtinHeader = { "x-boundless-builtin": "xai" };
-    }
-  } catch {
-    /* ignore invalid base */
-  }
+  const { buildLocalRelayProxyHeaders } = await import("../../services/api/relay-proxy.ts");
+  const relayHeaders = buildLocalRelayProxyHeaders(
+    { ...input.provider, baseUrl },
+    method === "GET" || method === "DELETE" ? undefined : "application/json",
+  );
+  const extraHeaders = new Headers(input.extraHeaders || {});
+  extraHeaders.delete("Authorization");
+  extraHeaders.delete("x-api-key");
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), input.timeoutMs || 120_000);
   try {
     const response = await fetch(`/local-relay-proxy${path}`, {
       method,
       headers: {
-        ...(method === "GET" || method === "DELETE" ? {} : { "Content-Type": "application/json" }),
+        ...Object.fromEntries(extraHeaders.entries()),
         Accept: input.accept || "application/json",
-        ...(scheme === "x-api-key"
-          ? { "x-api-key": apiKey || "" }
-          : { Authorization: apiKey ? `${scheme} ${apiKey}` : "" }),
-        "x-local-relay-base-url": baseUrl,
-        ...(input.provider.id ? { "x-boundless-relay-id": input.provider.id } : {}),
+        ...relayHeaders,
         "Accept-Encoding": "identity",
-        ...builtinHeader,
-        ...(input.extraHeaders || {}),
       },
       body: method === "GET" || method === "DELETE" ? undefined : JSON.stringify(input.body ?? {}),
       signal: controller.signal,
@@ -169,17 +160,34 @@ export function providerById(id: string, relays: ApiRelayProvider[]) {
   return found;
 }
 
-function upstreamErrorText(status: number, raw: string) {
+export function formatProviderError(status: number, raw: string) {
   const text = String(raw || "").trim();
   if (!text) return `HTTP ${status}`;
   if (text.startsWith("{") || text.startsWith("[")) {
     try {
-      return JSON.stringify(JSON.parse(text));
+      const parsed = JSON.parse(text) as {
+        error?: { message?: string; code?: string } | string;
+        message?: string;
+        msg?: string;
+      };
+      const nested = parsed.error;
+      const message =
+        (typeof nested === "object" && nested?.message) ||
+        (typeof nested === "string" ? nested : "") ||
+        parsed.message ||
+        parsed.msg ||
+        "";
+      const code = typeof nested === "object" ? nested?.code : "";
+      if (message) return code ? `${message}（${code}）` : message;
     } catch {
-      return text.slice(0, 2000);
+      /* fall through */
     }
   }
-  return text.slice(0, 2000);
+  return text.slice(0, 400);
+}
+
+function upstreamErrorText(status: number, raw: string) {
+  return formatProviderError(status, raw);
 }
 
 function pushUrl(out: string[], value: unknown) {

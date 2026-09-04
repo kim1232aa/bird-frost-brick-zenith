@@ -8,6 +8,7 @@ import { Download, FileUp, LayoutGrid, List, Plus } from "lucide-react";
 import { readZip } from "@/lib/zip";
 import { getDesktopSetting, setDesktopSetting } from "@/services/desktop-storage";
 import { findCatalog } from "@/studio/catalog";
+import { liveCard } from "@/studio/ops";
 import { preferredImageKey, preferredTextKey, preferredVideoKey } from "@/studio/model-select";
 import { useCurrentModels } from "@/studio/current-models-store";
 import { useStudioSession } from "@/studio/session";
@@ -184,7 +185,7 @@ export default function CanvasPage() {
                     <div>
                         <p className="text-xs tracking-[0.2em] text-emerald-600">BOUNDLESS STUDIO</p>
                         <h1 className="mt-2 text-3xl font-semibold tracking-tight">无限画布</h1>
-                        <p className="mt-2 max-w-xl text-sm text-stone-500">点开「无限画布 1」就能看到故事导演、角色和五张分镜。新建是空白画布；改模型去顶栏设置。</p>
+                        <p className="mt-2 max-w-2xl text-sm text-stone-500">点开带封面的画布即可查看故事导演、角色和分镜；新建画布从空白开始，模型在顶栏设置。</p>
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                         <div className="flex items-center rounded-md border border-stone-200 bg-white p-0.5" role="group" aria-label="画布显示方式">
@@ -288,7 +289,7 @@ export default function CanvasPage() {
 }
 
 function CanvasCurrentModels() {
-    useStudioSession((state) => state.relays);
+    const relays = useStudioSession((state) => state.relays);
     useCurrentModels((state) => state.text);
     useCurrentModels((state) => state.image);
     useCurrentModels((state) => state.video);
@@ -300,13 +301,14 @@ function CanvasCurrentModels() {
     return (
         <div className="grid gap-3 sm:grid-cols-3">
             {slots.map((slot) => {
-                const card = findCatalog(slot.value, slot.kind);
+                const card = findCatalog(slot.value, slot.kind, relays);
+                const live = card ? liveCard(card) : undefined;
                 return (
                     <WiringChip
                         key={slot.label}
                         label={slot.label}
-                        value={card?.model || slot.value.split("::")[1] || "未选"}
-                        hint={card ? `${card.provider}${card.wired ? " · 已接线" : " · 待接线"}` : "去首页选择"}
+                        value={live?.model || slot.value.split("::")[1] || "未选"}
+                        hint={live ? `${live.provider}${live.wired ? " · 已接线" : " · 待接线"}` : "去首页选择"}
                     />
                 );
             })}

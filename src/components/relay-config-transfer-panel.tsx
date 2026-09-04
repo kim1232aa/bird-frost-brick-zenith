@@ -2,18 +2,17 @@
 
 import { useMemo, useState } from "react";
 import { App } from "antd";
-import { ClipboardPaste, Download, Upload } from "lucide-react";
+import { ClipboardPaste, Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { browserSafeConfigEnvelope } from "@/lib/config-secret-redaction";
 import {
     applyParsedRelayTransfer,
     parseRelayTransferText,
-    serializeRelayConfigEnvelope,
-    serializeRelayKeyBundle,
     type ParsedRelayTransfer,
 } from "@/lib/relay-config-transfer";
 import { PRESET_RELAY_ENDPOINTS } from "@/stores/api-relay-presets";
-import { flushConfigStore, useConfigStore } from "@/stores/use-config-store";
+import { flushConfigStore, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 
 function presetNameForUrl(baseUrl: string) {
     const normalized = String(baseUrl || "").trim().replace(/\/+$/u, "");
@@ -39,6 +38,23 @@ function downloadText(filename: string, value: string) {
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+}
+
+function buildBrowserSafeConfigExport(config: AiConfig) {
+    const safeConfig = {
+        ...config,
+        apiKey: "",
+        imageHostApiKey: "",
+        apiRelays: (config.apiRelays || []).map((relay) => ({
+            ...relay,
+            apiKey: "",
+            apiKeys: undefined,
+            apiKeyId: undefined,
+            apiKeyIds: undefined,
+            hasApiKey: Boolean(relay.hasApiKey || relay.apiKey || relay.apiKeys?.some(Boolean)),
+        })),
+    };
+    return browserSafeConfigEnvelope(JSON.stringify({ state: { config: safeConfig }, version: 0 }));
 }
 
 export function RelayConfigTransferPanel() {
@@ -80,12 +96,12 @@ export function RelayConfigTransferPanel() {
                 ? `；未匹配 ${applied.summary.unmatchedUrls.length} 个地址`
                 : "";
             message.success(
-                `已写入本地：更新 ${applied.summary.providersUpdated} 个中转，新建 ${applied.summary.providersCreated} 个，加入 ${applied.summary.keysAdded} 把 Key${unmatched}`,
+                `已保存到后端密钥库并更新配置：更新 ${applied.summary.providersUpdated} 个中转，新建 ${applied.summary.providersCreated} 个，加入 ${applied.summary.keysAdded} 把 Key${unmatched}`,
             );
             setDraft("");
             setOpen(false);
         } catch (error) {
-            const detail = error instanceof Error && error.message.trim() ? error.message.trim() : "导入失败";
+            const detail = error instanceof Error && error.message.trim() ? error.message.trim() : "密钥库导入失败";
             setParseError(detail);
             message.error(detail);
         } finally {
@@ -93,34 +109,14 @@ export function RelayConfigTransferPanel() {
         }
     };
 
-    const exportBundle = async () => {
-        const text = serializeRelayKeyBundle(config.apiRelays);
-        if (!text.trim()) {
-            message.warning("当前没有可导出的 Key");
-            return;
-        }
+    const exportSafeConfig = async () => {
+        const text = buildBrowserSafeConfigExport(config);
         try {
             await copyText(text);
-            message.success("密钥包已复制。内容含明文 Key，只保存在本机");
-        } catch {
-            downloadText("boundless-relay-keys.txt", text);
-            message.success("已下载密钥包。内容含明文 Key，只保存在本机");
-        }
-    };
-
-    const exportEnvelope = async () => {
-        const text = serializeRelayConfigEnvelope({
-            relays: config.apiRelays,
-            apiRouting: config.apiRouting,
-            apiBoardRouting: config.apiBoardRouting,
-            apiRelayAdvanced: config.apiRelayAdvanced,
-        });
-        try {
-            await copyText(text);
-            message.success("完整配置已复制。内容含明文 Key，只保存在本机");
+            message.success("安全配置已复制，认证信息已移除");
         } catch {
             downloadText("boundless-relay-config.json", text);
-            message.success("已下载完整配置。内容含明文 Key，只保存在本机");
+            message.success("已下载安全配置，认证信息已移除");
         }
     };
 
@@ -128,9 +124,9 @@ export function RelayConfigTransferPanel() {
         <div className="rounded-2xl border border-stone-200 p-3 sm:p-4 dark:border-stone-800">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                    <div className="text-sm font-semibold">导入 / 导出 Key 和配置</div>
+                    <div className="text-sm font-semibold">导入 Key / 导出安全配置</div>
                     <div className="mt-1 text-xs leading-5 text-stone-500 dark:text-stone-400">
-                        粘贴「Base URL + sk-」文本包或本应用 JSON，按地址合并到预设并写入本地存储。仓库预设保持空 Key。导出含明文凭据，不要发到聊天或提交 Git。
+                        导入的 Key 会写入后端密钥库，成功后浏览器配置只保留“已配置”标志。安全配置导出会移除认证信息和代理设置。
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:shrink-0">
@@ -138,13 +134,9 @@ export function RelayConfigTransferPanel() {
                         <ClipboardPaste className="size-4" />
                         导入 Key / 配置
                     </Button>
-                    <Button type="button" variant="outline" className="h-9 flex-1 whitespace-nowrap rounded-xl sm:flex-none" onClick={() => void exportBundle()}>
-                        <Upload className="size-4" />
-                        导出密钥包
-                    </Button>
-                    <Button type="button" variant="outline" className="h-9 flex-1 whitespace-nowrap rounded-xl sm:flex-none" onClick={() => void exportEnvelope()}>
+                    <Button type="button" variant="outline" className="h-9 flex-1 whitespace-nowrap rounded-xl sm:flex-none" onClick={() => void exportSafeConfig()}>
                         <Download className="size-4" />
-                        导出完整配置
+                        导出安全配置
                     </Button>
                 </div>
             </div>
@@ -202,7 +194,7 @@ function ImportDialog({
                     导入 Key / 配置
                 </div>
                 <p className="mt-2 text-sm leading-6 text-stone-500 dark:text-stone-400">
-                    支持直接粘贴多行地址和 sk- Key，也支持本应用导出的 JSON。同一 Base URL 的 Key 会合并进已有中转；匹配到预设时会带上模型列表。
+                    支持直接粘贴多行地址和 sk- Key，也支持本应用导出的 JSON。同一 Base URL 的 Key 会合并进已有中转并写入后端密钥库；保存失败时内容会保留在当前页面供重试。
                 </p>
                 <label className="mt-4 grid gap-1.5">
                     <span className="text-xs font-medium text-stone-500 dark:text-stone-400">粘贴内容</span>
@@ -226,7 +218,7 @@ function ImportDialog({
                         取消
                     </Button>
                     <Button type="button" className="h-9 rounded-xl" onClick={onApply} disabled={busy || !parsed}>
-                        应用到本地
+                        保存到密钥库
                     </Button>
                 </div>
             </div>

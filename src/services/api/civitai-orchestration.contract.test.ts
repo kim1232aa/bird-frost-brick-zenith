@@ -232,7 +232,7 @@ test("Krea FAL style references keep the official imageUrl/strength shape and ra
   assert.deepEqual(input.imageStyleReferences, options.imageStyleReferences);
   assert.throws(
     () => buildCivitaiImageWorkflow({ ...options, imageStyleReferences: [{ imageUrl: "https://example.test/style.png", strength: 2.1 }] }),
-    /strength|\-2.*2/,
+    /strength|-2.*2/,
   );
 });
 

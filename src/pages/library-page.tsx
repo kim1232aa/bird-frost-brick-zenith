@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
-import { useStudioHistory } from "@/studio/history";
+import {
+  isFailedStudioHistoryItem,
+  isSavedStudioHistoryItem,
+  recordGeneratedWork,
+  studioHistoryPersistStatus,
+  useStudioHistory,
+} from "@/studio/history";
 import { downloadBlob, exportStudioLibrary, importStudioLibrary } from "@/studio/library-zip";
 import { useMediaDraft } from "@/studio/media-draft";
 import { dropToCanvas } from "@/studio/split";
@@ -22,43 +28,90 @@ function WorkCard({
   sample,
   onRemove,
 }: {
-  item: { id: string; kind: string; title: string; prompt: string; model: string; urls: string[] };
+  item: {
+    id: string;
+    kind: string;
+    title: string;
+    prompt: string;
+    model: string;
+    providerId?: string;
+    urls: string[];
+    persistStatus?: "pending" | "saved" | "failed";
+    persistError?: string;
+    persistWarning?: string;
+  };
   sample?: boolean;
   onRemove?: (id: string) => void;
 }) {
   const navigate = useNavigate();
+  const [broken, setBroken] = useState(false);
+  const status = studioHistoryPersistStatus(item);
   return (
-    <article className="library-card">
-      {item.urls[0] ? (
-        item.kind === "video" ? <video src={item.urls[0]} controls muted /> : <img src={item.urls[0]} alt={item.title} />
-      ) : (
-        <div className="shot-empty">{item.kind}</div>
-      )}
-      <div>
-        <b>{item.title}</b>
-        <p>
+    <article className="library-card" data-persist-status={status}>
+      <div className="library-card-media">
+        {item.urls[0] && !broken ? (
+          item.kind === "video" ? (
+            <video
+              src={item.urls[0]}
+              controls
+              muted
+              playsInline
+              preload="metadata"
+              width={640}
+              height={360}
+              aria-label={`${item.title} 视频`}
+              onError={() => setBroken(true)}
+            />
+          ) : (
+            <img
+              src={item.urls[0]}
+              alt={item.title}
+              width={640}
+              height={480}
+              loading={sample ? "lazy" : "eager"}
+              referrerPolicy="no-referrer"
+              onError={() => setBroken(true)}
+            />
+          )
+        ) : (
+          <div className="shot-empty" role="img" aria-label={`${item.title} 媒体不可用`}>
+            {broken ? "原图丢失" : item.kind}
+          </div>
+        )}
+      </div>
+      <div className="library-card-body">
+        <b title={item.title}>{item.title}</b>
+        <p title={`${kindLabel(item.kind, item.title)} · ${item.model}`}>
           {kindLabel(item.kind, item.title)} · {item.model}
           {item.urls.length > 1 ? ` · ${item.urls.length} 张` : ""}
         </p>
+        {status === "pending" ? <p className="studio-pending" role="status">正在保存到作品库…</p> : null}
+        {item.persistError ? <p className="studio-error" role="alert">{item.persistError}</p> : null}
+        {item.persistWarning ? <p className="studio-warning" role="status">{item.persistWarning}</p> : null}
         <div className="shot-actions">
           {item.urls[0] ? (
             <button
               type="button"
               onClick={() => {
                 const kind = item.kind === "video" ? "video" : "upload";
+                const modelSelection = item.providerId
+                  ? `${item.providerId}::${item.model}`
+                  : item.model;
                 dropToCanvas({
                   kind,
                   url: item.urls[0],
                   prompt: item.prompt,
+                  model: modelSelection,
                 });
-                const id = pushMediaToCanvasWorkspace({
+                const search = pushMediaToCanvasWorkspace({
                   kind,
                   url: item.urls[0],
                   urls: item.urls,
                   prompt: item.prompt,
+                  model: modelSelection,
                   title: item.title,
                 });
-                void navigate({ to: "/canvas/workspace", search: { id } });
+                void navigate({ to: "/canvas/workspace", search });
               }}
             >
               送入画布
@@ -93,25 +146,34 @@ function WorkCard({
 export function LibraryPage() {
   const local = useStudioHistory((state) => state.items);
   const hydrated = useStudioHistory((state) => state.hydrated);
-  const add = useStudioHistory((state) => state.add);
   const remove = useStudioHistory((state) => state.remove);
   const clear = useStudioHistory((state) => state.clear);
   const hydrate = useStudioHistory((state) => state.hydrate);
   const inputRef = useRef<HTMLInputElement>(null);
   const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
-  const mine = local.filter((item) => item.createdAt && item.urls[0]);
+  useEffect(() => {
+    if (!note || note.includes("失败")) return;
+    const timer = window.setTimeout(() => setNote(""), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [note]);
+
+  const saved = local.filter((item) => item.createdAt && item.urls[0] && isSavedStudioHistoryItem(item));
+  const pending = local.filter((item) => item.createdAt && item.urls[0] && studioHistoryPersistStatus(item) === "pending");
+  const failed = local.filter((item) => item.createdAt && item.urls[0] && isFailedStudioHistoryItem(item));
+  const hasLocalItems = saved.length > 0 || pending.length > 0 || failed.length > 0;
 
   const exportZip = async () => {
     setNote("");
     try {
-      const blob = await exportStudioLibrary(mine);
+      const blob = await exportStudioLibrary(saved);
       downloadBlob(blob, `boundless-library-${new Date().toISOString().slice(0, 10)}.zip`);
-      setNote(`已打包 ${mine.length} 条本机作品。`);
+      setNote(`已打包 ${saved.length} 条本机作品。`);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "导出失败");
     }
@@ -119,15 +181,22 @@ export function LibraryPage() {
 
   const importZip = async (file?: File) => {
     if (!file) return;
+    setBusy(true);
     setNote("");
     try {
       const imported = await importStudioLibrary(file);
-      imported.forEach((item) => add(item));
-      setNote(`已导入 ${imported.length} 条作品。`);
+      for (const item of imported) {
+        const savedItem = await recordGeneratedWork(item);
+        if (!savedItem || studioHistoryPersistStatus(savedItem) !== "saved") {
+          throw new Error(savedItem?.persistError || "作品未能写入服务器");
+        }
+      }
+      setNote(`已导入 ${imported.length} 条作品，并已保存到服务器。`);
     } catch (err) {
       setNote(err instanceof Error ? err.message : "导入失败");
     } finally {
       if (inputRef.current) inputRef.current.value = "";
+      setBusy(false);
     }
   };
 
@@ -136,17 +205,23 @@ export function LibraryPage() {
       <header className="studio-library-head">
         <div>
           <h1>作品</h1>
-          <p className="studio-lead">生图、改图、故事导演分镜、无限画布出片，成功后都会进这里。样张在下面单独一栏。</p>
+          <p className="studio-lead">只有写入服务器成功的生图、视频、故事分镜和画布出片才会计入这里；样张单独列出。</p>
         </div>
         <div className="result-actions">
-          <button type="button" className="studio-ghost" onClick={() => inputRef.current?.click()}>
-            导入 ZIP
+          <button
+            type="button"
+            className="studio-ghost"
+            disabled={busy}
+            aria-busy={busy}
+            onClick={() => inputRef.current?.click()}
+          >
+            {busy ? "导入中…" : "导入 ZIP"}
           </button>
-          <button type="button" className="studio-ghost" disabled={!mine.length} onClick={() => void exportZip()}>
+          <button type="button" className="studio-ghost" disabled={busy || !saved.length} onClick={() => void exportZip()}>
             导出 ZIP
           </button>
-          {mine.length ? (
-            <button type="button" className="studio-ghost" onClick={clear}>
+          {hasLocalItems ? (
+            <button type="button" className="studio-ghost" disabled={busy} onClick={clear}>
               清空本机记录
             </button>
           ) : null}
@@ -159,42 +234,60 @@ export function LibraryPage() {
         hidden
         onChange={(event) => void importZip(event.target.files?.[0])}
       />
-      {note ? <p className={note.includes("失败") ? "studio-error" : "studio-ok"}>{note}</p> : null}
+      {note ? <p className={note.includes("失败") ? "studio-error" : "studio-ok"} role="status">{note}</p> : null}
 
-      <section>
-        <p className="studio-kicker">本机作品 · {mine.length}</p>
-        {!hydrated && !mine.length ? <p className="studio-hint">正在读取作品库…</p> : null}
-        {hydrated && !mine.length ? (
+      <section aria-labelledby="saved-works-heading">
+        <p className="studio-kicker" id="saved-works-heading">已保存作品 · {saved.length}</p>
+        {!hydrated && !hasLocalItems ? <p className="studio-hint">正在读取作品库…</p> : null}
+        {hydrated && !hasLocalItems ? (
           <div className="library-empty">
-            <h2>还没有本机作品</h2>
-            <p>生图、故事导演分镜、无限画布出片成功后会出现在这里。参考样张不算你的作品。</p>
-            <div className="shot-actions">
-              <Link className="studio-primary" to="/image">
-                去生图
-              </Link>
-              <Link className="studio-ghost" to="/story">
-                去故事导演
-              </Link>
+            <h2>还没有已保存作品</h2>
+            <p>从任一入口生成并成功保存后，作品会出现在这里。参考样张不算你的作品。</p>
+            <div className="library-empty-actions">
+              <Link className="studio-primary" to="/image">去生图</Link>
+              <Link className="studio-ghost" to="/video">去生视频</Link>
+              <Link className="studio-ghost" to="/story">去故事导演</Link>
+              <Link className="studio-ghost" to="/canvas/workspace">去无限画布</Link>
             </div>
           </div>
-        ) : (
+        ) : saved.length ? (
           <div className="library-grid">
-            {mine.map((item) => (
+            {saved.map((item) => (
               <WorkCard key={item.id} item={item} onRemove={remove} />
             ))}
           </div>
-        )}
+        ) : null}
       </section>
 
-      <section className="library-seeds">
-        <p className="studio-kicker">参考样张 · {GALLERY_SEED.length}</p>
+      {pending.length ? (
+        <section className="library-status-section" aria-labelledby="pending-works-heading">
+          <p className="studio-kicker" id="pending-works-heading">正在保存 · {pending.length}</p>
+          <p className="studio-hint">保存完成前不会计入作品数，也不会出现在导出 ZIP 中。</p>
+          <div className="library-grid">
+            {pending.map((item) => <WorkCard key={item.id} item={item} onRemove={remove} />)}
+          </div>
+        </section>
+      ) : null}
+
+      {failed.length ? (
+        <section className="library-status-section library-failed-section" aria-labelledby="failed-works-heading">
+          <p className="studio-kicker" id="failed-works-heading">未保存到服务器 · {failed.length}</p>
+          <p className="studio-error" role="alert">这些内容不会计入作品数或导出 ZIP。请先处理保存错误，再重新生成。</p>
+          <div className="library-grid">
+            {failed.map((item) => <WorkCard key={item.id} item={item} onRemove={remove} />)}
+          </div>
+        </section>
+      ) : null}
+
+      <details className="library-seeds">
+        <summary>参考样张 · {GALLERY_SEED.length}</summary>
         <p className="studio-hint">以前实测通的出片，只用来对照效果。点「送入画布」只用图，不会写入本机作品。</p>
         <div className="library-grid">
           {GALLERY_SEED.map((item) => (
             <WorkCard key={item.id} item={item} sample />
           ))}
         </div>
-      </section>
+      </details>
     </div>
   );
 }

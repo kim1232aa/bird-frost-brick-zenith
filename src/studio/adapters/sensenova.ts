@@ -74,6 +74,7 @@ export const sensenovaAdapter: StudioAdapter = {
         ],
         ...(input.json ? { response_format: { type: "json_object" } } : {}),
       },
+      timeoutMs: input.timeoutMs || 90_000,
     });
     const text = data.choices?.[0]?.message?.content?.trim() || "";
     if (!text) throw new Error("日日新没有返回文本");

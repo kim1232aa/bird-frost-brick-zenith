@@ -31,8 +31,9 @@ export const recoverableConfigStorage: StateStorage = {
         try {
             const direct = await getDesktopState(name);
             if (isPersistedConfigEnvelope(direct)) {
-                enqueueConfigWrite(async () => { await writeBrowserPrimary(name, browserSafeConfigEnvelope(direct!)); });
-                return direct;
+                const browserValue = browserSafeConfigEnvelope(direct);
+                await replaceBrowserConfigCopies(name, browserValue);
+                return browserValue;
             }
         } catch (error) {
             primaryNativeError = error;
@@ -42,8 +43,9 @@ export const recoverableConfigStorage: StateStorage = {
         try {
             const nativeRecovery = await getDesktopState(recoveryKey(name));
             if (isPersistedConfigEnvelope(nativeRecovery)) {
-                enqueueConfigWrite(async () => { await writeBrowserPrimary(name, browserSafeConfigEnvelope(nativeRecovery!)); });
-                return nativeRecovery;
+                const browserValue = browserSafeConfigEnvelope(nativeRecovery);
+                await replaceBrowserConfigCopies(name, browserValue);
+                return browserValue;
             }
         } catch (error) {
             recoveryNativeError = error;
@@ -74,7 +76,7 @@ export const recoverableConfigStorage: StateStorage = {
         pendingConfigSnapshots.set(name, value);
         return enqueueConfigWrite(async () => {
             const desktopRequired = isDesktopStateStorageRequired();
-            const browserValue = desktopRequired ? browserSafeConfigEnvelope(value) : value;
+            const browserValue = browserSafeConfigEnvelope(value);
             await writeConfigCopies(
                 name,
                 recoveryKey(name),
@@ -87,7 +89,7 @@ export const recoverableConfigStorage: StateStorage = {
                         else await writeBrowserPrimary(name, nextValue);
                     },
                 },
-                isDesktopStateStorageRequired(),
+                desktopRequired,
             );
             clearPendingConfigSnapshot(name, value);
         });
@@ -108,19 +110,19 @@ export const recoverableConfigStorage: StateStorage = {
 
 export function flushRecoverableConfig(name: string, value?: string) {
     if (value !== undefined) pendingConfigSnapshots.set(name, value);
-    // Queue behind earlier Zustand writes, then require both native copies to
-    // contain this exact latest snapshot before the updater can restart.
+    // Queue behind earlier Zustand writes, then commit the latest snapshot to
+    // native desktop storage and redacted browser primary/recovery copies.
     return enqueueConfigWrite(async () => {
         const pendingValue = pendingConfigSnapshots.get(name);
         if (pendingValue === undefined) return;
-        if (isDesktopStateStorageRequired()) {
+        const desktopRequired = isDesktopStateStorageRequired();
+        const browserValue = browserSafeConfigEnvelope(pendingValue);
+        if (desktopRequired) {
             await setDesktopState(name, pendingValue);
             await setDesktopState(recoveryKey(name), pendingValue);
-            await writeBrowserRecovery(name, browserSafeConfigEnvelope(pendingValue));
-        } else {
-            await writeBrowserPrimary(name, pendingValue);
-            await writeBrowserRecovery(name, pendingValue);
         }
+        await writeBrowserRecovery(name, browserValue);
+        await writeBrowserPrimary(name, browserValue);
         clearPendingConfigSnapshot(name, pendingValue);
     });
 }
@@ -164,8 +166,20 @@ async function restoreBrowserConfigCandidate(name: string, value: string | null,
     if (!isPersistedConfigEnvelope(value)) return null;
     const action = browserConfigFallbackAction(value, desktopRequired);
     if (action === "reject") return null;
-    if (action === "migrate") await migrateBrowserConfigToNative(name, value);
-    return value;
+    const browserValue = browserSafeConfigEnvelope(value);
+    if (action === "migrate") {
+        await migrateBrowserConfigToNative(name, value);
+    } else {
+        await replaceBrowserConfigCopies(name, browserValue);
+    }
+    return browserValue;
+}
+
+function replaceBrowserConfigCopies(name: string, value: string) {
+    return enqueueConfigWrite(async () => {
+        await writeBrowserRecovery(name, value);
+        await writeBrowserPrimary(name, value);
+    });
 }
 
 function migrateBrowserConfigToNative(name: string, value: string) {
@@ -203,7 +217,9 @@ async function writeBrowserPrimary(name: string, value: string) {
     safeLocalStorageSet(name, value);
     try {
         await localforage.setItem(name, value);
-    } catch {}
+    } catch {
+        // localStorage remains as the primary browser copy.
+    }
 }
 
 async function removeBrowserPrimary(name: string) {
@@ -211,7 +227,9 @@ async function removeBrowserPrimary(name: string) {
     safeLocalStorageRemove(name);
     try {
         await localforage.removeItem(name);
-    } catch {}
+    } catch {
+        // Ignore unavailable IndexedDB after removing localStorage.
+    }
 }
 
 async function removeBrowserRecovery(name: string) {

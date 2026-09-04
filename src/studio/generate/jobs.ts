@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createId } from "@/lib/create-id";
 
 export type StudioJobKind = "image" | "edit" | "video" | "i2v" | "extract";
 export type StudioJobStatus = "queued" | "running" | "succeeded" | "failed";
@@ -31,7 +32,7 @@ export const useStudioJobs = create<JobsState>()(
     (set, get) => ({
       jobs: [],
       start: (input) => {
-        const id = crypto.randomUUID();
+        const id = createId();
         const job: StudioJob = {
           ...input,
           id,

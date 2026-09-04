@@ -62,3 +62,15 @@ test("catalog lists explicitly unconnected video but generation catalog excludes
   assert.ok(liveCatalog("video", false).some((item) => item.model === "kling-v3"));
   assert.equal(liveCatalog("video", true).some((item) => item.model === "kling-v3"), false);
 });
+
+test("local mock credits never block a wired generation when the ledger is empty", async () => {
+  const { MEMBERSHIP_IS_LOCAL_MOCK } = await import("./membership.ts");
+  const { studioGenerateCreditGate, useOpsStore } = await import("./ops.ts");
+  assert.equal(MEMBERSHIP_IS_LOCAL_MOCK, true);
+  useOpsStore.setState({ credits: { text: 0, image: 0, video: 0 } });
+  assert.equal(studioGenerateCreditGate("video", 5), "");
+  const ticket = useOpsStore.getState().spend("video", "ltx2.3", 5);
+  assert.equal(ticket.ok, true);
+  assert.equal(ticket.delta, 0);
+  assert.equal(useOpsStore.getState().credits.video, 0);
+});

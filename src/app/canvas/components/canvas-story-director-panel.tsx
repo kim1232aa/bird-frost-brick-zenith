@@ -140,29 +140,30 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         <div
             ref={panelRef}
             data-story-director-panel
-            className={`${embedded ? "flex min-h-full w-full flex-col overflow-visible" : "flex w-[560px] flex-col"} rounded-2xl border p-4 shadow-2xl backdrop-blur`}
+            className={`${embedded ? "flex min-h-full min-w-0 w-full flex-col overflow-visible" : "flex w-[560px] flex-col"} rounded-2xl border p-4 shadow-2xl backdrop-blur`}
             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={embedded ? undefined : (event) => event.stopPropagation()}
             onPointerDown={embedded ? undefined : (event) => event.stopPropagation()}
             onWheel={(event) => event.stopPropagation()}
         >
-            <div className="mb-3 flex items-center justify-between gap-3">
+            <div className={`${embedded ? "mb-3 flex flex-col gap-3" : "mb-3 flex items-start justify-between gap-3"}`}>
                 <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                        <Clapperboard className="size-4" />
-                        故事导演
+                    <div className="flex min-w-0 items-center gap-2 text-sm font-semibold">
+                        <Clapperboard className="size-4 shrink-0" />
+                        <span className="min-w-0">故事导演</span>
                     </div>
-                    <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>
+                    <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
                         分析故事，生成角色资产，再按镜头批量生成分镜
                     </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2" data-canvas-no-drag>
-                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                <div className={`${embedded ? "grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-end" : "flex shrink-0 items-center"} gap-2`} data-canvas-no-drag>
+                    <label className={`${embedded ? "min-w-0" : "min-w-[148px]"} flex flex-col gap-0.5`}>
                         <span className="text-[10px] leading-none opacity-55">文本模型</span>
                         <StoryDirectorTextModelSelect
                             value={storyDirectorTextModelPresentation.selectedValue}
                             options={storyDirectorTextModelPresentation.options}
                             title={storyDirectorTextModelPresentation.title}
+                            fullWidth={embedded}
                             selectProps={selectOpenProps("textModel")}
                             onChange={(value) => {
                                 closeSelect();
@@ -174,13 +175,14 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                             }}
                         />
                     </label>
-                    <label className="flex min-w-[148px] flex-col gap-0.5">
+                    <label className={`${embedded ? "min-w-0" : "min-w-[148px]"} flex flex-col gap-0.5`}>
                         <span className="text-[10px] leading-none opacity-55">图片模型</span>
                         <StoryDirectorTextModelSelect
                             value={storyDirectorImageModelPresentation.selectedValue}
                             options={storyDirectorImageModelPresentation.options}
                             title={storyDirectorImageModelPresentation.title}
                             placeholder="选择图片模型"
+                            fullWidth={embedded}
                             selectProps={selectOpenProps("headerImageModel")}
                             onChange={(value) => {
                                 closeSelect();
@@ -211,7 +213,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     primary
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
-                    description="分析故事 → 角色图 → 5 张分镜 → 视频占位"
+                    description={`分析故事 → 角色图 → ${storyShotCount} 张分镜 → 视频占位`}
                     disabled={isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
@@ -546,7 +548,7 @@ function groupStoryDirectorModelOptions(options: StoryDirectorTextModelOption[])
                 label: (
                     <StoryDirectorModelOptionLabel
                         model={option.model}
-                        providerName=""
+                        providerName={option.providerName}
                         label={option.model || option.label}
                     />
                 ),
@@ -569,14 +571,11 @@ function StoryDirectorModelOptionLabel({
     const name = model || label;
     const vendor = String(providerName || "").trim();
     return (
-        <span className="flex min-w-0 flex-col items-start leading-4">
-            <span className="flex min-w-0 items-center gap-1.5">
-                {model ? <ModelIcon model={model} className="size-3.5" /> : null}
-                <span className="min-w-0 break-all text-[12px] font-medium">
-                    {name}
-                </span>
+        <span className="flex min-w-0 items-center gap-1.5">
+            {model ? <ModelIcon model={model} className="size-3.5 shrink-0" /> : null}
+            <span className="min-w-0 truncate text-[12px] font-medium" title={vendor ? `${vendor} · ${name}` : name}>
+                {vendor ? `${vendor} · ${name}` : name}
             </span>
-            {vendor ? <span className="w-full break-words text-[11px] opacity-70">{vendor}</span> : null}
         </span>
     );
 }

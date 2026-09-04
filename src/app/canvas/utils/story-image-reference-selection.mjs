@@ -38,10 +38,17 @@ export function selectStoryImageReferences(options) {
         });
         continue;
       }
-      const sheet = orderDescriptor(nodeDescriptor(parent, 'identity', character.id, `角色「${character.name}」四视图设定表`));
-      retainedButNotSubmitted.push(sheet);
-      warnings.push({ code: 'character_derived_view_missing', entityId: character.id, referenceId: parent.id, message: `角色「${character.name}」缺少完整的单视图派生资产（镜头需要：${selectedAngles.map(angleLabel).join('、')}）；不会回退提交四视图设定表。` });
-      warnings.push({ code: 'turnaround_sheet_retained', entityId: character.id, referenceId: parent.id, message: `角色「${character.name}」的四视图设定表已保留但未提交，避免把同一角色作为多个实体带入镜头。` });
+      const sheet = orderDescriptor({
+        ...nodeDescriptor(parent, 'identity', character.id, `角色「${character.name}」四视图设定表`),
+        angle: 'identity',
+      });
+      candidates.push(sheet);
+      warnings.push({
+        code: 'character_derived_view_missing',
+        entityId: character.id,
+        referenceId: parent.id,
+        message: `角色「${character.name}」单视图尚未切出（镜头需要：${selectedAngles.map(angleLabel).join('、')}）；先提交整张四视图设定表作为一张身份参考。`,
+      });
       continue;
     }
     if (assetKind === 'identity_reference') {
@@ -318,9 +325,7 @@ function firstBlockingReason(warnings) {
     warning.code === 'scene_reference_unclassified' ||
     warning.code === 'scene_reference_mismatch' ||
     warning.code === 'ambiguous_other_reference_retained' ||
-    warning.code === 'reference_count_limited' ||
-    warning.code === 'turnaround_sheet_retained' ||
-    warning.code === 'character_derived_view_missing'
+    warning.code === 'reference_count_limited'
   )?.code || 'reference_media_missing';
 }
 

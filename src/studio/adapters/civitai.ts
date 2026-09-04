@@ -611,7 +611,7 @@ function buildHunyuanBody(prompt: string, extra?: Extra) {
   }
   const size = videoDimensions("Hunyuan", HUNYUAN_ASPECT_SIZE, extra, { width: 1280, height: 720 });
   const duration = optionalFiniteNumber(extra?.duration, "Hunyuan duration", 1, 30, true) ?? 5;
-  const steps = optionalFiniteNumber(extra?.steps, "Hunyuan steps", 10, 50, true);
+  const steps = optionalFiniteNumber(extra?.steps, "Hunyuan steps", 10, 50, true) ?? 40;
   const guidance = optionalFiniteNumber(extra?.guidance, "Hunyuan cfgScale", 0, 100);
   return {
     engine: "hunyuan",
@@ -621,7 +621,7 @@ function buildHunyuanBody(prompt: string, extra?: Extra) {
     height: size.height,
     frameRate: typeof extra?.fps === "number" ? extra.fps : 25,
     cfgScale: guidance ?? 4,
-    ...(steps !== undefined ? { steps } : {}),
+    steps,
     ...(typeof extra?.seed === "number" && Number.isFinite(extra.seed) ? { seed: extra.seed } : {}),
     ...loraArrayPatch(extra, "video"),
   };
@@ -971,9 +971,9 @@ export const civitaiAdapter: StudioAdapter = {
     const { studioProxyJson } = await import("../generate/proxy.ts");
     const data = await studioProxyJson({
       provider: ctx.provider,
-      path: `/workflows/${encodeURIComponent(taskId)}?${workflowPollQuery(0, ctx.provider.allowMatureContent !== false)}`,
+      path: `/workflows/${encodeURIComponent(taskId)}?${workflowPollQuery(30, ctx.provider.allowMatureContent !== false)}`,
       method: "GET",
-      timeoutMs: 30_000,
+      timeoutMs: 45_000,
       baseUrl: CIVITAI_WORKFLOWS,
     });
     return readCivitaiPollResult(data, "video");

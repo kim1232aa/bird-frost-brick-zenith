@@ -113,6 +113,23 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             ? !audioContractError && (hasComposerContent || inputSummary.textCount > 0)
             : hasComposerContent || hasAnyInput;
     const updateImageConfig = (key: keyof AiConfig, value: string) => onConfigChange(node.id, key === "count" ? { count: Number(value) || 1 } : { [key]: value });
+    const changeGenerationMode = (value: string | number) => {
+        const nextMode = value as CanvasGenerationMode;
+        const nextModelState = resolveCanvasGenerationModelSelection(globalConfig, undefined, nextMode);
+        const nextModel = nextModelState.selection?.model || nextModelState.legacyModel;
+        const modelPatch: Partial<CanvasNodeMetadata> = nextMode === "video"
+            ? standaloneSeedance2VideoModelPatch(nextModelState.selection || nextModel)
+            : {
+                model: nextModel,
+                modelProviderId: nextModelState.selection?.providerId,
+                seedanceModel: undefined,
+                videoGenerationSettings: undefined,
+                videoGenerationScope: undefined,
+                videoGenerationCapabilityId: undefined,
+                videoWireFormat: undefined,
+            };
+        onConfigChange(node.id, { generationMode: nextMode, ...modelPatch });
+    };
 
     return (
         <div
@@ -127,7 +144,7 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
                         size="small"
                         className="canvas-config-mode !rounded-md !p-0.5"
                         value={mode}
-                        onChange={(value) => onConfigChange(node.id, { generationMode: value as CanvasGenerationMode })}
+                        onChange={changeGenerationMode}
                         options={[
                             {
                                 value: "image",

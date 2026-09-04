@@ -178,9 +178,8 @@ function readVideoMeta(url: string) {
     return new Promise<{ width: number; height: number; durationMs?: number }>((resolve, reject) => {
         const video = document.createElement("video");
         let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const cleanup = () => {
-            if (timer !== undefined) clearTimeout(timer);
+            clearTimeout(timer);
             video.onloadedmetadata = null;
             video.onerror = null;
             video.onabort = null;
@@ -210,7 +209,7 @@ function readVideoMeta(url: string) {
         };
         video.onerror = () => fail("视频元数据读取失败，请确认视频内容有效后重试");
         video.onabort = () => fail("视频元数据读取已中止，请重试");
-        timer = setTimeout(() => fail("视频元数据读取超时，请确认视频内容有效后重试"), MEDIA_METADATA_TIMEOUT_MS);
+        const timer = setTimeout(() => fail("视频元数据读取超时，请确认视频内容有效后重试"), MEDIA_METADATA_TIMEOUT_MS);
         video.src = url;
     });
 }
@@ -219,9 +218,8 @@ function readAudioMeta(url: string) {
     return new Promise<{ durationMs: number }>((resolve, reject) => {
         const audio = document.createElement("audio");
         let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const cleanup = () => {
-            if (timer !== undefined) clearTimeout(timer);
+            clearTimeout(timer);
             audio.onloadedmetadata = null;
             audio.onerror = null;
             audio.onabort = null;
@@ -245,7 +243,7 @@ function readAudioMeta(url: string) {
         audio.onloadedmetadata = done;
         audio.onerror = () => fail("音频元数据读取失败，请确认音频内容有效后重试");
         audio.onabort = () => fail("音频元数据读取已中止，请重试");
-        timer = setTimeout(() => fail("音频元数据读取超时，请确认音频内容有效后重试"), MEDIA_METADATA_TIMEOUT_MS);
+        const timer = setTimeout(() => fail("音频元数据读取超时，请确认音频内容有效后重试"), MEDIA_METADATA_TIMEOUT_MS);
         audio.src = url;
     });
 }

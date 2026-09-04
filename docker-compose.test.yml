@@ -23,6 +23,8 @@ services:
       PORT: "8080"
       HOST: "0.0.0.0"
       VITE_AUTH_ENABLED: "false"
+    volumes:
+      - boundless-studio-works:/app/.vercel/output/static/works
     healthcheck:
       test:
         [
@@ -35,3 +37,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 45s
+
+volumes:
+  boundless-studio-works:

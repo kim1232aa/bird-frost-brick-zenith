@@ -220,7 +220,7 @@ function seedance2ConnectedImagePreviewValue(node) {
   const metadata = node.metadata;
   const localStorageKey = seedance2UsableReferenceValue(metadata?.storageKey);
   if (localStorageKey.startsWith("image:")) {
-    return String(metadata?.content || "").trim();
+    return seedance2UsableReferenceValue(metadata?.content) || localStorageKey;
   }
   return [metadata?.backendUrl, metadata?.content, metadata?.backendRel].map((value) => String(value || "").trim()).find(Boolean) || "";
 }

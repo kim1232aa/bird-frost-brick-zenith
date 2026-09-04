@@ -16,7 +16,7 @@ import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlignCenter,
   AlignEndHorizontal,
@@ -120,7 +120,7 @@ import {
   routedLocalHeaders,
   type ApiRequestRoute,
 } from "@/services/api/ai-routing";
-import { rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, rotateRelayCredentialId } from "@/services/api/relay-proxy";
 import { resolveVideoAdapter, videoPollPath } from "@/studio/registry";
 import {
   attachOfficialOpenAiVideoContent,
@@ -143,6 +143,7 @@ import {
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import {
   defaultConfig,
+  flushConfigStore,
   modelMatchesCapability,
   readImageAdvancedSettings,
   readVideoGenerationSettings,
@@ -170,7 +171,6 @@ import {
   type ProviderModelOption,
   type ProviderModelSelection,
 } from "@/stores/api-relay-config";
-import { providerCredentialPool } from "@/stores/provider-credentials";
 import {
   imageToDataUrl,
   resolveImageUrl,
@@ -186,6 +186,7 @@ import {
   uploadMediaFile,
   type UploadedFile,
 } from "@/services/file-storage";
+import { persistCanvasVideoWorks } from "../utils/canvas-video-work-persistence";
 import { nanoid } from "nanoid";
 import {
   base64ImageDataUrl,
@@ -216,12 +217,15 @@ import {
 } from "../utils/canvas-generation-model";
 import { applyActiveCanvasImageAdvancedSnapshot } from "../utils/canvas-image-advanced-snapshot";
 import {
+  isResumableCanvasImageTask,
+  recoverInterruptedCanvasImageNode,
   recoveredLegacyImageMetadataPatch,
   shouldPreferCanvasImageRecoveryRetry,
   shouldSkipLegacyImageTaskResume,
 } from "../utils/canvas-legacy-image-task";
 import { resolveCanvasVideoModelCapability } from "../utils/canvas-video-capability";
 import { autoWorkflowVideoOperationForMaterials, resolveStandaloneVideoOperation, resolveWorkflowVideoOperationSelection, workflowVideoAutoSkippedOperationReasons } from "../utils/canvas-video-operation-selection";
+import { migrateIdleStoryVideoOperations } from "../utils/story-video-capability-migration";
 import {
   buildCanvasImageEditPlan,
   buildCanvasMaskReferenceMetadata,
@@ -341,6 +345,8 @@ import {
   useCanvasStore,
   type CanvasProject,
 } from "../stores/use-canvas-store";
+import { mediaPayloadFromWorkspaceSearch } from "@/studio/canvas/media-workspace-project";
+import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 import {
   buildSeedance2WorkflowNodes,
   defaultSeedancePromptTemplate,
@@ -353,7 +359,7 @@ import {
   normalizeSeedance2CreationAspectRatio,
   normalizeSeedance2Duration,
   normalizeSeedance2Resolution,
-  normalizeSeedance2ResultRatio,
+  submittedSeedance2ResultRatio,
   removeLegacySeedance2TextNodes,
   resolveSeedance2WorkflowRatio,
   resolveSeedance2WorkflowRatioSelection,
@@ -465,6 +471,7 @@ import {
 } from "../utils/story-image-prompt-policy";
 import { migrateLegacyStoryCharacterAssets } from "../utils/story-character-asset-migration";
 import { classifyStorySceneReferenceCandidates } from "../utils/story-scene-reference-candidates";
+import { storyShotHasReferenceIntent } from "../utils/story-shot-reference-intent";
 import {
   resolveStoryImageGenerationSource,
   type StoryImageWorkflow,
@@ -658,8 +665,10 @@ const CANVAS_IMAGE_TASK_POLL_INTERVAL_MS = 2_000;
 const CANVAS_IMAGE_TASK_POLL_RETRY_LIMIT = 15;
 const CANVAS_IMAGE_TASK_MISSING_GRACE_MS = 360_000;
 const localCanvasImageTasks = new Map<string, Promise<GeneratedImageResult>>();
-const STORY_DIRECTOR_IMAGE_CONCURRENCY = 2;
-const STORY_DIRECTOR_VIDEO_CONCURRENCY = 2;
+// The browser submits one generation request at a time. Provider capability
+// decides the payload, never client-side parallelism.
+const STORY_DIRECTOR_IMAGE_CONCURRENCY = 1;
+const STORY_DIRECTOR_VIDEO_CONCURRENCY = 1;
 const STORY_DIRECTOR_SHOT_COLUMNS = 5;
 const STORY_DIRECTOR_SHOT_NODE_WIDTH = 340;
 const STORY_DIRECTOR_SHOT_NODE_HEIGHT = 604;
@@ -807,6 +816,8 @@ function createSeedance2VideoPlaceholderNode(
   position: Position,
   options: {
     sourceImageNode?: CanvasNodeData;
+    model?: string;
+    modelProviderId?: string;
     ratio?: string;
     duration?: string;
     prompt?: string;
@@ -817,9 +828,11 @@ function createSeedance2VideoPlaceholderNode(
     ? seedance2LayoutRatioFromImageNode(options.sourceImageNode)
     : "";
   const ratio = normalizeSeedance2AspectRatio(
-    options.ratio || sourceRatio || "9:16",
+    options.ratio || sourceRatio || "16:9",
   );
   const metadata = createSeedance2VideoPlaceholderMetadata({
+    model: options.model,
+    modelProviderId: options.modelProviderId,
     ratio,
     duration: options.duration || "5",
     sourceImageNode: options.sourceImageNode,
@@ -944,14 +957,10 @@ function createSeedance2ResultVideoNode(
   existingResults: CanvasNodeData[],
   options: Seedance2ResultInsertOptions & { version: number },
 ): CanvasNodeData {
-  const ratio = normalizeSeedance2ResultRatio(
-    String(
-      options.paramsSnapshot?.ratio ||
-        sourcePlaceholder.metadata?.seedanceRatio ||
-        sourcePlaceholder.metadata?.size ||
-        "16:9",
-    ),
-  );
+  const ratio = submittedSeedance2ResultRatio({
+    paramsSnapshot: options.paramsSnapshot,
+    sourcePlaceholder,
+  });
   const size = seedance2ResultSizeFromSourceHeight(sourcePlaceholder.height, ratio);
   const metadata = createSeedance2ResultMetadata({
     sourcePlaceholder,
@@ -1095,16 +1104,17 @@ export async function materializeCustomerSeedanceTaskResults({
   storeVideo = storeGeneratedVideo,
 }: CustomerSeedanceResultMaterializationOptions) {
   const serverFileUrls = customerVideoTaskFileUrls(task, baseUrl);
-  const uploadedVideos = await Promise.all(
-    serverFileUrls.map((url) => storeVideo({ url }, route)),
-  );
+  const uploadedVideos: UploadedFile[] = [];
+  for (const url of serverFileUrls) {
+    uploadedVideos.push(await storeVideo({ url }, route));
+  }
   if (!uploadedVideos.length) {
     throw new Error("视频任务完成但没有可落盘的结果");
   }
   const fileUrls = uploadedVideos.map((video) => video.url);
-  return uploadedVideos.reduce(
-    (graph, uploaded, resultIndex) =>
-      insertSeedance2ResultNode(graph.nodes, graph.connections, placeholder, {
+  const graph = uploadedVideos.reduce(
+    (current, uploaded, resultIndex) =>
+      insertSeedance2ResultNode(current.nodes, current.connections, placeholder, {
         url: uploaded.url,
         taskId,
         files: Array.isArray(task.files) ? task.files : [],
@@ -1118,11 +1128,13 @@ export async function materializeCustomerSeedanceTaskResults({
       }),
     { nodes, connections },
   );
+  return { ...graph, uploadedVideos };
+
 }
 
 type CustomerVideoApiConfig = {
   baseUrl: string;
-  apiKey?: string;
+  credentialId?: string;
   model?: string;
   route?: ApiRequestRoute;
   providerList?: readonly ApiRelayProvider[];
@@ -1133,7 +1145,6 @@ type CustomerVideoAttempt = VideoGenerationAttempt &
 
 type CustomerVideoLocalCredential = {
   readonly provider: ApiRelayProvider;
-  readonly apiKey: string;
   readonly credentialId: string;
 };
 
@@ -1142,39 +1153,25 @@ function selectCustomerVideoLocalCredential(
 ): CustomerVideoLocalCredential | undefined {
   if (apiConfig.route?.mode !== "local") return undefined;
   const provider = apiConfig.route.provider;
-  const apiKey = rotateRelayApiKey(provider);
-  const pool = providerCredentialPool(provider);
-  const credentialIndex = pool.keys.indexOf(apiKey);
-  const credentialId = String(pool.ids[credentialIndex] || "").trim();
-  if (!apiKey || credentialIndex < 0 || !credentialId) {
+  const credentialId = rotateRelayCredentialId(provider);
+  if (!credentialId) {
     throw new Error(
       "当前视频 Provider 凭据缺少稳定标识，无法安全提交可恢复任务",
     );
   }
-  return { provider, apiKey, credentialId };
+  return { provider, credentialId };
 }
 
 function pinCustomerVideoApiConfigToCredential(
   apiConfig: CustomerVideoApiConfig,
-  apiKey: string,
   credentialId: string,
 ): CustomerVideoApiConfig {
   if (apiConfig.route?.mode !== "local") return apiConfig;
   return {
     ...apiConfig,
     baseUrl: apiConfig.route.provider.baseUrl,
-    apiKey,
+    credentialId,
     model: apiConfig.route.model,
-    route: {
-      ...apiConfig.route,
-      provider: {
-        ...apiConfig.route.provider,
-        apiKey,
-        apiKeyId: credentialId,
-        apiKeys: [],
-        apiKeyIds: [],
-      },
-    },
   };
 }
 
@@ -1376,6 +1373,12 @@ export function canvasCustomerVideoSubmitGuard(input: {
   references: Array<{ useAs?: string; value?: string }>;
   videoCount: number;
 }): { kind: "native" | "customer" | "block"; reason?: string } {
+  if (!input.isLocalRoute) {
+    return {
+      kind: "block",
+      reason: "视频 Provider 必须先接入同源后端中转；已阻止浏览器直接发送上游 API Key",
+    };
+  }
   const host = customerVideoHost(input.baseUrl);
   const firstFrameCount = input.references.filter((item) => item.useAs === "first_frame").length;
   const lastFrameCount = input.references.filter((item) => item.useAs === "last_frame").length;
@@ -1447,24 +1450,27 @@ export function canvasCustomerVideoSubmitGuard(input: {
 // canvas-customer-video-contract:end
 
 function customerVideoApiHeaders(apiConfig: CustomerVideoApiConfig) {
-  if (apiConfig.route?.mode === "local") {
-    return routedLocalHeaders(apiConfig.route, "application/json");
+  if (apiConfig.route?.mode !== "local") {
+    throw new Error("视频 Provider 必须走同源后端中转；已阻止浏览器直接发送上游 API Key");
   }
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  const apiKey = String(apiConfig.apiKey || "").trim();
-  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  return headers;
+  return buildLocalRelayProxyHeaders(
+    apiConfig.route.provider,
+    "application/json",
+    undefined,
+    apiConfig.credentialId,
+  );
 }
 
 function customerVideoPollHeaders(apiConfig: CustomerVideoApiConfig) {
-  if (apiConfig.route?.mode === "local") {
-    return routedLocalHeaders(apiConfig.route);
+  if (apiConfig.route?.mode !== "local") {
+    throw new Error("视频 Provider 必须走同源后端中转；已阻止浏览器直接发送上游 API Key");
   }
-  const headers = customerVideoApiHeaders(apiConfig);
-  delete headers["Content-Type"];
-  return headers;
+  return buildLocalRelayProxyHeaders(
+    apiConfig.route.provider,
+    undefined,
+    undefined,
+    apiConfig.credentialId,
+  );
 }
 
 function customerVideoWireOptions(apiConfig: CustomerVideoApiConfig) {
@@ -1582,7 +1588,6 @@ function customerVideoGlobalRelayConfig(
     if (route.mode === "local") {
       return {
         baseUrl: route.provider.baseUrl,
-        apiKey: route.provider.apiKey,
         model: route.model,
         route,
         providerList: (candidate as AiConfig).apiRelays,
@@ -1653,18 +1658,8 @@ function buildCustomerVideoApiConfig(
     ]),
   );
   const nodeEndpoint = firstCustomerVideoString(meta.seedanceApiEndpoint);
-  const apiKey = firstCustomerVideoString(
-    effectiveRecord.videoApiKey,
-    effectiveRecord.relayApiKey,
-    effectiveRecord.apiKey,
-    configRecord.videoApiKey,
-    configRecord.relayApiKey,
-    configRecord.apiKey,
-    pickCustomerVideoRelayField(relayObjects, ["videoApiKey", "relayApiKey", "apiKey", "key", "token"]),
-  );
   return {
     baseUrl: normalizeCustomerVideoApiBase(configuredBase || nodeEndpoint),
-    apiKey,
     model: requestedModel,
   };
 }
@@ -1817,7 +1812,6 @@ async function executeCustomerVideoRequest(
       requestNativeRelayVideo<CustomerVideoTaskResponse>({
         method: options.method,
         baseUrl: apiConfig.baseUrl,
-        apiKey: apiConfig.apiKey,
         path: options.nativePath,
         body: options.body,
         proxyUrl:
@@ -2786,11 +2780,10 @@ function Seedance2WorkflowPanel({
       ...Object.values(meta.seedanceReferenceSlotBindings || {}),
       ...Object.values(meta.seedanceReferenceExtraSlotBindings || {}),
     ].flatMap((binding) => binding?.useAs ? [binding.useAs] : []),
+    allowLegacyStoryAutoMigration: true,
+    savedOperationMigrationSource: meta.videoGenerationOperationMigration?.source,
   });
   const workflowOperation = workflowOperationSelection.operation;
-  const workflowOperationAutoAvailable = !workflowOperation
-    && !workflowOperationSelection.blockedReason
-    && workflowOperationSelection.options.length > 0;
   const workflowAutoSkippedReasons = workflowCapability
     ? workflowVideoAutoSkippedOperationReasons(workflowCapability)
     : [];
@@ -2924,6 +2917,7 @@ function Seedance2WorkflowPanel({
             videoGenerationScope: undefined,
             videoGenerationCapabilityId: undefined,
             videoWireFormat: undefined,
+            videoGenerationOperationMigration: undefined,
             seedancePromptRewriteErrorDetails: undefined,
           })}
         />
@@ -2946,45 +2940,103 @@ function Seedance2WorkflowPanel({
           <div data-seedance2-video-model-blocked className="rounded-xl border border-red-400/50 px-3 py-2 text-sm text-red-300">
             视频模型“{requestedVideoModel}”没有可唯一确定的已配置 provider；已阻止显示或提交其他 provider 的参数合同。请选择一个可用视频模型后重试。
           </div>
-        ) : !workflowSettingsOperation ? (
-          <div data-seedance2-video-operation-auto className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-            自动：按当前模型真实槽位打包分镜图（Agnes 2–3 张不重叠切窗，多参考模型尽量打进同一条请求，纯首帧才一镜一条）。重试复现每条请求自己的 provider/model/operation/图序。
-            {workflowOperationSelection.blockedReason ? (
-              <div className="mt-1 text-orange-300">{workflowOperationSelection.blockedReason}</div>
-            ) : null}
-            {workflowAutoSkippedReasons.map((reason) => (
-              <div key={reason} className="mt-1">{reason}</div>
-            ))}
-          </div>
         ) : (
           <>
-            {!workflowOperation ? (
-              <div data-seedance2-video-operation-auto className="mb-2 rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                自动：按当前模型真实槽位打包分镜图（Agnes 2–3 张不重叠切窗，多参考模型尽量打进同一条请求，纯首帧才一镜一条）。下方参数按解析出的「{workflowOperationSelection.options.find((option) => option.value === workflowSettingsOperation)?.label || workflowSettingsOperation}」合同显示，可改时长/清晰度。
-              </div>
+            {workflowOperationSelection.options.length ? (
+              <label className="mb-2 grid gap-1 text-xs" data-canvas-no-drag data-canvas-no-zoom>
+                <span style={{ color: theme.node.muted }}>出片方式</span>
+                <select
+                  className="h-9 w-full rounded-lg border px-2 text-sm outline-none"
+                  style={fieldStyle}
+                  value={meta.videoGenerationOperationMigration?.source === "user-selection" && workflowOperation ? workflowOperation : "auto"}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === "auto") {
+                      patch({
+                        videoGenerationSettings: undefined,
+                        videoGenerationScope: undefined,
+                        videoGenerationCapabilityId: undefined,
+                        videoWireFormat: undefined,
+                        videoGenerationOperationMigration: undefined,
+                      });
+                      return;
+                    }
+                    const selected = workflowOperationSelection.options.find((option) => option.value === value);
+                    if (!selected) return;
+                    patch(workflowOperationPatch(selected.value, "user-selection"));
+                  }}
+                >
+                  <option value="auto">
+                    自动{workflowAutoDisplayOperation
+                      ? `（${workflowOperationSelection.options.find((option) => option.value === workflowAutoDisplayOperation)?.label || workflowAutoDisplayOperation}）`
+                      : ""}
+                  </option>
+                  {workflowOperationSelection.options.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
             ) : null}
-            <VideoSettingsPanel
-              config={workflowVideoConfig}
-              operation={workflowSettingsOperation}
-              theme={theme}
-              showTitle
-              className="thin-scrollbar max-h-[280px] space-y-4 overflow-y-auto pr-1"
-              onConfigChange={(key, value) => {
-                if (key === "imageHostBaseUrl" || key === "imageHostApiKey") {
-                  useConfigStore.getState().updateConfig(key, value);
-                }
-              }}
-              onGenerationSettingsChange={(settings, scope, capabilityId) => {
-                const provider = effectiveConfig.apiRelays.find((item) => item.id === scope.providerId);
-                const capability = resolveCanvasVideoModelCapability(effectiveConfig, scope.model, provider);
-                patch({
-                  videoGenerationSettings: settings,
-                  videoGenerationScope: scope,
-                  videoGenerationCapabilityId: capabilityId,
-                  videoWireFormat: snapshotVideoWireFormat(settings, capability),
-                });
-              }}
-            />
+            {!workflowSettingsOperation ? (
+              <div data-seedance2-video-operation-auto className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+                自动：按当前模型真实槽位打包分镜图。Grok 等多参考模型是每镜一条请求，镜内再加当前分镜、角色、场景参考；Agnes 按 2–3 张不重叠切窗；纯首帧才一镜一条。重试复现每条请求自己的 provider/model/operation/图序。
+                {workflowOperationSelection.blockedReason ? (
+                  <div className="mt-1 text-orange-300">{workflowOperationSelection.blockedReason}</div>
+                ) : null}
+                {workflowAutoSkippedReasons.map((reason) => (
+                  <div key={reason} className="mt-1">{reason}</div>
+                ))}
+              </div>
+            ) : (
+              <>
+                {meta.videoGenerationOperationMigration?.source !== "user-selection" ? (
+                  <div data-seedance2-video-operation-auto className="mb-2 rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
+                    自动：按当前模型真实槽位打包分镜图。Grok 等多参考模型是每镜一条请求，镜内再加当前分镜、角色、场景参考；Agnes 按 2–3 张不重叠切窗；纯首帧才一镜一条。下方参数按解析出的「{workflowOperationSelection.options.find((option) => option.value === workflowSettingsOperation)?.label || workflowSettingsOperation}」合同显示，可改时长/清晰度。
+                  </div>
+                ) : null}
+                <VideoSettingsPanel
+                  config={workflowVideoConfig}
+                  operation={workflowSettingsOperation}
+                  theme={theme}
+                  showTitle
+                  className="thin-scrollbar max-h-[280px] space-y-4 overflow-y-auto pr-1"
+                  onConfigChange={(key, value) => {
+                    if (key === "imageHostBaseUrl" || key === "imageHostApiKey") {
+                      useConfigStore.getState().updateConfig(key, value);
+                    }
+                  }}
+                  onImageHostCredentialBlur={() => {
+                    void flushConfigStore().catch(() => undefined);
+                  }}
+                  onGenerationSettingsChange={(settings, scope, capabilityId) => {
+                    const provider = effectiveConfig.apiRelays.find((item) => item.id === scope.providerId);
+                    const capability = resolveCanvasVideoModelCapability(effectiveConfig, scope.model, provider);
+                    const keepUserSelection = meta.videoGenerationOperationMigration?.source === "user-selection";
+                    patch({
+                      videoGenerationSettings: settings,
+                      videoGenerationScope: scope,
+                      videoGenerationCapabilityId: capabilityId,
+                      videoWireFormat: snapshotVideoWireFormat(settings, capability),
+                      videoGenerationOperationMigration: keepUserSelection
+                        ? {
+                            version: 1,
+                            source: "user-selection",
+                            providerId: scope.providerId,
+                            model: scope.model,
+                            operation: scope.operation,
+                          }
+                        : {
+                            version: 1,
+                            source: "auto-materials",
+                            providerId: scope.providerId,
+                            model: scope.model,
+                            operation: scope.operation,
+                          },
+                    });
+                  }}
+                />
+              </>
+            )}
           </>
         )}
         <div className="mt-2 text-[10px]" style={{ color: theme.node.muted }}>
@@ -3102,6 +3154,7 @@ function InfiniteCanvasPage() {
     },
   }), [antdMessage]);
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectId = searchParams.get("id") || "";
   const projectSession = useMemo(() => ({ projectId }), [projectId]);
@@ -3551,10 +3604,34 @@ function InfiniteCanvasPage() {
     };
 
     if (!projectId) {
-      router.replace("/canvas/home");
+      if (pathname === "/canvas/workspace") router.replace("/canvas/home");
       return;
     }
-    const project = openProject(projectId);
+    let project = openProject(projectId);
+    if (!project) {
+      const mediaPayload = mediaPayloadFromWorkspaceSearch({
+        id: projectId,
+        kind: (searchParams.get("kind") as "image" | "video" | "upload" | "prompt" | null) || undefined,
+        src: searchParams.get("src") || undefined,
+        prompt: searchParams.get("prompt") || undefined,
+        title: searchParams.get("title") || undefined,
+        model: searchParams.get("model") || undefined,
+      });
+      if (mediaPayload) {
+        const rebuilt = pushMediaToCanvasWorkspace({
+          ...mediaPayload,
+          id: projectId,
+          title: mediaPayload.title || mediaPayload.prompt,
+        });
+        project = useCanvasStore.getState().openProject(rebuilt.id) || openProject(projectId);
+        if (rebuilt.id !== projectId) {
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("id", rebuilt.id);
+          router.replace(`${pathname}?${next.toString()}`);
+          return;
+        }
+      }
+    }
     if (shouldLoadXiaojunTeacherRecovery(projectId, project)) {
       void loadXiaojunTeacherRecoveryProject(projectId).then(async (recoveredProject) => {
         if (cancelled || !recoveredProject) return;
@@ -3595,19 +3672,29 @@ function InfiniteCanvasPage() {
       cancelled = true;
       mediaRestoreController.abort();
     };
-  }, [createProject, hydrated, openProject, projectId, replaceProjects, restoreAttempt, router]);
+  }, [createProject, hydrated, openProject, pathname, projectId, replaceProjects, restoreAttempt, router]);
 
   useEffect(() => {
     if (!hydrated || !projectId) return;
     if (loadedProjectId === projectId) return;
     const stored = currentProject?.nodes;
     if (!stored?.length || nodes.length >= stored.length) return;
-    const next = withImageSequenceNumbers(sanitizeCanvasNodes(stored));
+    const storedNodes = withImageSequenceNumbers(sanitizeCanvasNodes(stored));
+    const storedConnections = sanitizeCanvasConnections(
+      currentProject?.connections || [],
+      storedNodes,
+    );
+    const next = withImageSequenceNumbers(
+      sanitizeCanvasNodes(
+        reconcileStoryDirectorImageResults(
+          recoverInterruptedGeneration(storedNodes),
+          storedConnections,
+        ),
+      ),
+    );
     if (!next.length) return;
     setNodes(next);
-    setConnections(
-      sanitizeCanvasConnections(currentProject?.connections || [], next),
-    );
+    setConnections(sanitizeCanvasConnections(storedConnections, next));
     const fitted = fitViewportToNodes(
       next,
       size.width || 1200,
@@ -3750,6 +3837,28 @@ function InfiniteCanvasPage() {
       );
     });
   }, [config, connections, effectiveConfig, nodes, projectLoaded]);
+
+  useEffect(() => {
+    if (!projectLoaded) return;
+    setNodes((previous) => migrateIdleStoryVideoOperations({
+      nodes: previous,
+      resolveWorkflow: (workflow) => {
+        const preview = previewStoryVideoCapabilityForNode(workflow, config, effectiveConfig);
+        if (preview.state !== "resolved") return undefined;
+        try {
+          const apiConfig = buildCustomerVideoApiConfig(workflow, config, effectiveConfig);
+          return {
+            capability: preview.capability,
+            providerId: apiConfig.route?.mode === "local" ? apiConfig.route.provider.id : "",
+            model: apiConfig.model || "",
+            videoConfig: buildGenerationConfig(effectiveConfig, workflow, "video"),
+          };
+        } catch {
+          return undefined;
+        }
+      },
+    }));
+  }, [config, effectiveConfig, projectLoaded]);
 
   useEffect(() => {
     if (!dialogNodeId) setNodeImageSettingsOpen(false);
@@ -4175,7 +4284,7 @@ function InfiniteCanvasPage() {
           node.id,
         ),
     );
-    void runWithConcurrency(candidates, 2, async (node) => {
+    void runWithConcurrency(candidates, 1, async (node) => {
       if (!cancelled) await deriveCharacterTurnaroundViews(node);
     });
     return () => {
@@ -4288,9 +4397,8 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
-                            status: "generating" as const,
+                            status: "failed" as const,
                             taskId: snapshot.id,
-                            startedAt: snapshot.startedAt,
                             errorMessage: errorDetails,
                           },
                         }
@@ -4317,9 +4425,8 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
-                            status: "generating" as const,
+                            status: "failed" as const,
                             taskId: snapshot.id,
-                            startedAt: snapshot.startedAt,
                             errorMessage:
                               "视频任务原 Provider 已变更，无法安全恢复轮询",
                           },
@@ -4347,9 +4454,8 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
-                            status: "generating" as const,
+                            status: "failed" as const,
                             taskId: snapshot.id,
-                            startedAt: snapshot.startedAt,
                             errorMessage:
                               "视频任务使用的 Provider Key 槽位已不存在，无法恢复轮询",
                           },
@@ -4403,6 +4509,13 @@ function InfiniteCanvasPage() {
           throw new CanvasVideoTerminalError("视频任务完成但没有可落盘的结果");
         const currentNode = nodesRef.current.find((node) => node.id === nodeId);
         if (!currentNode || !stillOwnsAttempt(currentNode)) return;
+        await persistCanvasVideoWorks({
+          videos: uploadedVideos,
+          title: currentNode.title,
+          prompt: currentNode.metadata?.prompt || "",
+          model: snapshot.model || currentNode.metadata?.model || "",
+          providerId: snapshot.providerId || attempt.providerId,
+        });
         if (currentNode.metadata?.seedanceWorkflowRole === "placeholder") {
           const fileUrls = uploadedVideos.map((video) => video.url);
           const inserted = uploadedVideos.reduce(
@@ -4417,13 +4530,25 @@ function InfiniteCanvasPage() {
                   files: [],
                   fileUrls,
                   paramsSnapshot: {
-                    ratio:
-                      currentNode.metadata?.seedanceRatio ||
-                      currentNode.metadata?.size,
+                    ratio: submittedSeedance2ResultRatio({
+                      paramsSnapshot: {
+                        aspectRatio:
+                          currentNode.metadata?.videoWireFormat?.aspectRatio ||
+                          currentNode.metadata?.videoGenerationSettings?.aspectRatio,
+                        wireFormat: currentNode.metadata?.videoWireFormat,
+                        settings: currentNode.metadata?.videoGenerationSettings,
+                      },
+                      sourcePlaceholder: currentNode,
+                    }),
+                    aspectRatio:
+                      currentNode.metadata?.videoWireFormat?.aspectRatio ||
+                      currentNode.metadata?.videoGenerationSettings?.aspectRatio,
                     duration:
                       currentNode.metadata?.seedanceDuration ||
                       currentNode.metadata?.seconds,
                     model: snapshot.model,
+                    wireFormat: currentNode.metadata?.videoWireFormat,
+                    settings: currentNode.metadata?.videoGenerationSettings,
                   },
                   storageKey: uploaded.storageKey,
                   mimeType: uploaded.mimeType,
@@ -4649,7 +4774,6 @@ function InfiniteCanvasPage() {
           if (strictResume.status === "blocked") throw new Error(strictResume.message);
           const exactProviderConfig: CustomerVideoApiConfig = {
             baseUrl: persistedSnapshot.baseUrl,
-            apiKey: strictResume.apiKey,
             model: persistedSnapshot.model,
             route: {
               mode: "local",
@@ -4664,7 +4788,6 @@ function InfiniteCanvasPage() {
           };
           apiConfig = pinCustomerVideoApiConfigToCredential(
             exactProviderConfig,
-            strictResume.apiKey,
             persistedSnapshot.credentialId,
           );
         } else {
@@ -4698,9 +4821,8 @@ function InfiniteCanvasPage() {
                     errorDetails,
                     seedanceGenerationTaskState: {
                       ...node.metadata.seedanceGenerationTaskState,
-                      status: "generating" as const,
+                      status: "failed" as const,
                       taskId,
-                      startedAt,
                       errorMessage: errorDetails,
                     },
                   },
@@ -4812,6 +4934,13 @@ function InfiniteCanvasPage() {
             duration: currentNode.metadata?.seedanceDuration || currentNode.metadata?.seconds,
             model: apiConfig.model,
           },
+        });
+        await persistCanvasVideoWorks({
+          videos: inserted.uploadedVideos,
+          title: currentNode.title,
+          prompt: currentNode.metadata?.prompt || "",
+          model: apiConfig.model || attempt.model || currentNode.metadata?.model || "",
+          providerId: attempt.providerId,
         });
         const latestNode = nodesRef.current.find((node) => node.id === nodeId);
         if (!latestNode || !stillOwnsAttempt(latestNode)) return;
@@ -5592,6 +5721,9 @@ function InfiniteCanvasPage() {
               return seedance2RatioFromNaturalSize(width, height, "9:16");
             })()
           : undefined;
+      const videoModelMetadata = type === CanvasNodeType.Video
+        ? defaultCanvasProviderModelMetadata(effectiveConfig, "video")
+        : undefined;
       const newNode =
         type === CanvasNodeType.Video
           ? createSeedance2VideoPlaceholderNode(pending.position, {
@@ -5599,6 +5731,8 @@ function InfiniteCanvasPage() {
                 sourceNode?.type === CanvasNodeType.Image
                   ? sourceNode
                   : undefined,
+              model: videoModelMetadata?.model,
+              modelProviderId: videoModelMetadata?.modelProviderId,
               ratio:
                 seedance2SourceImageRatio ||
                 resolveSeedance2CreationRatio(effectiveConfig.size),
@@ -5625,15 +5759,7 @@ function InfiniteCanvasPage() {
       setPendingConnectionCreate(null);
       setConnecting(null);
     },
-    [
-      effectiveConfig.canvasImageCount,
-      effectiveConfig.count,
-      effectiveConfig.quality,
-      effectiveConfig.size,
-      effectiveConfig.videoSeconds,
-      message,
-      setConnecting,
-    ],
+    [effectiveConfig, message, setConnecting],
   );
 
   const cancelPendingConnectionCreate = useCallback(() => {
@@ -6069,9 +6195,14 @@ function InfiniteCanvasPage() {
               ),
             }
           : undefined;
+      const videoModelMetadata = type === CanvasNodeType.Video
+        ? defaultCanvasProviderModelMetadata(effectiveConfig, "video")
+        : undefined;
       const newNode =
         type === CanvasNodeType.Video
           ? createSeedance2VideoPlaceholderNode(targetPosition, {
+              model: videoModelMetadata?.model,
+              modelProviderId: videoModelMetadata?.modelProviderId,
               ratio: resolveSeedance2CreationRatio(effectiveConfig.size),
               duration: effectiveConfig.videoSeconds || "5",
             })
@@ -6084,17 +6215,7 @@ function InfiniteCanvasPage() {
         setDialogNodeId(newNode.id);
       focusNodeInView(newNode);
     },
-    [
-      effectiveConfig.canvasImageCount,
-      effectiveConfig.count,
-      effectiveConfig.imageModel,
-      effectiveConfig.model,
-      effectiveConfig.quality,
-      effectiveConfig.size,
-      effectiveConfig.videoSeconds,
-      focusNodeInView,
-      getCanvasCenter,
-    ],
+    [effectiveConfig, focusNodeInView, getCanvasCenter],
   );
 
 
@@ -6306,6 +6427,9 @@ function InfiniteCanvasPage() {
             : "",
         model: workflowVideoApiConfig.model || "",
         savedScope: workflowVideoScope,
+        savedCapabilityId: activeWorkflowNode.metadata?.videoGenerationCapabilityId,
+        allowLegacyStoryAutoMigration: true,
+        savedOperationMigrationSource: activeWorkflowNode.metadata?.videoGenerationOperationMigration?.source,
       });
       let workflowOperation = workflowOperationSelection.operation;
       if (!workflowOperation && workflowVideoCapability && !workflowOperationSelection.blockedReason) {
@@ -6430,7 +6554,7 @@ function InfiniteCanvasPage() {
         currentWorkflowMetadata?.seedancePromptRewriteCheckpoint,
       );
       const initialCompletedCount = initialCheckpoint?.completedShots.length || 0;
-      let runningNodes = nodesRef.current.map((node) =>
+      const runningNodes = nodesRef.current.map((node) =>
         node.id === workflowNode.id
           ? {
               ...node,
@@ -9941,7 +10065,7 @@ function InfiniteCanvasPage() {
                 (item) => item.id === nodeId,
               );
               if (uploadedCharacterNode)
-                void deriveCharacterTurnaroundViews(uploadedCharacterNode);
+                await deriveCharacterTurnaroundViews(uploadedCharacterNode);
             } catch (error) {
               const errorDetails = formatCanvasGenerationError(
                 error,
@@ -10012,7 +10136,7 @@ function InfiniteCanvasPage() {
                     (item) => item.id === nodeId,
                   );
                   if (uploadedCharacterNode)
-                    void deriveCharacterTurnaroundViews(uploadedCharacterNode);
+                    await deriveCharacterTurnaroundViews(uploadedCharacterNode);
                   return;
                 } catch (fallbackError) {
                   const fallbackDetails = formatCanvasGenerationError(
@@ -10185,7 +10309,6 @@ function InfiniteCanvasPage() {
         storyImageGenerationSource.kind === "config"
           ? storyImageGenerationNode.metadata
           : current.metadata;
-      let configuredStoryImageOperation: CanvasImageOperation | undefined;
       let imageConfig: AiConfig;
       try {
         imageConfig = {
@@ -10204,10 +10327,7 @@ function InfiniteCanvasPage() {
             effectiveConfig.model ||
             defaultConfig.imageModel,
           count: "1",
-          size:
-            current.metadata?.storyAspectRatio ||
-            effectiveConfig.size ||
-            STORY_DIRECTOR_DEFAULT_IMAGE_RATIO,
+          size: effectiveConfig.size,
           quality: normalizeStoryImageQuality(
             current.metadata?.storyImageQuality,
             current.metadata?.storyImageQualityExplicit === true,
@@ -10254,11 +10374,7 @@ function InfiniteCanvasPage() {
         return;
       }
       try {
-        const resolution = await resolveStoryWorkflowImageRequest(
-          imageConfig,
-          storyShotHasReferenceIntent(current, shots),
-        );
-        configuredStoryImageOperation = resolution.capability.operation;
+        await resolveStoryWorkflowImageRequest(imageConfig, false);
       } catch (error) {
         const errorDetails = formatCanvasGenerationError(
           error,
@@ -10334,16 +10450,10 @@ function InfiniteCanvasPage() {
             gridGroups,
             STORY_DIRECTOR_IMAGE_CONCURRENCY,
             async ({ chunkStart, chunk, groupIndex }) => {
-              const storyReferenceResolution = configuredStoryImageOperation
-                ? await resolveImageRequestCapability(
-                    imageConfig,
-                    configuredStoryImageOperation,
-                    "imageGeneration",
-                  )
-                : await resolveStoryWorkflowImageRequest(
-                  imageConfig,
-                  storyShotHasReferenceIntent(current, chunk),
-                );
+              const storyReferenceResolution = await resolveStoryWorkflowImageRequest(
+                imageConfig,
+                storyShotHasReferenceIntent(current, chunk),
+              );
               const storyImageOperation = storyReferenceResolution.capability.operation;
               const referencePlan = planStoryImageReferences(
                 current,
@@ -10621,16 +10731,10 @@ function InfiniteCanvasPage() {
           pendingShots,
           STORY_DIRECTOR_IMAGE_CONCURRENCY,
           async (shot, workIndex) => {
-            const storyReferenceResolution = configuredStoryImageOperation
-              ? await resolveImageRequestCapability(
-                  imageConfig,
-                  configuredStoryImageOperation,
-                  "imageGeneration",
-                )
-              : await resolveStoryWorkflowImageRequest(
-                imageConfig,
-                storyShotHasReferenceIntent(current, [shot]),
-              );
+            const storyReferenceResolution = await resolveStoryWorkflowImageRequest(
+              imageConfig,
+              storyShotHasReferenceIntent(current, [shot]),
+            );
             const storyImageOperation = storyReferenceResolution.capability.operation;
             const layoutIndex = Math.max(
               0,
@@ -11030,7 +11134,7 @@ function InfiniteCanvasPage() {
       let done = 0;
       try {
         message.info(
-          `开始生成 ${placeholders.length} 个分镜视频（并发 ${STORY_DIRECTOR_VIDEO_CONCURRENCY}）`,
+          `开始生成 ${placeholders.length} 个分镜视频（浏览器单线程，逐个提交）`,
         );
         await runWithConcurrency(
           placeholders,
@@ -11097,62 +11201,8 @@ function InfiniteCanvasPage() {
     async (node: CanvasNodeData) => {
       const current =
         nodesRef.current.find((item) => item.id === node.id) || node;
-      let analysis = await analyzeStoryDirector(current);
-      if (!analysis) {
-        const latest =
-          nodesRef.current.find((item) => item.id === node.id) || current;
-        if (latest.metadata?.storyAnalysisStatus !== NODE_STATUS_ERROR) return;
-        const idea = storyDirectorEditableText(latest.metadata);
-        if (!idea.trim() || idea.trim() === STORY_DIRECTOR_PLACEHOLDER.trim()) {
-          return;
-        }
-        try {
-          analysis = draftStoryDirectorAnalysis(
-            idea,
-            latest.metadata?.storyStyle || "电影感写实",
-            latest.metadata?.storyShotCount || 5,
-          );
-        } catch (error) {
-          message.error(
-            error instanceof Error ? error.message : "本地分镜回退失败",
-          );
-          return;
-        }
-        const fallbackRaw = JSON.stringify({
-          characters: analysis.characters,
-          scenes: analysis.scenes,
-          shots: analysis.shots,
-        });
-        applyPersistedNodes((prev) =>
-          prev.map((item) =>
-            item.id === latest.id
-              ? {
-                  ...item,
-                  metadata: {
-                    ...item.metadata,
-                    storyAnalysisStatus: NODE_STATUS_SUCCESS,
-                    storyGenerationStatus: "idle",
-                    storyAnalysisRaw: fallbackRaw,
-                    storyOriginalText:
-                      item.metadata?.storyOriginalText || idea,
-                    storyAnalysisSourceText: idea,
-                    storyAnalysisRenderedText: idea,
-                    storyAnalysisShotCount: analysis!.shots.length,
-                    storyText: idea,
-                    content: idea,
-                    storyCharacters: analysis!.characters,
-                    storyScenes: analysis!.scenes,
-                    storyShots: analysis!.shots,
-                    storyShotCount: analysis!.shots.length,
-                    status: NODE_STATUS_SUCCESS,
-                    errorDetails: `分析失败，已改用本地分镜继续全流程`,
-                  },
-                }
-              : item,
-          ),
-        );
-        message.warning("分析失败，已改用本地分镜继续全流程");
-      }
+      const analysis = await analyzeStoryDirector(current);
+      if (!analysis) return;
       const latest =
         nodesRef.current.find((item) => item.id === node.id) || node;
       const charactersReady = await generateStoryCharacters(latest, analysis);
@@ -13413,11 +13463,6 @@ function InfiniteCanvasPage() {
           config,
           effectiveConfig,
         );
-        // Auto-resolve operation when the scope has no explicit operation
-        // (old nodes, imported nodes, or nodes switched back to "auto"),
-        // or when the saved operation is no longer supported by the current model.
-        const rawOperation = latest.metadata?.videoGenerationScope?.operation;
-        let effectiveOperation = rawOperation;
         const autoCapability = resolveCanvasVideoModelCapability(
           { apiRelays: [...(videoApiConfig.providerList || [])] },
           videoApiConfig.model || "",
@@ -13425,6 +13470,19 @@ function InfiniteCanvasPage() {
             ? videoApiConfig.route.provider
             : undefined,
         );
+        const isStoryPlaceholder = latest.metadata?.seedanceWorkflowRole === "placeholder";
+        const storySelection = autoCapability
+          ? resolveWorkflowVideoOperationSelection({
+              capability: autoCapability,
+              providerId: videoApiConfig.route?.mode === "local" ? videoApiConfig.route.provider.id : "",
+              model: videoApiConfig.model || "",
+              savedScope: latest.metadata?.videoGenerationScope,
+              savedCapabilityId: latest.metadata?.videoGenerationCapabilityId,
+              allowLegacyStoryAutoMigration: isStoryPlaceholder,
+              savedOperationMigrationSource: latest.metadata?.videoGenerationOperationMigration?.source,
+            })
+          : undefined;
+        let effectiveOperation = storySelection?.operation || latest.metadata?.videoGenerationScope?.operation;
         const savedOperationStillValid = effectiveOperation && autoCapability?.supportedOperations?.includes(effectiveOperation);
         if (!effectiveOperation || !savedOperationStillValid) {
           if (autoCapability) {
@@ -13751,7 +13809,6 @@ function InfiniteCanvasPage() {
             throw new Error(strictCustomerSnapshot.message);
           videoApiConfig = pinCustomerVideoApiConfigToCredential(
             videoApiConfig,
-            customerLocalCredential.apiKey,
             customerLocalCredential.credentialId,
           );
           submissionAttempt = {
@@ -15754,7 +15811,7 @@ function InfiniteCanvasPage() {
         return;
       }
 
-      let context = hasSavedImageMetadata
+      const context = hasSavedImageMetadata
           ? null
           : await hydrateNodeGenerationContext(
               buildNodeGenerationContext(
@@ -15764,7 +15821,7 @@ function InfiniteCanvasPage() {
                 retrySourceNode.metadata?.prompt || node.metadata?.prompt || "",
               ),
             );
-      let prompt = (
+      const prompt = (
         savedImageMetadata?.prompt ||
         context?.prompt ||
         ""
@@ -17152,6 +17209,7 @@ function InfiniteCanvasPage() {
 
         <CanvasToolbar
           selectedCount={selectedNodeIds.size}
+          dock={viewport.k < 0.5 ? "side" : "auto"}
           canUndo={historyState.canUndo}
           canRedo={historyState.canRedo}
           backgroundMode={backgroundMode}
@@ -18940,14 +18998,15 @@ async function hydrateCanvasNode(node: CanvasNodeData, signal?: AbortSignal) {
       };
     }
     if (node.type !== CanvasNodeType.Image) return node;
+    const recovered = recoverInterruptedCanvasImageNode(node);
     if (
       !content &&
       !node.metadata?.backendUrl &&
       !node.metadata?.backendRel &&
       !node.metadata?.storageKey
     )
-      return node;
-    return await recoverCanvasImageNode(node, signal);
+      return recovered;
+    return await recoverCanvasImageNode(recovered, signal);
   } catch (error) {
     if (signal?.aborted) throw signal.reason || error;
     return markCanvasNodeRestoreError(
@@ -19049,9 +19108,7 @@ function hasActiveCanvasImageGeneration(
 function hasResumableCanvasImageTask(
   metadata: CanvasNodeMetadata | undefined,
 ) {
-  if (metadata?.imageGenerationTask) return true;
-  if (shouldSkipLegacyImageTaskResume(metadata)) return false;
-  return Boolean(metadata?.sourceImageTaskId);
+  return isResumableCanvasImageTask(metadata);
 }
 
 async function uploadCanvasRecoverySource(
@@ -19704,6 +19761,7 @@ const SEEDANCE_WORKFLOW_SNAPSHOT_FIELDS = [
   "videoGenerationScope",
   "videoGenerationCapabilityId",
   "videoWireFormat",
+  "videoGenerationOperationMigration",
 ] as const;
 
 function synchronizeSeedanceWorkflowPlaceholderSnapshots(
@@ -19745,6 +19803,7 @@ function synchronizeSeedanceWorkflowPlaceholderSnapshots(
         videoGenerationScope: workflowMetadata.videoGenerationScope,
         videoGenerationCapabilityId: workflowMetadata.videoGenerationCapabilityId,
         videoWireFormat: workflowMetadata.videoWireFormat,
+        videoGenerationOperationMigration: workflowMetadata.videoGenerationOperationMigration,
       },
     };
   });
@@ -21510,19 +21569,6 @@ function applyStoryDirectorImageModel(
   return applyExplicitCanvasGenerationModel(imageConfig, "image", resolution.selection);
 }
 
-function storyShotHasReferenceIntent(
-  director: CanvasNodeData,
-  shots: readonly StoryShot[],
-) {
-  return (
-    shots.some((shot) => (shot.appearingCharacterIds || []).length > 0) ||
-    storyDirectorSourceIdsForKind(director, "reference").length > 0 ||
-    storyDirectorSourceIdsForKind(director, "character").length > 0 ||
-    storyDirectorSourceIdsForKind(director, "scene").length > 0 ||
-    storyDirectorSourceIdsForKind(director, "prop").length > 0
-  );
-}
-
 async function resolveStoryWorkflowImageRequest(
   imageConfig: AiConfig,
   referenceIntent: boolean,
@@ -21562,7 +21608,15 @@ function stableFrontGridStoryShot(shots: StoryShot[]): StoryShot {
 }
 
 function storyImageReferenceWarningText(selection: StoryImageReferenceSelection) {
-  return selection.warnings.map((warning) => warning.message).join("；");
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const warning of selection.warnings) {
+    const key = `${warning.code}:${warning.entityId || ""}:${warning.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(warning.message);
+  }
+  return lines.join("；");
 }
 
 function canvasImageReferenceFromNode(
@@ -22207,12 +22261,10 @@ function recoverInterruptedGeneration(nodes: CanvasNodeData[]) {
   return nodes.map((node) => {
     if (node.type === CanvasNodeType.StoryDirector)
       return recoverInterruptedStoryDirector(node);
+    if (node.type === CanvasNodeType.Image) {
+      return recoverInterruptedCanvasImageNode(node);
+    }
     if (node.metadata?.status !== NODE_STATUS_LOADING) return node;
-    if (
-      node.type === CanvasNodeType.Image &&
-      hasActiveCanvasImageGeneration(node.metadata)
-    )
-      return node;
     if (node.type === CanvasNodeType.Video && node.metadata.videoGenerationTask)
       return node;
     if (
@@ -22282,6 +22334,8 @@ function clearCanvasGenerationTrace(metadata: CanvasNodeMetadata | undefined) {
     status,
     errorDetails,
     sourceImageTaskId,
+    imageGenerationAttemptId,
+    imageGenerationTask,
     videoGenerationAttempt,
     videoGenerationTask,
     seedanceGenerationTaskState,

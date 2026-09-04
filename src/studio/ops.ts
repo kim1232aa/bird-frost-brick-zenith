@@ -1,8 +1,12 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { createId } from "@/lib/create-id";
 import { providerCanRunCapability } from "@/stores/api-relay-config";
 import { catalogKey, cardsFromRelays, STUDIO_CATALOG, type ModelCard } from "./catalog";
 import { useStudioSession } from "./session";
+
+/** Credits and plans are local preview state until a remote ledger/payment contract exists. */
+export const MEMBERSHIP_IS_LOCAL_MOCK = true;
 
 export type CreditKind = "text" | "image" | "video";
 
@@ -48,7 +52,7 @@ function defaultPoints(card: ModelCard): number {
 }
 
 function audit(action: string, detail: string): AuditRow {
-  return { id: crypto.randomUUID(), at: Date.now(), action, detail };
+  return { id: createId(), at: Date.now(), action, detail };
 }
 
 export const useOpsStore = create<OpsState>()(
@@ -73,7 +77,7 @@ export const useOpsStore = create<OpsState>()(
       grant: (kind, amount, reason) => {
         const next = Math.max(0, get().credits[kind] + amount);
         const row: LedgerRow = {
-          id: crypto.randomUUID(),
+          id: createId(),
           at: Date.now(),
           kind,
           delta: amount,
@@ -88,22 +92,24 @@ export const useOpsStore = create<OpsState>()(
         });
       },
       spend: (kind, model, points) => {
-        const cost = Math.max(1, points || 1);
+        const requested = Math.max(1, points || 1);
         const have = get().credits[kind];
-        if (have < cost) {
-          throw new Error(`额度不足：${kind} 剩余 ${have}，本次需要 ${cost}。到后台发放或升级。`);
+        const localPreview = MEMBERSHIP_IS_LOCAL_MOCK;
+        if (!localPreview && have < requested) {
+          throw new Error(`额度不足：${kind} 剩余 ${have}，本次需要 ${requested}。到后台发放或升级。`);
         }
+        const cost = localPreview ? Math.max(0, Math.min(have, requested)) : requested;
         const row: LedgerRow = {
-          id: crypto.randomUUID(),
+          id: createId(),
           at: Date.now(),
           kind,
-          delta: -cost,
-          reason: "生成",
+          delta: cost ? -cost : 0,
+          reason: localPreview && have < requested ? "生成本机演示额度已用尽，不拦截已接线请求" : "生成",
           model,
           ok: true,
         };
         set({
-          credits: { ...get().credits, [kind]: have - cost },
+          credits: { ...get().credits, [kind]: Math.max(0, have - cost) },
           ledger: [row, ...get().ledger].slice(0, 200),
         });
         return row;
@@ -166,4 +172,12 @@ export function modelPoints(value: string) {
   const card = STUDIO_CATALOG.find((item) => catalogKey(item) === value);
   if (!card) return 1;
   return useOpsStore.getState().points[value] ?? defaultPoints(card);
+}
+
+/** Local preview credits are display-only until a remote ledger exists. */
+export function studioGenerateCreditGate(_kind: CreditKind, _cost: number) {
+  if (MEMBERSHIP_IS_LOCAL_MOCK) return "";
+  const remaining = useOpsStore.getState().credits[_kind];
+  if (remaining < _cost) return `积分不足，需要 ${_cost} 点`;
+  return "";
 }

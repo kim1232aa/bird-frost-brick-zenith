@@ -33,6 +33,47 @@ mock.module(new URL("./server/relay-vault.ts", import.meta.url).href, {
 
 const { vaultSnapshot } = await import("./session.ts");
 
+test("vault snapshots never persist raw keys in the browser snapshot", () => {
+  const snapshot = JSON.parse(vaultSnapshot({
+    hiddenPresetIds: [],
+    relays: [{
+      id: "relay-1",
+      name: "Test relay",
+      baseUrl: "https://relay.example.test/v1",
+      apiKey: "synthetic-browser-key",
+      apiKeys: ["synthetic-pool-key"],
+      hasApiKey: true,
+      runnableCapabilities: [],
+      enabled: true,
+      capabilities: ["text"],
+      models: ["test-model"],
+      textModels: ["test-model"],
+      imageModels: [],
+      videoModels: [],
+      audioModels: [],
+      proxyMode: "direct",
+      proxyUrl: "",
+      timeoutMs: 30_000,
+      remark: "test",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    }],
+  })) as {
+    relays: Array<{
+      apiKey: string;
+      apiKeys?: string[];
+      hasApiKey?: boolean;
+      pendingKey?: boolean;
+    }>;
+  };
+  assert.equal(snapshot.relays[0]?.apiKey, "");
+  assert.equal(snapshot.relays[0]?.apiKeys, undefined);
+  assert.equal(snapshot.relays[0]?.hasApiKey, true);
+  assert.equal(snapshot.relays[0]?.pendingKey, true);
+  assert.equal(JSON.stringify(snapshot).includes("synthetic-browser-key"), false);
+  assert.equal(JSON.stringify(snapshot).includes("synthetic-pool-key"), false);
+});
+
 test("vault snapshots retain hasApiKey for redacted relays", () => {
   const snapshot = JSON.parse(vaultSnapshot({
     hiddenPresetIds: [],

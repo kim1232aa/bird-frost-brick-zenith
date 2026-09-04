@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildMediaCanvasProject, canvasModelFromSelection, mediaCanvasProjectTitle } from "./media-workspace-project.ts";
+import {
+  buildMediaCanvasProject,
+  canvasModelFromSelection,
+  canvasWorkspaceSearchFromMedia,
+  isDurableCanvasMediaUrl,
+  mediaCanvasProjectTitle,
+  mediaPayloadFromWorkspaceSearch,
+} from "./media-workspace-project.ts";
 
 test("image drop becomes an image node with media url", () => {
   const project = buildMediaCanvasProject({
@@ -133,4 +140,45 @@ test("canvasModelFromSelection ignores empty or malformed catalog keys", () => {
   assert.deepEqual(canvasModelFromSelection("  "), {});
   assert.deepEqual(canvasModelFromSelection("::flux1"), { model: "::flux1" });
   assert.deepEqual(canvasModelFromSelection("preset-civitai::"), { model: "preset-civitai::" });
+});
+
+test("media canvas titles use a visible ellipsis at an English word boundary", () => {
+  assert.equal(
+    mediaCanvasProjectTitle({ kind: "upload", title: "a red ceramic mug on white background" }),
+    "上传 a red ceramic mug on…",
+  );
+});
+
+test("送入画布 search keeps a durable /works/ src so a new session can rebuild the project", () => {
+  assert.equal(isDurableCanvasMediaUrl("/works/4be7af3e-8054-4bbf-b02e-264c79092d52-0.mp4"), true);
+  assert.equal(isDurableCanvasMediaUrl("blob:http://127.0.0.1:18081/abc"), false);
+  assert.equal(isDurableCanvasMediaUrl("https://image.civitai.com/x.png"), false);
+
+  const search = canvasWorkspaceSearchFromMedia("proj_1", {
+    kind: "video",
+    url: "/works/4be7af3e-8054-4bbf-b02e-264c79092d52-0.mp4",
+    prompt: "NSFPCHQ indoor portrait",
+    title: "NSFPCHQ, young woman",
+    model: "preset-civitai::ltx2.3",
+  });
+  assert.equal(search.id, "proj_1");
+  assert.equal(search.kind, "video");
+  assert.equal(search.src, "/works/4be7af3e-8054-4bbf-b02e-264c79092d52-0.mp4");
+  assert.equal(search.prompt, "NSFPCHQ indoor portrait");
+  assert.equal(search.model, "preset-civitai::ltx2.3");
+
+  const rebuilt = buildMediaCanvasProject(mediaPayloadFromWorkspaceSearch(search)!);
+  assert.equal(rebuilt.nodes[0].type, "video");
+  assert.equal(rebuilt.nodes[0].metadata.content, "/works/4be7af3e-8054-4bbf-b02e-264c79092d52-0.mp4");
+  assert.equal(rebuilt.nodes[0].metadata.model, "ltx2.3");
+});
+
+test("送入画布 search omits blob URLs instead of pretending they restore", () => {
+  const search = canvasWorkspaceSearchFromMedia("proj_2", {
+    kind: "image",
+    url: "blob:http://127.0.0.1:18081/tmp",
+    prompt: "临时预览",
+  });
+  assert.deepEqual(search, { id: "proj_2" });
+  assert.equal(mediaPayloadFromWorkspaceSearch(search), null);
 });

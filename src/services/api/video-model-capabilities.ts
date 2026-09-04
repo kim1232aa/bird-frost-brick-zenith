@@ -886,7 +886,7 @@ const XAI_RELAY_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContra
     {
         duration: supportedParameter("integer", "duration", "兼容 relay 原样接收整数 duration；不套用 api.x.ai 的 1..15 枚举", { integer: true }),
         resolution: supportedParameter("string", "resolution", "兼容 relay 原样接收非空 resolution；不套用 api.x.ai 枚举"),
-        aspectRatio: supportedParameter("string", "aspect_ratio", "兼容 relay 原样接收非空 aspect_ratio；不套用 api.x.ai 枚举"),
+        aspectRatio: supportedParameter("string", "aspect_ratio", "兼容 relay 原样接收非空 aspect_ratio；未填时与官方/serializer 一致走 16:9", { defaultValue: "16:9" }),
         audio: supportedParameter("boolean", "generate_audio", "兼容 relay 的 generate_audio 布尔扩展；保留 true/false"),
     },
 );
@@ -1203,7 +1203,7 @@ const CIVITAI_HUNYUAN_PARAMETERS = civitaiGenerationParameters("video/hunyuan", 
     fps: supportedParameter("integer", "frameRate", "live schema 接受 int32，未公布范围", { integer: true, defaultValue: 25 }),
     dimensions: supportedParameter("dimensions", "width/height", "width 和 height 为必填 int32；live schema 未公布数值范围", { integer: true, required: true, defaultValue: "1280x720" }),
     seed: CIVITAI_INT32_SEED,
-    steps: supportedParameter("integer", "steps", "live schema 范围 10..50", { minimum: 10, maximum: 50, integer: true, defaultValue: 20 }),
+    steps: supportedParameter("integer", "steps", "live schema 范围 10..50；官方 recipe 默认 40", { minimum: 10, maximum: 50, integer: true, defaultValue: 40 }),
     guidance: supportedParameter("number", "cfgScale", "live schema 范围 0..100", { minimum: 0, maximum: 100, defaultValue: 4, required: true }),
 });
 
@@ -1225,16 +1225,16 @@ const CIVITAI_KLING_V3_PARAMETERS = civitaiGenerationParameters("video/kling-v3"
 
 function civitaiLtx23Parameters(serviceId: string, firstLast: boolean) {
     return civitaiGenerationParameters(serviceId, {
-        duration: supportedParameter("integer", "duration", "live schema 范围 3..20", { minimum: 3, maximum: 20, integer: true, defaultValue: 5 }),
-        fps: supportedParameter("number", "fps", "live schema 范围 1..60", { minimum: 1, maximum: 60, defaultValue: 24 }),
-        dimensions: supportedParameter("dimensions", "width/height", "width 和 height 为 int32；live schema 未公布范围", { integer: true, defaultValue: "1280x720" }),
+        duration: supportedParameter("integer", "duration", "时长 3–20 秒，默认 5 秒", { minimum: 3, maximum: 20, integer: true, defaultValue: 5 }),
+        fps: supportedParameter("number", "fps", "帧率 1–60，默认 24", { minimum: 1, maximum: 60, defaultValue: 24 }),
+        dimensions: supportedParameter("dimensions", "width/height", "官方常用 1280×720、720×1280、1024×1024；可按像素填写宽高", { integer: true, defaultValue: "1280x720" }),
         audio: supportedParameter("boolean", "generateAudio", "是否生成音频", { defaultValue: true }),
         negativePrompt: supportedParameter("string", "negativePrompt", "live schema 接受 nullable negativePrompt"),
         seed: CIVITAI_INT32_SEED,
         steps: supportedParameter("integer", "numInferenceSteps", "live schema 范围 8..50", { minimum: 8, maximum: 50, integer: true, defaultValue: 20 }),
         guidance: supportedParameter("number", "guidanceScale", "live schema 范围 1..10", { minimum: 1, maximum: 10, defaultValue: 4 }),
         quantity: supportedParameter("integer", "quantity", "单作业生成数量 1..10", { minimum: 1, maximum: 10, integer: true, defaultValue: 1 }),
-        modelVariant: supportedParameter("string", "model", "LTX 2.3 live 模型枚举", { enumValues: ["22b-dev", "22b-distilled"], defaultValue: "22b-dev" }),
+        modelVariant: supportedParameter("string", "model", "LTX 2.3 live 模型枚举；默认选择 22b-distilled（速度）", { enumValues: ["22b-dev", "22b-distilled"], defaultValue: "22b-distilled" }),
         ...(firstLast ? { frameGuideStrength: supportedParameter("number", "frameGuideStrength", "首尾帧引导强度 0..1", { minimum: 0, maximum: 1, defaultValue: 0.7 }) } : {}),
     });
 }
@@ -1416,6 +1416,8 @@ export function normalizeVideoCapabilityProfiles(value: unknown): Record<string,
 export function nativeVideoAdapterType(provider?: VideoCapabilityProvider) {
     if (!provider) return "";
     const explicit = String(provider.adapterType || "").trim().toLowerCase();
+    if (explicit === "ark-plan") return "ark";
+    if (explicit === "civitai") return "civitai-orchestration";
     if (explicit) return explicit === "agnes" || explicit === "dashscope" || explicit === "ark" || explicit === "civitai-orchestration" ? explicit : "";
     const baseUrl = String(provider.baseUrl || "").trim();
     try {
@@ -1438,9 +1440,12 @@ export function nativeVideoSubmissionAdapterType(provider: VideoCapabilityProvid
     const native = nativeVideoAdapterType(provider);
     if (native) return native;
     const explicit = String(provider?.adapterType || "").trim().toLowerCase();
-    if (explicit !== "openai") return "";
     const capability = resolveVideoModelCapability({ model, provider });
-    return capability.id === "openai-video" ? "openai" : "";
+    if (explicit === "openai") return capability.id === "openai-video" ? "openai" : "";
+    if ((explicit === "xai-imagine" || explicit === "xai") && capability.id === "xai-imagine-video") {
+        return "xai-imagine";
+    }
+    return "";
 }
 
 export function videoCapabilityProfileCompatibility(
@@ -1459,6 +1464,15 @@ export function videoCapabilityProfileCompatibility(
                 ? "openai"
                 : "";
     if (adapter === profile.provider) return { compatible: true, adapter, reason: "" };
+    // xai-imagine is the native Imagine serializer. The profile still records
+    // provider="openai" because the HTTP path is OpenAI-compatible; that must
+    // not fail-closed against the xAI adapter that actually owns this template.
+    if (
+      profileId === "xai-imagine-video" &&
+      (explicitAdapter === "xai-imagine" || explicitAdapter === "xai")
+    ) {
+      return { compatible: true, adapter: "openai", reason: "" };
+    }
     const selected = adapter || explicitAdapter || "OpenAI-compatible";
     return {
         compatible: false,
@@ -2210,7 +2224,10 @@ function arkProfileForModel(model: string): VideoCapabilityProfileId {
 }
 
 function civitaiProfileForModel(model: string): VideoCapabilityProfileId {
-    if (String(model || "").trim().toLowerCase() === "kling-v3") return "civitai-frames-or-references";
+    const shortModel = String(model || "").trim().toLowerCase();
+    if (shortModel === "kling-v3") return "civitai-frames-or-references";
+    if (shortModel === "ltx2.3" || shortModel === "ltx2-3") return "civitai-first-last";
+    if (shortModel === "hunyuan") return "civitai-text-video";
     return resolveCivitaiVideoMediaContract(model)?.profileId ?? "civitai-unknown";
 }
 

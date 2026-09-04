@@ -7,9 +7,25 @@ const BoundlessCanvasWorkspace = lazy(() => import("@/pages/boundless-canvas-wor
 export const Route = createFileRoute("/canvas/workspace")({
   ssr: false,
   pendingComponent: CanvasWorkspaceFallback,
-  validateSearch: (search: Record<string, unknown>): { id?: string } => ({
-    id: typeof search.id === "string" && search.id.length > 0 ? search.id : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>): {
+    id?: string;
+    kind?: "image" | "video" | "upload" | "prompt";
+    src?: string;
+    prompt?: string;
+    title?: string;
+    model?: string;
+  } => {
+    const id = typeof search.id === "string" && search.id.length > 0 ? search.id : undefined;
+    const kind =
+      search.kind === "image" || search.kind === "video" || search.kind === "upload" || search.kind === "prompt"
+        ? search.kind
+        : undefined;
+    const src = typeof search.src === "string" && search.src.startsWith("/") ? search.src : undefined;
+    const prompt = typeof search.prompt === "string" && search.prompt.trim() ? search.prompt : undefined;
+    const title = typeof search.title === "string" && search.title.trim() ? search.title : undefined;
+    const model = typeof search.model === "string" && search.model.trim() ? search.model : undefined;
+    return { id, kind, src, prompt, title, model };
+  },
   component: CanvasWorkspaceRoute,
 });
 

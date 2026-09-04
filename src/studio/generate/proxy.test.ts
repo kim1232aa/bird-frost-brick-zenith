@@ -155,7 +155,7 @@ test("studio proxy keeps JSON Accept by default and allows media Accept override
   };
 
   try {
-    const provider = { baseUrl: "https://relay.example.test/v1", apiKey: "sk-test", apiKeys: [] };
+    const provider = { id: "preset-grok-relay", baseUrl: "https://relay.example.test/v1", apiKey: "caller-key", apiKeys: [] };
     await studioProxyJson({ provider, path: "/chat/completions", method: "GET" });
     await studioProxyJson({
       provider,
@@ -165,10 +165,81 @@ test("studio proxy keeps JSON Accept by default and allows media Accept override
     });
 
     assert.equal(new Headers(requests[0]?.headers).get("accept"), "application/json");
+    assert.equal(new Headers(requests[0]?.headers).get("x-boundless-relay-id"), "preset-grok-relay");
+    assert.equal(new Headers(requests[0]?.headers).get("x-local-relay-base-url"), null);
+    assert.equal(new Headers(requests[0]?.headers).get("authorization"), null);
+    assert.equal(new Headers(requests[0]?.headers).get("x-api-key"), null);
+    assert.equal(JSON.stringify(requests[0]?.headers).includes("caller-key"), false);
     assert.equal(
       new Headers(requests[1]?.headers).get("accept"),
       "video/mp4, application/octet-stream;q=0.9, */*",
     );
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = previousWindow;
+  }
+});
+
+test("studio ordinary relay rejects a missing provider id before fetch", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  let fetchCount = 0;
+  (globalThis as { window?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout } }).window = {
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await assert.rejects(
+      studioProxyJson({
+        provider: { baseUrl: "https://relay.example.test/v1", apiKey: "caller-key", apiKeys: [] },
+        path: "/chat/completions",
+        method: "GET",
+      }),
+      /relay-id|中转 ID/i,
+    );
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = previousWindow;
+  }
+});
+
+test("studio built-in xAI sends neither provider key nor relay-id", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  let sent = new Headers();
+  (globalThis as { window?: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout } }).window = {
+    setTimeout: globalThis.setTimeout,
+    clearTimeout: globalThis.clearTimeout,
+  };
+  globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+    sent = new Headers(init?.headers);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await studioProxyJson({
+      provider: { baseUrl: "https://api.x.ai/v1", apiKey: "caller-key", apiKeys: [] },
+      path: "/chat/completions",
+      method: "GET",
+    });
+    assert.equal(sent.get("x-boundless-builtin"), "xai");
+    assert.equal(sent.get("x-boundless-relay-id"), null);
+    assert.equal(sent.get("authorization"), null);
+    assert.equal(sent.get("x-api-key"), null);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
@@ -313,4 +384,18 @@ test("JSON error bodies still surface the upstream payload", async () => {
       }),
     /insufficient_quota/,
   );
+});
+
+test("policy JSON errors show the message, not the raw object", async () => {
+  const { formatProviderError } = await import("./proxy.ts");
+  const raw = JSON.stringify({
+    error: {
+      code: "content_policy_violation",
+      message: "生成的图片可能违反了关于裸露、色情或情色内容的防护限制。",
+      type: "invalid_request_error",
+    },
+  });
+  const text = formatProviderError(400, raw);
+  assert.match(text, /防护限制/);
+  assert.doesNotMatch(text, /"code"/);
 });

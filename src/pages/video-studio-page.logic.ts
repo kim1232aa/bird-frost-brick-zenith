@@ -121,7 +121,7 @@ export function videoStudioReferenceControls(input: VideoStudioCapabilityInput):
   const host = String(provider.baseUrl || input.host || "").trim();
   const protocol = providerProtocol(provider, input.protocol);
   const capability = resolveVideoModelCapability({ model: input.model, provider });
-  if (civitai && capability.requiresExplicitProfile) {
+  if (civitai) {
     const normalizedModel = String(input.model || "").trim().toLowerCase();
     if (normalizedModel === "ltx2.3" || normalizedModel === "hunyuan") return civitaiVideoReferenceControls(input.model);
   }
@@ -435,6 +435,11 @@ export function buildVideoStudioGenerateFields(input: {
   const sampler = validateParameter("sampler", input.sampler) as string | undefined;
   const scheduler = validateParameter("scheduler", input.scheduler) as string | undefined;
   const usePro = validateParameter("usePro", input.usePro) as boolean | undefined;
+  const showAspectRatio = genericCompatibilityRelay
+    || capability.generationParameters.aspectRatio.status === "supported";
+  const ratio = showAspectRatio
+    ? validateParameter("aspectRatio", input.ratio) as string | undefined
+    : undefined;
   const dimensions = input.width !== undefined || input.height !== undefined
     ? validateParameter("dimensions", { width: input.width as number, height: input.height as number }) as { width: number; height: number } | undefined
     : undefined;
@@ -451,7 +456,8 @@ export function buildVideoStudioGenerateFields(input: {
     referenceControls,
     duration,
     durationOptions,
-    ratio: input.ratio,
+    showAspectRatio,
+    ratio,
     resolution,
     fps,
     loras: error ? undefined : buildVideoStudioLoras(controls.showLora, input.loras),

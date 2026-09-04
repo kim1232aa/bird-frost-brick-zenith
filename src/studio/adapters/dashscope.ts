@@ -250,6 +250,7 @@ export const dashscopeAdapter: StudioAdapter = {
         ],
         ...(input.json ? { response_format: { type: "json_object" } } : {}),
       },
+      timeoutMs: input.timeoutMs || 90_000,
     });
     const text = data.choices?.[0]?.message?.content?.trim() || "";
     if (!text) throw new Error("DashScope 没有返回文本");

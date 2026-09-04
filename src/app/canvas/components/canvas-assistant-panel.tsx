@@ -376,7 +376,7 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, sessions, activeS
                             <div className="text-lg font-semibold tracking-normal" style={{ color: theme.node.text }}>
                                 画布助手
                             </div>
-                            <div className="mt-2 max-w-[240px] text-sm leading-6 opacity-60">问节点、改提示词，或直接在这里出图，结果会落到画布上。</div>
+                            <div className="mt-2 max-w-full text-sm leading-6 opacity-60">问节点、改提示词，或直接在这里出图，结果会落到画布上。</div>
                         </div>
                     )}
                 </div>
@@ -425,7 +425,8 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, sessions, activeS
                                 danger
                                 type="primary"
                                 onClick={() => {
-                                    deleteChatIds.length === historySessions.length ? clearSessions() : removeSessions(deleteChatIds);
+                                    if (deleteChatIds.length === historySessions.length) clearSessions();
+                                    else removeSessions(deleteChatIds);
                                     setDeleteChatIds([]);
                                 }}
                             >
@@ -564,11 +565,11 @@ function AssistantComposer({
                                     {!imageOperationOptions.some((option) => option.value === imageOperation) ? <option value="" disabled>{imageOperationOptions.length ? "选择图片操作" : CANVAS_IMAGE_OPERATION_EMPTY_HINT}</option> : null}
                                     {imageOperationOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                                 </select>
-                                <ProviderModelPicker className="h-8 shrink-0" config={config} value={imageSelection} legacyValue={imageSelection ? "" : config.imageModel || config.model} onChange={(selection) => onProviderModelChange("image", selection)} capability="image" onMissingConfig={onMissingConfig} />
+                                <ProviderModelPicker className="min-h-8 h-auto shrink-0" config={config} value={imageSelection} legacyValue={imageSelection ? "" : config.imageModel || config.model} onChange={(selection) => onProviderModelChange("image", selection)} capability="image" onMissingConfig={onMissingConfig} />
                                 <CanvasImageSettingsPopover config={imageSettingsConfig} operation={imageOperation} placement="topRight" getPopupContainer={() => document.body} buttonClassName="canvas-composer-settings canvas-composer-icon !h-8 !min-w-8 !rounded-full !px-2" onConfigChange={onConfigChange} onMissingConfig={onMissingConfig} />
                             </>
                         ) : (
-                            <ProviderModelPicker className="h-8 shrink-0" config={config} value={textSelection} legacyValue={textSelection ? "" : config.textModel || config.model} onChange={(selection) => onProviderModelChange("text", selection)} capability="text" onMissingConfig={onMissingConfig} />
+                            <ProviderModelPicker className="min-h-8 h-auto shrink-0" config={config} value={textSelection} legacyValue={textSelection ? "" : config.textModel || config.model} onChange={(selection) => onProviderModelChange("text", selection)} capability="text" onMissingConfig={onMissingConfig} />
                         )}
                     </div>
                     <Button
@@ -587,7 +588,7 @@ function AssistantComposer({
                         </span>
                     </Button>
                 </div>
-                {imageOperationError ? <div role="alert" className="mt-2 text-xs text-red-400">{imageOperationError}</div> : null}
+                {imageOperationError && (Boolean(imageCapabilityError) || Boolean(prompt.trim()) || references.length > 0) ? <div role="alert" className="mt-2 text-xs text-red-400">{imageOperationError}</div> : null}
             </div>
         </div>
     );

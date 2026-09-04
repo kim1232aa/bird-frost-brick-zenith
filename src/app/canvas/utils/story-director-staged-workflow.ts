@@ -1,3 +1,4 @@
+import { createId } from "@/lib/create-id";
 import type {
   StoryReferenceSnapshot,
   StoryStageError,
@@ -73,7 +74,7 @@ export function createStoryStagedDraft(
   options: DraftOptions = {},
 ): StoryStagedDraft {
   const now = options.now || isoNow();
-  const draftId = options.draftId || crypto.randomUUID();
+  const draftId = options.draftId || createId();
   return {
     draftId,
     sourceDirectorNodeId: input.sourceDirectorNodeId,
@@ -247,7 +248,7 @@ export async function runStoryStageWithRetry(
 ): Promise<StoryStagedDraft> {
   const maxAttempts = 1 + (options.maxAutomaticRetries ?? 2);
   const getNow = options.now || isoNow;
-  let next = startStoryStage(draft, stageId, getNow());
+  const next = startStoryStage(draft, stageId, getNow());
   const stage = () => next.stages.find((item) => item.id === stageId) as StoryStageRecord;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     stage().attempt = attempt;

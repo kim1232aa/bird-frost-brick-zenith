@@ -81,6 +81,35 @@ test("LoRA and checkpoint controls follow official engine support, not a regex",
   assert.equal(seedream.quantityMax, 12);
 });
 
+test("Civitai short catalog engines keep published size so the studio shows aspect chips", () => {
+  const krea = imageStudioParamState("civitai", "krea2-turbo");
+  assert.equal(krea.showAspect, true);
+  assert.equal(krea.showQuality, false);
+
+  const payload = buildImageStudioGenerateFields({
+    family: "civitai",
+    model: "krea2-turbo",
+    mode: "t2i",
+    quality: "std",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: { width: 1280, height: 720 },
+  });
+  assert.equal(payload.error, undefined);
+  assert.equal(payload.width, 1280);
+  assert.equal(payload.height, 720);
+  assert.equal(payload.n, 1);
+
+  assert.equal(imageStudioParamState("civitai", "flux2-klein").showAspect, true);
+  assert.equal(imageStudioParamState("civitai", "civitai-grok").showAspect, true);
+  assert.equal(imageStudioParamState("civitai", "seedream-4.5").showAspect, true);
+});
+
 test("Seedream keeps its backend-supported seed control and wire value", () => {
   const seedream = imageStudioParamState("civitai", "seedream-4.5");
   assert.equal(seedream.showSeed, true);
@@ -217,6 +246,75 @@ test("xAI Imagine keeps the official 3-reference edit cap and n 1-10", () => {
     dims: DIMS,
   });
   assert.equal(generated.n, 10);
+  assert.equal(generated.quality, "medium");
+  const params = imageStudioParamState("grok", "grok-imagine-image-2.0", "t2i");
+  assert.equal(params.showAspect, true);
+  assert.equal(params.showQuality, true);
+  assert.deepEqual(params.qualityOptions, ["eco", "std"]);
+});
+
+test("Grok edit exposes only fields that its JSON edit contract actually forwards", () => {
+  const state = imageStudioParamState("grok", "grok-imagine-image-quality", "i2i");
+  assert.equal(state.showNegative, false);
+  assert.equal(state.showAspect, false);
+  assert.equal(state.showQuality, false);
+
+  const payload = buildImageStudioGenerateFields({
+    family: "grok",
+    model: "grok-imagine-image-quality",
+    mode: "i2i",
+    quality: "hq",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: ["https://example.test/mug.jpg"],
+    loras: [],
+    checkpointAir: "",
+    negativePrompt: "不要文字",
+    dims: { width: 1280, height: 720 },
+  });
+  assert.equal(payload.size, undefined);
+  assert.equal(payload.aspectRatio, undefined);
+  assert.equal(payload.width, undefined);
+  assert.equal(payload.height, undefined);
+  assert.equal(payload.negativePrompt, undefined);
+});
+
+test("Agnes and SenseNova send provider-valid image sizes instead of aspect labels", () => {
+  const agnes = buildImageStudioGenerateFields({
+    family: "agnes",
+    model: "agnes-image-2.1-flash",
+    mode: "t2i",
+    quality: "std",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(agnes.size, "2K");
+  assert.equal(agnes.aspectRatio, "16:9");
+
+  const sensenova = buildImageStudioGenerateFields({
+    family: "sensenova",
+    model: "sensenova-u1-fast",
+    mode: "t2i",
+    quality: "std",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(sensenova.size, "2752x1536");
+  assert.equal(sensenova.aspectRatio, undefined);
 });
 
 test("quantity chips snap to the engine max instead of a hard 4", () => {

@@ -121,11 +121,10 @@ export function readImageMeta(dataUrl: string) {
     return new Promise<{ width: number; height: number; mimeType: string }>((resolve, reject) => {
         const image = new Image();
         let settled = false;
-        let timer: ReturnType<typeof setTimeout> | undefined;
         const finish = (callback: () => void) => {
             if (settled) return;
             settled = true;
-            if (timer !== undefined) clearTimeout(timer);
+            clearTimeout(timer);
             image.onload = null;
             image.onerror = null;
             callback();
@@ -142,7 +141,7 @@ export function readImageMeta(dataUrl: string) {
             }));
         };
         image.onerror = () => finish(() => reject(new Error("图片元数据读取失败，请确认图片内容有效后重试")));
-        timer = setTimeout(() => finish(() => reject(new Error("图片元数据读取超时，请确认图片内容有效后重试"))), 3000);
+        const timer = setTimeout(() => finish(() => reject(new Error("图片元数据读取超时，请确认图片内容有效后重试"))), 3000);
         image.src = dataUrl;
     });
 }

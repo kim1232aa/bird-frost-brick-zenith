@@ -25,6 +25,9 @@ export type ImageStudioParamState = {
   quantityOptions: number[];
   showSeed: boolean;
   showNegative: boolean;
+  showAspect: boolean;
+  showQuality: boolean;
+  qualityOptions: Array<"eco" | "std" | "hq">;
   referencesSupported: boolean;
   referenceMin: number;
   referenceMax: number | null;
@@ -180,6 +183,14 @@ const GPT_IMAGE_2_LONG_SIDE: Record<"eco" | "std" | "hq", number> = {
 const GPT_IMAGE_LEGACY_LANDSCAPE_SIZE = "1536x1024";
 const GPT_IMAGE_LEGACY_PORTRAIT_SIZE = "1024x1536";
 const GPT_IMAGE_DEFAULT_SIZE = "1024x1024";
+const AGNES_IMAGE_SIZES = new Set(["1K", "2K", "3K", "4K"]);
+const SENSENOVA_IMAGE_SIZE_BY_ASPECT: Record<string, string> = {
+  "1:1": "2048x2048",
+  "16:9": "2752x1536",
+  "9:16": "1536x2752",
+  "3:4": "1760x2368",
+  "4:3": "2368x1760",
+};
 
 function isGptImage2Model(model: string) {
   const key = String(model || "").trim().toLowerCase();
@@ -295,6 +306,24 @@ export function resolveImageStudioFamily(selection: string, adapterType?: string
   return "generic";
 }
 
+function qualityOptionsForCapability(
+  family: ImageStudioFamily,
+  capability: ReturnType<typeof studioImageCapability>,
+): Array<"eco" | "std" | "hq"> {
+  if (family === "gpt" && capability.quality.state === "supported") {
+    return ["eco", "std", "hq"];
+  }
+  if (
+    family === "grok"
+    && capability.quality.state === "supported"
+    && capability.quality.values.includes("low")
+    && capability.quality.values.includes("medium")
+  ) {
+    return ["eco", "std"];
+  }
+  return [];
+}
+
 export function imageStudioParamState(
   family: ImageStudioFamily,
   model: string,
@@ -303,9 +332,11 @@ export function imageStudioParamState(
   provider?: ImageCapabilityProvider,
 ): ImageStudioParamState {
   const civitai = family === "civitai";
+  const capability = studioImageCapability({ family, model, mode, adapterType, provider });
   const loraShape: CivitaiLoraShape | undefined = civitai ? civitaiImageLoraShape(model) : undefined;
   const quantityMax = capabilityQuantityMax(family, model, mode, adapterType, provider);
   const references = capabilityReferenceState(family, model, mode, adapterType, provider);
+  const qualityOptions = qualityOptionsForCapability(family, capability);
   return {
     showLora: Boolean(loraShape),
     loraShape,
@@ -315,7 +346,12 @@ export function imageStudioParamState(
     // Seedream's official imageGen input accepts an int32 seed; only the Grok
     // engine lacks a seed field in the adapter body.
     showSeed: civitai && model !== "civitai-grok",
-    showNegative: civitai ? CIVITAI_NEGATIVE_MODELS.has(model) : true,
+    showNegative: civitai
+      ? CIVITAI_NEGATIVE_MODELS.has(model)
+      : capability.advancedFields.negativePrompt.state === "supported",
+    showAspect: capability.size.state === "supported",
+    showQuality: qualityOptions.length > 0,
+    qualityOptions,
     ...references,
   };
 }
@@ -410,15 +446,27 @@ export function buildImageStudioGenerateFields(input: {
         ? input.size
         : input.family === "gpt"
           ? gptImageSize(input.model, input.quality, input.aspect)
-          : input.family === "agnes" || input.family === "sensenova"
-            ? input.aspect
-            : input.size,
-    aspectRatio: input.aspect,
-    width: input.family === "civitai" || input.family === "grok" ? dims.width : undefined,
-    height: input.family === "civitai" || input.family === "grok" ? dims.height : undefined,
+          : input.family === "agnes"
+            ? AGNES_IMAGE_SIZES.has(input.size) ? input.size : "2K"
+            : input.family === "sensenova"
+              ? SENSENOVA_IMAGE_SIZE_BY_ASPECT[input.aspect] || "2048x2048"
+              : input.family === "grok"
+                ? params.showAspect ? input.size : undefined
+                : input.size,
+    aspectRatio:
+      input.family === "grok" && !params.showAspect || input.family === "sensenova"
+        ? undefined
+        : input.aspect,
+    width: input.family === "civitai" ? dims.width : undefined,
+    height: input.family === "civitai" ? dims.height : undefined,
     seed: params.showSeed && input.seed ? Number(input.seed) : undefined,
     n: count,
-    quality: input.family === "gpt" ? gptImageQuality(input.quality) : undefined,
+    quality:
+      input.family === "gpt"
+        ? gptImageQuality(input.quality)
+        : input.family === "grok" && /^grok-imagine-image-2\.0(?:-|$)/i.test(input.model) && input.mode === "t2i"
+          ? input.quality === "eco" ? "low" : "medium"
+          : undefined,
     imageUrl: refs[0],
     imageUrls: refs,
     loras: error ? undefined : buildImageStudioLoras(params.showLora, input.loras),

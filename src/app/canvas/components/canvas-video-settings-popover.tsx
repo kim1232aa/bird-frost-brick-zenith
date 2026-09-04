@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
-import { Button } from "antd";
+import { App, Button } from "antd";
 
 import { VideoSettingsPanel, videoSettingsSummary } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import {
+    flushConfigStore,
+    persistApiSettingsBeforeClose,
     useConfigStore,
     writeVideoGenerationSettings,
     type AiConfig,
@@ -26,13 +28,34 @@ type CanvasVideoSettingsPopoverProps = {
     placement?: "topLeft" | "top" | "topRight" | "bottomLeft" | "bottom" | "bottomRight";
 };
 
-export function CanvasVideoSettingsPopover({ config, onConfigChange, onGenerationSettingsChange, operation, buttonClassName, placement = "topLeft" }: CanvasVideoSettingsPopoverProps) {
+export function CanvasVideoSettingsPopover({ config, onGenerationSettingsChange, operation, buttonClassName, placement = "topLeft" }: CanvasVideoSettingsPopoverProps) {
+    const { message } = App.useApp();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const updateGlobalConfig = useConfigStore((state) => state.updateConfig);
     const buttonRef = useRef<HTMLSpanElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const closeInFlightRef = useRef(false);
     const [open, setOpen] = useState(false);
     const [buttonRect, setButtonRect] = useState<DOMRect | null>(null);
+    const requestOpen = useCallback((nextOpen: boolean) => {
+        if (nextOpen) {
+            setOpen(true);
+            return;
+        }
+        if (!useConfigStore.getState().config.imageHostApiKey.trim()) {
+            setOpen(false);
+            return;
+        }
+        if (closeInFlightRef.current) return;
+        closeInFlightRef.current = true;
+        void persistApiSettingsBeforeClose(
+            flushConfigStore,
+            () => setOpen(false),
+            (error) => { message.error(error); },
+        ).finally(() => {
+            closeInFlightRef.current = false;
+        });
+    }, [message]);
 
     useEffect(() => {
         if (!open) return;
@@ -41,7 +64,8 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, onGeneratio
             const target = event.target;
             if (!(target instanceof Node)) return;
             if (buttonRef.current?.contains(target) || panelRef.current?.contains(target)) return;
-            setOpen(false);
+            if (document.activeElement instanceof HTMLElement && panelRef.current?.contains(document.activeElement)) document.activeElement.blur();
+            requestOpen(false);
         };
 
         syncPosition();
@@ -53,12 +77,13 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, onGeneratio
             window.removeEventListener("scroll", syncPosition, true);
             window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
         };
-    }, [open]);
+    }, [open, requestOpen]);
 
     const handleConfigChange = (key: keyof AiConfig, value: string) => {
         if (key === "imageHostBaseUrl" || key === "imageHostApiKey") {
+            // Image-host credentials are global transient inputs and must never
+            // be forwarded into persisted node metadata.
             updateGlobalConfig(key, value);
-            onConfigChange(key, value);
         }
     };
     const handleGenerationSettingsChange = (settings: VideoGenerationSettings, scope: VideoGenerationSettingsScope, capabilityId: string) => {
@@ -72,7 +97,7 @@ export function CanvasVideoSettingsPopover({ config, onConfigChange, onGeneratio
     return (
         <>
             <span ref={buttonRef} className="inline-flex min-w-0">
-                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => setOpen((current) => !current)}>
+                <Button size="small" type="text" className={buttonClassName || "!h-8 !max-w-[170px] !justify-start !rounded-full !px-2.5"} style={{ background: theme.node.fill, color: theme.node.text }} icon={<Settings2 className="size-3.5" />} onClick={() => requestOpen(!open)}>
                     <span className="truncate">
                         {videoSettingsSummary(config, operation)}
                     </span>

@@ -42,7 +42,7 @@ const GROK_VIDEO_PROFILES = {
 const GROK_IMAGE_PROFILES = {
   "grok-imagine-image": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
   "grok-imagine-image-quality": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
-  "grok-imagine-image-2.0": { generate: "xai-grok-image-generate" as const, edit: "xai-grok-imagine-edit" as const },
+  "grok-imagine-image-2.0": { generate: "xai-grok-imagine-2-generate" as const, edit: "xai-grok-imagine-2-edit" as const },
 };
 
 /**
@@ -232,18 +232,11 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: VOLCENGINE_ARK_KEY,
     enabled: Boolean(VOLCENGINE_ARK_KEY),
     capabilities: ["image", "video"],
-    remark: "官方 Agent Plan /api/plan/v3。生图 Seedream 5.0 Lite 已实测。视频需 Medium+。",
-    models: [
-      "doubao-seedream-5.0-lite",
-      "doubao-seedream-5.0",
-      "doubao-seedance-1.5-pro",
-      "doubao-seedance-2.0",
-      "doubao-seedance-2.0-fast",
-      "doubao-seedance-2.0-mini",
-    ],
+    remark: "官方 Agent Plan /api/plan/v3。生图 Seedream 5.0 Lite 已实测；当前仅暴露已配置 serializer 的 Seedance 1.5 视频。",
+    models: ["doubao-seedream-5.0-lite", "doubao-seedream-5.0", "doubao-seedance-1.5-pro"],
     textModels: [],
     imageModels: ["doubao-seedream-5.0-lite", "doubao-seedream-5.0"],
-    videoModels: ["doubao-seedance-1.5-pro", "doubao-seedance-2.0", "doubao-seedance-2.0-fast", "doubao-seedance-2.0-mini"],
+    videoModels: ["doubao-seedance-1.5-pro"],
     audioModels: [],
     endpoints: { images: "/images/generations", videosCreate: "/contents/generations/tasks", videosPoll: "/contents/generations/tasks/{id}" },
   },
@@ -356,7 +349,7 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
     apiKey: AGNES_KEY,
     enabled: Boolean(AGNES_KEY),
     capabilities: ["text", "image", "video"],
-    remark: "官方 apihub 当前账号能拉到的全部模型。生图 2.1 Flash（1K–4K）；视频 2.5 / 2.5 Flash / v2.0。",
+    remark: "官方 apihub。生图 2.1 Flash（1K–4K）；当前仅暴露已配置 serializer 的视频 v2.0。",
     models: [
       "agnes-2.5-pro",
       "agnes-2.5-pro-beta",
@@ -365,21 +358,17 @@ export const STUDIO_PROVIDERS: StudioProviderBlueprint[] = [
       "agnes-2.0-flash",
       "agnes-image-2.1-flash",
       "agnes-image-2.0-flash",
-      "agnes-video-2.5",
-      "agnes-video-2.5-flash",
       "agnes-video-v2.0",
     ],
     textModels: ["agnes-2.5-pro", "agnes-2.5-pro-beta", "agnes-2.5-pro-alpha", "agnes-2.5-flash", "agnes-2.0-flash"],
     imageModels: ["agnes-image-2.1-flash", "agnes-image-2.0-flash"],
-    videoModels: ["agnes-video-2.5", "agnes-video-2.5-flash", "agnes-video-v2.0"],
+    videoModels: ["agnes-video-v2.0"],
     audioModels: [],
     imageCapabilityProfiles: {
       "agnes-image-2.1-flash": { generate: "agnes-image-2.1-generate", edit: "agnes-image-2.1-edit" },
       "agnes-image-2.0-flash": { generate: "agnes-image-2.0-generate", edit: "agnes-image-2.0-edit" },
     },
     videoCapabilityProfiles: {
-      "agnes-video-2.5-flash": "agnes-video-v2",
-      "agnes-video-2.5": "agnes-video-v2",
       "agnes-video-v2.0": "agnes-video-v2",
     },
     endpoints: { chat: "/chat/completions", images: "/images/generations", videosCreate: "/videos", videosPoll: "/agnesapi?video_id={id}" },

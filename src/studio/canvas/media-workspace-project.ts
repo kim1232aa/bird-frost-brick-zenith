@@ -3,6 +3,7 @@
 export type MediaCanvasKind = "image" | "video" | "upload" | "prompt";
 
 export type MediaCanvasPayload = {
+  id?: string;
   kind: MediaCanvasKind;
   url?: string;
   urls?: string[];
@@ -11,6 +12,56 @@ export type MediaCanvasPayload = {
   text?: string;
   title?: string;
 };
+
+export type CanvasWorkspaceMediaSearch = {
+  id: string;
+  kind?: MediaCanvasKind;
+  src?: string;
+  prompt?: string;
+  title?: string;
+  model?: string;
+};
+
+const DURABLE_CANVAS_MEDIA = /^\/(?:works|gallery)\//;
+
+export function isDurableCanvasMediaUrl(value?: string) {
+  const url = String(value || "").trim();
+  return DURABLE_CANVAS_MEDIA.test(url);
+}
+
+export function canvasWorkspaceSearchFromMedia(id: string, payload: MediaCanvasPayload): CanvasWorkspaceMediaSearch {
+  const search: CanvasWorkspaceMediaSearch = { id };
+  const src = uniqueUrls(payload).find(isDurableCanvasMediaUrl);
+  if (!src) return search;
+  search.kind = payload.kind;
+  search.src = src;
+  const prompt = (payload.prompt || payload.text || "").trim();
+  if (prompt) search.prompt = prompt.slice(0, 200);
+  const title = (payload.title || "").trim();
+  if (title) search.title = title.slice(0, 80);
+  const model = (payload.model || "").trim();
+  if (model) search.model = model;
+  return search;
+}
+
+export function mediaPayloadFromWorkspaceSearch(search: CanvasWorkspaceMediaSearch | undefined | null): MediaCanvasPayload | null {
+  const src = String(search?.src || "").trim();
+  if (!search?.id || !isDurableCanvasMediaUrl(src)) return null;
+  const kind: MediaCanvasKind =
+    search.kind === "video" || search.kind === "image" || search.kind === "upload" || search.kind === "prompt"
+      ? search.kind
+      : src.endsWith(".mp4")
+        ? "video"
+        : "image";
+  return {
+    kind,
+    url: src,
+    prompt: search.prompt,
+    title: search.title,
+    model: search.model,
+    text: search.prompt,
+  };
+}
 
 const IMAGE_SIZE = { width: 340, height: 240 };
 const VIDEO_SIZE = { width: 420, height: 236 };
@@ -64,6 +115,13 @@ function uniqueUrls(payload: MediaCanvasPayload) {
 
 function caption(payload: MediaCanvasPayload) {
   return (payload.title || payload.prompt || payload.text || "").trim();
+}
+
+function compactCanvasTitle(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  const boundarySafe = normalized.slice(0, maxLength).replace(/\s+\S*$/u, "").trim();
+  return `${boundarySafe || normalized.slice(0, maxLength)}…`;
 }
 
 function imageNode(input: { title: string; url: string; prompt?: string; model?: string; x: number; y: number }): MediaCanvasNode {
@@ -124,7 +182,7 @@ function textNode(input: { title: string; text: string; prompt?: string; model?:
 }
 
 export function mediaCanvasProjectTitle(payload: MediaCanvasPayload) {
-  const hint = caption(payload).slice(0, 12);
+  const hint = compactCanvasTitle(caption(payload), 24);
   if (payload.kind === "video") return `视频 ${hint || "导入"}`;
   if (payload.kind === "prompt") return `提示 ${hint || "导入"}`;
   if (payload.kind === "upload") return `上传 ${hint || "导入"}`;

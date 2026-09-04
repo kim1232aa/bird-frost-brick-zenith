@@ -30,6 +30,7 @@ import { canvasViewportRuntime } from "../utils/canvas-viewport-runtime";
 import {
     normalizeSeedance2AspectRatio,
     seedance2PlaceholderSize,
+    submittedSeedance2ResultRatio,
 } from "../utils/seedance2-workflow";
 import { SEEDANCE2_PORTRAIT_MIN_SIZE, seedance2RatioFromNodeFrame } from "../utils/seedance2-responsive-layout";
 import {
@@ -53,6 +54,7 @@ import {
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
 import { resolveCanvasGenerationModelSelection } from "../utils/canvas-generation-model";
 import { resolveCanvasVideoModelCapability } from "../utils/canvas-video-capability";
+import { canvasVideoAspectRatioLabel, canvasVideoDurationLabel, canvasVideoModelLabel } from "../utils/canvas-video-result-display";
 import { isCanvasOverlayTarget } from "../utils/canvas-overlay-popup";
 import { isVideoTaskSnapshotLocked } from "../utils/canvas-video-task-edit-lock";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
@@ -841,14 +843,33 @@ function VideoNodeContent({ node, theme, mentionReferences, seedance2AspectRatio
     }, [node.id, selectedVersionId, seedance2ResultVersions]);
     const displayNode = isVersionedResult ? selectedVersion : node;
     const displayMetadata = displayNode.metadata || {};
+    const [loadedDuration, setLoadedDuration] = useState<number | null>(null);
+    const [loadedRatio, setLoadedRatio] = useState("");
+    useEffect(() => {
+        setLoadedDuration(null);
+        setLoadedRatio("");
+    }, [displayNode.id, displayMetadata.content]);
     if (!node.metadata?.content) {
         if (node.metadata?.seedanceWorkflowRole === "placeholder")
             return <Seedance2VideoPlaceholderCard node={node} theme={theme} mentionReferences={mentionReferences} aspectRatioSources={seedance2AspectRatioSources} seedance2ReferenceSlots={seedance2ReferenceSlots} referenceVideos={referenceVideos} isRunning={Boolean(isRunning)} onContentChange={onContentChange} onMetadataChange={onMetadataChange} onDeleteConnection={onDeleteConnection} onUpdateConnectionUseAs={onUpdateConnectionUseAs} onGenerateVideo={onGenerateVideo} />;
         return <GenericEmptyVideoContent node={node} theme={theme} isRunning={Boolean(isRunning)} onGenerateVideo={onGenerateVideo} onRetry={onRetry} />;
     }
     const version = Number(displayMetadata.seedanceVersion || 1);
-    const duration = String(displayMetadata.seedanceDuration || displayMetadata.seconds || "").trim();
-    const ratio = normalizeSeedance2AspectRatio(displayMetadata.seedanceRatio || displayMetadata.size);
+    const duration = canvasVideoDurationLabel({
+        ...displayMetadata,
+        ...(loadedDuration !== null ? { seconds: loadedDuration } : {}),
+    });
+    const modelLabel = canvasVideoModelLabel(displayMetadata);
+    const ratio = loadedRatio || submittedSeedance2ResultRatio({
+        paramsSnapshot: {
+            aspectRatio:
+                displayMetadata.videoWireFormat?.aspectRatio ||
+                displayMetadata.videoGenerationSettings?.aspectRatio,
+            wireFormat: displayMetadata.videoWireFormat,
+            settings: displayMetadata.videoGenerationSettings,
+        },
+        sourcePlaceholder: displayNode,
+    });
     const wireFormat = videoWireFormatLabel(displayMetadata);
     const previewUrl = displayMetadata.backendUrl || displayMetadata.content;
     const versionIndex = seedance2ResultVersions.findIndex((candidate) => candidate.id === displayNode.id);
@@ -884,7 +905,22 @@ function VideoNodeContent({ node, theme, mentionReferences, seedance2AspectRatio
     return (
         <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[18px] bg-black">
             <div className="min-h-0 flex-1">
-                <video key={displayNode.id} ref={videoRef} src={displayMetadata.content} controls crossOrigin="anonymous" draggable={false} onDragStart={(event) => event.preventDefault()} className="h-full w-full bg-black object-contain" data-canvas-no-zoom />
+                <video
+                    key={displayNode.id}
+                    ref={videoRef}
+                    src={displayMetadata.content}
+                    controls
+                    crossOrigin="anonymous"
+                    draggable={false}
+                    onDragStart={(event) => event.preventDefault()}
+                    onLoadedMetadata={(event) => {
+                        const media = event.currentTarget;
+                        if (Number.isFinite(media.duration) && media.duration > 0) setLoadedDuration(media.duration);
+                        setLoadedRatio(canvasVideoAspectRatioLabel(media.videoWidth, media.videoHeight));
+                    }}
+                    className="h-full w-full bg-black object-contain"
+                    data-canvas-no-zoom
+                />
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t border-white/10 bg-[#050817] px-3 py-2 text-[10px] text-white/75" data-canvas-no-drag data-canvas-no-zoom>
                 {seedance2ResultVersions.length > 1 ? (
@@ -898,7 +934,8 @@ function VideoNodeContent({ node, theme, mentionReferences, seedance2AspectRatio
                         下一版
                     </button>
                 ) : null}
-                <span className="rounded-full bg-white/10 px-3 py-1 font-semibold">{duration ? `${duration}s` : "provider 默认/未验证"}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1 font-semibold" title="成片模型来源">{modelLabel}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1 font-semibold" title="成片时长">{duration}</span>
                 {displayMetadata.videoLayoutRatio ? (
                     <span className="rounded-full bg-white/10 px-3 py-1 font-semibold" title="画布布局比例：仅用于画布排版/提示词，不作为 Agnes API 参数">
                         画布布局比例 {displayMetadata.videoLayoutRatio}
@@ -1333,7 +1370,10 @@ function seedance2PlaceholderDurationLabel(metadata: CanvasNodeData["metadata"])
     if (!isAgnesSnapshot && settings?.duration !== undefined && String(settings.duration).trim()) return `${settings.duration} 秒`;
     if (settings && metadata?.videoGenerationScope?.providerId && metadata.videoGenerationScope.model) return "provider 默认";
     const legacySeconds = String(metadata?.seconds || metadata?.seedanceDuration || "").trim();
-    return legacySeconds ? `旧节点 ${legacySeconds}s（只读）` : "provider 默认/未验证";
+    if (!legacySeconds) return "provider 默认/未验证";
+    return isStandaloneSeedance2VideoPlaceholder(metadata)
+        ? `${legacySeconds} 秒`
+        : `旧节点 ${legacySeconds}s（只读）`;
 }
 
 function buildSeedance2PlaceholderVideoSettingsConfig(globalConfig: AiConfig, node: CanvasNodeData): AiConfig {
@@ -1426,8 +1466,8 @@ function Seedance2StandaloneVideoModelControl({ node, theme, className = "", onM
 
 function Seedance2StandaloneVideoSettingsControl({ node, theme, effectiveConfig, onMetadataChange, className = "", compact = false }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; effectiveConfig: AiConfig; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void; className?: string; compact?: boolean }) {
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const selectedModel = String(node.metadata?.seedanceModel || node.metadata?.model || "").trim();
     const modelSelectionState = resolveCanvasGenerationModelSelection(effectiveConfig, node.metadata, "video");
+    const selectedModel = String(modelSelectionState.selection?.model || modelSelectionState.legacyModel || "").trim();
     let exactRoute: ReturnType<typeof resolveApiRequestRoute> | undefined;
     let routeError = "";
     if (selectedModel) {
@@ -1438,7 +1478,7 @@ function Seedance2StandaloneVideoSettingsControl({ node, theme, effectiveConfig,
         }
     }
     const exactLocalRoute = exactRoute?.mode === "local" ? exactRoute : undefined;
-    const settingsAccess = standaloneVideoSettingsAccess(selectedModel, Boolean(exactLocalRoute?.provider.id && exactLocalRoute.model));
+    const settingsAccess = standaloneVideoSettingsAccess(modelSelectionState.selection || modelSelectionState.legacyModel, Boolean(exactLocalRoute?.provider.id && exactLocalRoute.model));
     const snapshotScope = node.metadata?.videoGenerationScope;
     const snapshotMatchesRoute = Boolean(snapshotScope && exactLocalRoute && snapshotScope.providerId === exactLocalRoute.provider.id && snapshotScope.model === exactLocalRoute.model);
     const settingsCapability = exactLocalRoute
@@ -3625,9 +3665,9 @@ function resolveSeedance2PlaceholderRatio(node: CanvasNodeData, sources: Seedanc
         node.metadata?.seedanceInheritSourceRatio !== false &&
         !node.metadata?.seedanceRatioTouched;
     if (followsSource) {
-        return sourceRatio || currentShotRatio || upstreamNaturalRatio || seedanceRatio || metadataSize || "9:16";
+        return sourceRatio || currentShotRatio || upstreamNaturalRatio || seedanceRatio || metadataSize || "16:9";
     }
-    return seedanceRatio || metadataSize || "9:16";
+    return seedanceRatio || metadataSize || "16:9";
 }
 
 function normalizeSeedance2PlaceholderRatio(value?: string | null) {

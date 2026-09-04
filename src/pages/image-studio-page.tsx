@@ -11,7 +11,7 @@ import { useStudioHistory } from "@/studio/history";
 import { useMediaDraft } from "@/studio/media-draft";
 import { filesToDataUrls, mergeImageRefs } from "@/studio/image-refs";
 import { useMembershipStore } from "@/studio/membership";
-import { liveCatalog, liveCard, useOpsStore } from "@/studio/ops";
+import { liveCatalog, liveCard, modelPoints, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
 import { preferredImageKey, preferredTextKey, StudioModelField } from "@/studio/model-select";
 import { IMAGE_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
@@ -122,7 +122,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "image"), []);
   const studioModel = card?.model || selectedModel || "";
   const civitaiModel = family === "civitai" ? studioModel : "";
-  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showSeed, referenceMin, referenceMax, referencesSupported } = imageStudioParamState(
+  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showAspect, showQuality, qualityOptions, showSeed, referenceMin, referenceMax, referencesSupported } = imageStudioParamState(
     family,
     studioModel,
     mode,
@@ -149,6 +149,11 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   useEffect(() => {
     if (family === "ark") setSize(quality === "hq" ? "3K" : "2K");
   }, [quality, family]);
+
+  useEffect(() => {
+    if (!qualityOptions.length || qualityOptions.includes(quality)) return;
+    setQuality(qualityOptions.includes("std") ? "std" : qualityOptions[0]);
+  }, [quality, qualityOptions]);
 
   const dims = useMemo(() => {
     const base = ASPECTS[aspect] || ASPECTS["1:1"];
@@ -245,7 +250,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       setBusy("正在写入结果…");
       setUrls(result.urls);
       record("image");
-      addHistory({ kind: "image", title: prompt.slice(0, 40), prompt, model: result.model, urls: result.urls });
+      addHistory({ kind: "image", title: prompt.slice(0, 40), prompt, model: result.model, providerId: result.providerId, urls: result.urls });
       succeedJob(jobId, result.urls);
       setBusy("");
     } catch (err) {
@@ -272,7 +277,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const sendCanvas = () => {
     const kind = urls[0] ? "image" : "prompt";
     dropToCanvas({ kind, url: urls[0] || undefined, prompt, model: selection, text: prompt });
-    const id = pushMediaToCanvasWorkspace({
+    const search = pushMediaToCanvasWorkspace({
       kind,
       url: urls[0] || undefined,
       urls,
@@ -280,13 +285,12 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       model: selection,
       text: prompt,
     });
-    void navigate({ to: "/canvas/workspace", search: { id } });
+    void navigate({ to: "/canvas/workspace", search });
   };
 
-  const unitCost = family === "ark" ? (size === "3K" ? 2 : 1) : quality === "hq" ? 2 : 1;
-  const creditCost = unitCost * count;
+  const creditCost = modelPoints(selection) * count;
   const disabledReason = busy
-    ? busy
+    ? ""
     : access.blockedReason
       ? access.blockedReason
       : !prompt.trim()
@@ -299,9 +303,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             ? generateBlockReason
             : selectedLive && !selectedLive.wired
               ? `${card?.model || "该模型"} 待接线，换一个已填密钥的，或去设置填 Key`
-              : remaining < creditCost
-                ? `积分不足，需要 ${creditCost} 点`
-                : "";
+              : studioGenerateCreditGate("image", creditCost);
 
   const hero =
     mode === "edit"
@@ -426,7 +428,8 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
           {showLora ? " · 可加风格插件" : ""}
           {showSeed ? " · 可填种子" : ""}
           {needsCheckpoint ? " · 必填 checkpoint AIR" : ""}
-          {family === "ark" ? ` · ${size}` : ` · ${quality === "eco" ? "省一点" : quality === "hq" ? "更清楚" : "普通"}`}
+          {family === "ark" ? ` · ${size}` : showAspect ? ` · ${aspect}` : ""}
+          {family !== "ark" && showQuality ? ` · ${quality === "eco" ? "省一点" : quality === "hq" ? "更清楚" : "普通"}` : ""}
         </p>
         <div className="bp-params-col">
           {family === "ark" ? (
@@ -439,24 +442,28 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
             </div>
           ) : (
             <>
-              <div className="aspect-grid">
-                {Object.keys(ASPECTS).map((item) => {
-                  const box = aspectBox(item);
-                  return (
-                    <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
-                      <span className="aspect-preview" style={box} />
-                      {item}
+              {showAspect ? (
+                <div className="aspect-grid">
+                  {Object.keys(ASPECTS).map((item) => {
+                    const box = aspectBox(item);
+                    return (
+                      <button key={item} type="button" className={aspect === item ? "is-active" : undefined} onClick={() => setAspect(item)}>
+                        <span className="aspect-preview" style={box} />
+                        {item}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {showQuality ? (
+                <div className="studio-seg">
+                  {qualityOptions.map((item) => (
+                    <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
+                      {item === "eco" ? "省一点 · 1 点" : item === "hq" ? "更清楚 · 2 点" : "普通 · 1 点"}
                     </button>
-                  );
-                })}
-              </div>
-              <div className="studio-seg">
-                {(["eco", "std", "hq"] as const).map((item) => (
-                  <button key={item} type="button" className={quality === item ? "is-active" : undefined} onClick={() => setQuality(item)}>
-                    {item === "eco" ? "省一点 · 1 点" : item === "hq" ? "更清楚 · 2 点" : "普通 · 1 点"}
-                  </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : null}
             </>
           )}
           <div className="studio-seg">
@@ -533,7 +540,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
           ) : null}
         </div>
         <div className="bp-cta">
-          <button type="button" className="bp-generate bp-generate-image" disabled={Boolean(disabledReason)} onClick={() => void generate()}>
+          <button type="button" className="bp-generate bp-generate-image" disabled={Boolean(busy || disabledReason)} onClick={() => void generate()}>
             <span>{busy ? busy : mode === "edit" ? "开始编辑" : "生成图片"}</span>
             <small>{disabledReason || `${creditCost} 点 · 剩余 ${remaining}`}</small>
           </button>
@@ -610,7 +617,14 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                     if (item.prompt) setPrompt(item.prompt);
                   }}
                 >
-                  <img src={item.urls[0]} alt={item.title} />
+                  <img
+                    src={item.urls[0]}
+                    alt={item.title}
+                    referrerPolicy="no-referrer"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
                   <span>
                     {item.title}
                     <br />

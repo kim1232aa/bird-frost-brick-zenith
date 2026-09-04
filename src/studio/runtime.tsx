@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { flushConfigStore, hydrateImageHostCredential, useConfigStore } from "@/stores/use-config-store";
 import { bootstrapStudioAuth, useAccountStore } from "@/studio/account";
 import { useStudioHistory } from "@/studio/history";
 import { useStudioSession } from "@/studio/session";
@@ -30,6 +31,7 @@ export function StudioRuntime({ children }: { children: ReactNode }) {
     const unsub = persist.onFinishHydration(run);
     const flush = () => {
       void useStudioSession.getState().flushVault();
+      void flushConfigStore().catch(() => undefined);
     };
     window.addEventListener("pagehide", flush);
     document.addEventListener("visibilitychange", flush);
@@ -38,6 +40,15 @@ export function StudioRuntime({ children }: { children: ReactNode }) {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", flush);
     };
+  }, []);
+
+  useEffect(() => {
+    const persist = useConfigStore.persist;
+    const run = () => {
+      void hydrateImageHostCredential();
+    };
+    if (persist.hasHydrated()) run();
+    return persist.onFinishHydration(run);
   }, []);
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;

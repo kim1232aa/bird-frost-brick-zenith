@@ -29,7 +29,10 @@ export function isStandaloneSeedance2VideoPlaceholder(metadata: {
     return metadata?.seedanceWorkflowRole === "placeholder" && !metadata.seedanceWorkflowNodeId;
 }
 
-export function standaloneVideoSettingsAccess(model: string, hasExactRoute: boolean) {
-    if (!model.trim()) return "select-model" as const;
+export function standaloneVideoSettingsAccess(modelOrSelection: string | ProviderModelSelection | null | undefined, hasExactRoute: boolean) {
+    const model = typeof modelOrSelection === "string"
+        ? modelOrSelection.trim()
+        : String(modelOrSelection?.model || "").trim();
+    if (!model) return "select-model" as const;
     return hasExactRoute ? "ready" as const : "route-unavailable" as const;
 }

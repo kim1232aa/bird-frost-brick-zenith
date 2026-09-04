@@ -108,7 +108,7 @@ test("pack finish copy does not claim 已完成 when shots failed", () => {
   assert.equal(ecommercePackErrorSummary(6, 0), "");
   assert.equal(ecommercePackErrorSummary(0, 6), "6 张全部失败");
   assert.equal(ecommercePackErrorSummary(4, 2), "2 张未出，已完成 4 张");
-  assert.equal(ecommerceShouldAbortPack("积分不足，需要 1 点"), true);
+  assert.equal(ecommerceShouldAbortPack("积分不足，需要 1 点"), false);
   assert.equal(ecommerceShouldAbortPack("请先登录或选择访客继续"), true);
   assert.equal(ecommerceShouldAbortPack("生图超时，请换模型或稍后重试"), false);
 });

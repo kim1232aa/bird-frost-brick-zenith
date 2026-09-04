@@ -14,6 +14,7 @@ type VideoTaskMetadata = {
     attemptId?: string;
     provider?: string;
     providerId?: string;
+    errorMessage?: string;
   };
   seedanceTaskId?: string;
   [key: string]: unknown;
@@ -42,15 +43,15 @@ export function videoTaskControllerKey(input: {
 
 export function hasNonterminalVideoTask(metadata: VideoTaskMetadata | undefined) {
   const taskState = metadata?.seedanceGenerationTaskState;
-  const terminalTaskState = ["failed", "completed", "cancelled"].includes(
-    String(taskState?.status || "").toLowerCase(),
-  );
+  const nodeStatus = String(metadata?.status || "").toLowerCase();
+  const taskStatus = String(taskState?.status || "").toLowerCase();
+  const terminalTaskState = ["failed", "completed", "cancelled", "timeout"].includes(taskStatus);
   if (terminalTaskState) return false;
-  if (metadata?.status === "error" && taskState?.status !== "generating") return false;
+  if (nodeStatus === "error") return false;
   return Boolean(
     metadata?.videoGenerationAttempt ||
       metadata?.videoGenerationTask ||
-      (taskState?.status === "generating" && taskState.taskId),
+      (taskStatus === "generating" && taskState?.taskId),
   );
 }
 

@@ -11,7 +11,7 @@ import { useStudioHistory } from "@/studio/history";
 import { filesToDataUrls } from "@/studio/image-refs";
 import { useMediaDraft } from "@/studio/media-draft";
 import { useMembershipStore } from "@/studio/membership";
-import { liveCatalog, liveCard, useOpsStore } from "@/studio/ops";
+import { liveCatalog, liveCard, modelPoints, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
 import { preferredTextKey, preferredVideoKey, StudioModelField } from "@/studio/model-select";
 import { VIDEO_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
@@ -251,14 +251,21 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const showPromptExpansion = promptExpansionField?.status === "supported";
   const showReturnLastFrame = returnLastFrameField?.status === "supported";
   const showAudioUrl = audioField?.status === "supported" && audioField.valueType === "string";
+  const showAspectRatio = generatePreview.showAspectRatio;
   const resolutionOptions = uniqueStrings((resolutionField?.options || []).map((item) => item.value));
-  const ratioOptions = uniqueStrings([
-    ...(aspectField?.status === "supported" ? (aspectField.options || []).map((item) => item.value) : []),
-    ...DEFAULT_RATIO_OPTIONS,
-    ratio,
-  ]);
+  const ratioOptions = showAspectRatio
+    ? uniqueStrings([
+        ...(aspectField?.status === "supported" ? (aspectField.options || []).map((item) => item.value) : []),
+        ...DEFAULT_RATIO_OPTIONS,
+        ratio,
+      ])
+    : [];
   const dimensionPresets = uniqueStrings((dimensionsField?.options || []).map((item) => item.value));
   const modelVariantOptions = uniqueStrings((modelVariantField?.options || []).map((item) => item.value));
+  const modelVariantOptionKey = modelVariantOptions.join("\u0000");
+  const modelVariantDefault = modelVariantField?.defaultValue === undefined
+    ? ""
+    : String(modelVariantField.defaultValue);
   const audioModeOptions = uniqueStrings((audioModeField?.options || []).map((item) => item.value));
   const generationModeOptions = uniqueStrings((generationModeField?.options || []).map((item) => item.value));
   const samplerOptions = uniqueStrings((samplerField?.options || []).map((item) => item.value));
@@ -268,7 +275,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   const fpsChipOptions = fpsSpec
     ? fpsOptions
     : uniqueStrings((fpsField?.options || []).map((item) => item.value)).map(Number).filter((item) => Number.isFinite(item));
-  const renderedParameterNames = new Set<string>(["duration", "aspectRatio"]);
+  const renderedParameterNames = new Set<string>(["duration"]);
+  if (showAspectRatio) renderedParameterNames.add("aspectRatio");
   if (generatePreview.showGenerateAudio || showAudioUrl) renderedParameterNames.add("audio");
   if (fpsSpec || showDescriptorFps) renderedParameterNames.add("fps");
   if (showResolution) renderedParameterNames.add("resolution");
@@ -344,7 +352,23 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     if (!fpsSpec) return;
     setFps((current) => snapVideoStudioFps(videoModel, current) ?? fpsSpec.defaultFps);
   }, [videoModel, fpsSpec]);
-  const mine = useMemo(() => items.filter((item) => item.kind === "video" && item.urls[0]), [items]);
+
+  useEffect(() => {
+    const options = modelVariantOptionKey ? modelVariantOptionKey.split("\u0000") : [];
+    setModelVariant((current) => {
+      if (options.includes(current)) return current;
+      return options.includes(modelVariantDefault) ? modelVariantDefault : "";
+    });
+  }, [modelVariantDefault, modelVariantOptionKey]);
+
+  const mine = useMemo(
+    () => items.filter(
+      (item) => item.kind === "video"
+        && item.urls[0]
+        && item.model.trim().toLowerCase() === videoModel.trim().toLowerCase(),
+    ),
+    [items, videoModel],
+  );
   const seeds = useMemo(() => {
     const all = GALLERY_SEED.filter((item) => item.kind === "video");
     const model = (card?.model || splitModel(selection).model || "").toLowerCase();
@@ -354,7 +378,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       return seedModel && (seedModel === model || model.includes(seedModel) || seedModel.includes(model));
     });
   }, [card, selection]);
-  const creditCost = duration >= 8 ? 2 : 1;
+  const creditCost = modelPoints(selection);
 
   const goMode = (next: VideoMode) => {
     setMode(next);
@@ -370,7 +394,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   };
 
   const disabledReason = busy
-    ? busy
+    ? ""
     : mode === "extract"
       ? !clipUrl
         ? "先上传要抽帧的视频"
@@ -385,9 +409,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
               ? generateBlockReason
               : selectedLive && !selectedLive.wired
                   ? `${card?.model || "该模型"} 待接线，换一个已填密钥的，或去设置填 Key`
-                  : remaining < creditCost
-                    ? `积分不足，需要 ${creditCost} 点`
-                    : "";
+                  : studioGenerateCreditGate("video", creditCost);
 
   const generate = async () => {
     if (!access.allowed) {
@@ -462,7 +484,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       });
       setUrl(videoUrl);
       record("video");
-      addHistory({ kind: "video", title: prompt.slice(0, 40), prompt, model: created.model, urls: [videoUrl] });
+      addHistory({ kind: "video", title: prompt.slice(0, 40), prompt, model: created.model, providerId: created.providerId, urls: [videoUrl] });
       succeedJob(jobId, [videoUrl]);
       setBusy("");
     } catch (err) {
@@ -533,7 +555,15 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
       : mode === "flf"
         ? { kicker: "VIDEO", title: "首尾帧驱动", copy: "首帧和尾帧都会提交。火山 Seedance 走 last_frame。" }
         : mode === "i2v"
-          ? { kicker: "VIDEO", title: "图生视频", copy: "必须上传首帧。尾帧可选，火山适配器已接通 lastFrameUrl。" }
+          ? {
+              kicker: "VIDEO",
+              title: "图生视频",
+              copy: referenceControls.supportsLastFrameInI2v
+                ? "必须上传首帧。当前模型支持尾帧时会一起提交。"
+                : referenceControls.supportsFirstFrame
+                  ? "必须上传首帧。当前模型只提交首帧；需要尾帧请切换首尾帧模式。"
+                  : "当前模型没有经过验证的图生视频能力，请切换到支持首帧的 provider/model。",
+            }
           : { kicker: "VIDEO", title: "文生视频", copy: "写镜头、选时长和画幅。点生成走你选的视频模型，成功才扣本账号视频点。" };
 
   if (mode === "extract") {
@@ -652,14 +682,14 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                     className="studio-ghost"
                     onClick={() => {
                       dropToCanvas({ kind: "image", url: frames[0], prompt: "视频抽帧", text: "视频抽帧" });
-                      const id = pushMediaToCanvasWorkspace({
+                      const search = pushMediaToCanvasWorkspace({
                         kind: "image",
                         url: frames[0],
                         urls: frames,
                         prompt: "视频抽帧",
                         text: "视频抽帧",
                       });
-                      void navigate({ to: "/canvas/workspace", search: { id } });
+                      void navigate({ to: "/canvas/workspace", search });
                     }}
                   >
                     送入画布
@@ -812,7 +842,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             </div>
           </div>
         ))}
-        <p className="studio-kicker">时长 / 画幅</p>
+        <p className="studio-kicker">{showAspectRatio ? "时长 / 画幅" : "时长"}</p>
         <div className="chip-row">
           {durationOptions.map((item) => (
             <button key={item} type="button" className={duration === item ? "is-active" : undefined} onClick={() => setDuration(item)}>
@@ -821,23 +851,25 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           ))}
         </div>
         {videoModel === "ltx2.3" ? (
-          <small className="studio-hint">LTX 2.3 时长按 live OpenAPI 为 3–20 秒（默认 5）。菜谱写「仅 3 或 20」与 schema 冲突，页面跟 schema。</small>
+          <small className="studio-hint">LTX 2.3 时长 3–20 秒，默认 5 秒。</small>
         ) : videoModel === "hunyuan" ? (
-          <small className="studio-hint">Hunyuan 时长按 live OpenAPI 为 1–30 秒（默认 5），不是 OpenAI 的 4/8/12。</small>
-        ) : aspectField?.status === "supported" && aspectField.description ? (
+          <small className="studio-hint">Hunyuan 时长 1–30 秒，默认 5 秒。</small>
+        ) : aspectField?.description ? (
           <small className="studio-hint">{aspectField.description}</small>
         ) : null}
-        <div className="aspect-grid">
-          {ratioOptions.map((item) => {
-            const box = aspectPreviewBox(item);
-            return (
-              <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
-                {box ? <span className="aspect-preview" style={box} /> : null}
-                {item}
-              </button>
-            );
-          })}
-        </div>
+        {showAspectRatio ? (
+          <div className="aspect-grid">
+            {ratioOptions.map((item) => {
+              const box = aspectPreviewBox(item);
+              return (
+                <button key={item} type="button" className={ratio === item ? "is-active" : undefined} onClick={() => setRatio(item)}>
+                  {box ? <span className="aspect-preview" style={box} /> : null}
+                  {item}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {showResolution ? (
           <>
             <p className="studio-kicker">{resolutionField?.label || "分辨率档位"}</p>
@@ -989,7 +1021,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                     className={modelVariant === item ? "is-active" : undefined}
                     onClick={() => setModelVariant(item)}
                   >
-                    {item}
+                    {item}{item === modelVariantDefault ? " · 默认" : ""}
                   </button>
                 ))}
               </div>
@@ -1003,6 +1035,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                 />
               </label>
             )}
+            {modelVariantField?.description ? <small className="studio-hint">{modelVariantField.description}</small> : null}
           </>
         ) : null}
         {showAudioUrl ? (
@@ -1366,8 +1399,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           </div>
         ) : null}
         <div className="bp-cta">
-          <button type="button" className="bp-generate bp-generate-video" disabled={Boolean(disabledReason)} onClick={() => void generate()}>
-            <span>{busy ? `生成中 · ${busy}` : mode === "flf" ? "按首尾帧生成" : "生成视频"}</span>
+          <button type="button" className="bp-generate bp-generate-video" disabled={Boolean(busy || disabledReason)} onClick={() => void generate()}>
+            <span>{busy || (mode === "flf" ? "按首尾帧生成" : "生成视频")}</span>
             <small>{disabledReason || `${creditCost} 点 · 剩余 ${remaining}`}</small>
           </button>
           {error ? <p className="studio-error" role="alert">{error}</p> : null}
@@ -1402,13 +1435,13 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                   className="studio-ghost"
                   onClick={() => {
                     dropToCanvas({ kind: "video", url, prompt, model: selection });
-                    const id = pushMediaToCanvasWorkspace({
+                    const search = pushMediaToCanvasWorkspace({
                       kind: "video",
                       url,
                       prompt,
                       model: selection,
                     });
-                    void navigate({ to: "/canvas/workspace", search: { id } });
+                    void navigate({ to: "/canvas/workspace", search });
                   }}
                 >
                   送入画布
@@ -1421,7 +1454,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
           </>
         ) : (
           <div className="bp-stage">
-            <p className="studio-hint">还没有成片。写镜头描述，点绿色按钮即可。</p>
+            <p className="studio-hint">还没有成片。写镜头描述，点“生成视频”按钮。</p>
           </div>
         )}
         {mine.length ? (
@@ -1430,7 +1463,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             <div className="bp-examples">
               {mine.map((item) => (
                 <button key={item.id} type="button" className={url === item.urls[0] ? "is-active" : undefined} onClick={() => item.urls[0] && setUrl(item.urls[0])}>
-                  <video src={item.urls[0]} muted />
+                  <video src={item.urls[0]} muted playsInline preload="metadata" />
                   <span>
                     {item.title}
                     <br />
@@ -1451,7 +1484,7 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
                 if (item.prompt) setPrompt(item.prompt);
               }}
             >
-              <video src={item.urls[0]} muted />
+              <video src={item.urls[0]} muted playsInline preload="metadata" poster="/gallery/grok-video-poster.png" />
               <span>
                 {item.title}
                 <br />

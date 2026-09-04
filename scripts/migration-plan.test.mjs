@@ -69,6 +69,8 @@ test("the auth schema ships outside the globbed directory", () => {
     "0002_studio.sql",
     "0003_relay_vault.sql",
     "0004_studio_works.sql",
+    "0005_studio_works_provider.sql",
+    "0006_image_host_vault.sql",
   ];
   for (const name of studioSchemas) {
     assert.ok(topLevel.includes(name), `top-level glob must include ${name}`);

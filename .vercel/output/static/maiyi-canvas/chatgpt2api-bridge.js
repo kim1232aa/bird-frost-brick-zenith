@@ -42,7 +42,9 @@
   function writeJsonStorage(key, value) {
     try {
       window.localStorage.setItem(key, JSON.stringify(value));
-    } catch (_) {}
+    } catch {
+      /* Ignore unavailable or full browser storage. */
+    }
   }
 
   function unwrapLocalForageRecord(value) {
@@ -68,7 +70,11 @@
       request.onsuccess = function () {
         var db = request.result;
         if (!db || !db.objectStoreNames || !db.objectStoreNames.contains(AUTH_STORE_NAME)) {
-          try { db && db.close(); } catch (_) {}
+          try {
+            if (db) db.close();
+          } catch {
+            /* Ignore IndexedDB close failures. */
+          }
           resolve(null);
           return;
         }
@@ -83,13 +89,13 @@
             resolve(unwrapLocalForageRecord(getRequest.result));
           };
           tx.oncomplete = function () {
-            try { db.close(); } catch (_) {}
+            try { db.close(); } catch { /* Ignore IndexedDB close failures. */ }
           };
           tx.onerror = function () {
-            try { db.close(); } catch (_) {}
+            try { db.close(); } catch { /* Ignore IndexedDB close failures. */ }
           };
         } catch (_) {
-          try { db.close(); } catch (__) {}
+          try { db.close(); } catch { /* Ignore IndexedDB close failures. */ }
           resolve(null);
         }
       };
@@ -403,14 +409,14 @@
       if (!last || last === "nano-banana" || !ids.has(last)) {
         window.localStorage.setItem("tapnow_last_image_model", DEFAULT_MODEL_ID);
       }
-    } catch (_) {}
+    } catch { /* Ignore unavailable browser integration. */ }
 
     try {
       var collapsed = readJsonStorage("tapnow_model_library_collapsed", []);
       if (!Array.isArray(collapsed)) collapsed = [];
       if (!collapsed.includes(DEFAULT_MODEL_ID)) collapsed.push(DEFAULT_MODEL_ID);
       writeJsonStorage("tapnow_model_library_collapsed", collapsed);
-    } catch (_) {}
+    } catch { /* Ignore unavailable browser integration. */ }
   }
 
   function seedTapnowChatConfig(models) {
@@ -440,7 +446,7 @@
           window.localStorage.setItem(key, DEFAULT_CHAT_MODEL_ID);
         }
       });
-    } catch (_) {}
+    } catch { /* Ignore unavailable browser integration. */ }
   }
 
   function normalizeTapnowResolution(value) {
@@ -472,7 +478,7 @@
     var text = value.trim();
     if (!text) return "";
     if ((text[0] === "{" && text[text.length - 1] === "}") || (text[0] === "[" && text[text.length - 1] === "]")) {
-      try { return JSON.parse(text); } catch (_) {}
+      try { return JSON.parse(text); } catch { /* Ignore unavailable browser integration. */ }
     }
     return value;
   }
@@ -683,13 +689,13 @@
     if (!text) return;
     try {
       window.dispatchEvent(new CustomEvent("chatgpt2api-canvas-error", { detail: { message: text } }));
-    } catch (_) {}
+    } catch { /* Ignore unavailable browser integration. */ }
     try {
       if (window.__chatgpt2apiLastCanvasError === text) return;
       window.__chatgpt2apiLastCanvasError = text;
       window.setTimeout(function () { window.__chatgpt2apiLastCanvasError = ""; }, 5000);
       window.alert(text);
-    } catch (_) {}
+    } catch { /* Ignore unavailable browser integration. */ }
   }
 
   function isBridgeUrl(input) {

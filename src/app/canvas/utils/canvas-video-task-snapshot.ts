@@ -1,4 +1,5 @@
 import type { ApiRelayProvider } from "@/stores/api-relay-config";
+import { orderedProviderCredentialIds } from "@/stores/provider-credentials";
 import type {
   CanvasVideoTaskProviderSnapshot,
 } from "../types";
@@ -35,7 +36,6 @@ export type CanvasVideoTaskProviderResumeResult =
   | {
       readonly status: "ready";
       readonly provider: ApiRelayProvider;
-      readonly apiKey: string;
     }
   | {
       readonly status: "blocked";
@@ -60,7 +60,6 @@ export type CanvasVideoTaskResumeExpectation = {
 
 type ProviderCredential = {
   readonly id: string;
-  readonly apiKey: string;
   readonly slot: number;
 };
 
@@ -89,20 +88,17 @@ function normalizeAdapterType(value: string | undefined) {
 }
 
 function providerCredentials(provider: ApiRelayProvider): ProviderCredential[] {
-  const credentials: ProviderCredential[] = [];
-  const seen = new Set<string>();
-  const append = (apiKeyValue: string | undefined, idValue: string | undefined) => {
-    const apiKey = String(apiKeyValue || "").trim();
-    const id = String(idValue || "").trim();
-    if (!apiKey || !id || seen.has(apiKey)) return;
-    seen.add(apiKey);
-    credentials.push({ id, apiKey, slot: credentials.length });
+  return orderedProviderCredentialIds(provider).map((id, slot) => ({ id, slot }));
+}
+
+function browserSafeProvider(provider: ApiRelayProvider): ApiRelayProvider {
+  const credentialIds = orderedProviderCredentialIds(provider);
+  return {
+    ...provider,
+    apiKey: "",
+    apiKeys: undefined,
+    hasApiKey: Boolean(provider.hasApiKey || credentialIds.length),
   };
-  append(provider.apiKey, provider.apiKeyId);
-  (provider.apiKeys || []).forEach((apiKey, index) => {
-    append(apiKey, provider.apiKeyIds?.[index]);
-  });
-  return credentials;
 }
 
 function providerFingerprint(
@@ -286,5 +282,5 @@ export function validateCanvasVideoTaskProviderSnapshot(
   if (current.snapshot.providerFingerprint !== snapshot.providerFingerprint) {
     return block("provider-revision-changed", "原视频 provider 配置版本已变化，任务恢复已阻止。");
   }
-  return { status: "ready", provider, apiKey: credential.apiKey };
+  return { status: "ready", provider: browserSafeProvider(provider) };
 }

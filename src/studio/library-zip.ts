@@ -37,7 +37,7 @@ export async function exportStudioLibrary(items: StudioHistoryItem[]) {
         /* skip unreachable remote sample */
       }
     }
-    if (names.length) manifestItems.push({ ...item, files: names });
+    if (names.length) manifestItems.push({ ...item, urls: [], files: names });
   }
   if (!manifestItems.length) throw new Error("作品里的文件读不到，无法打包");
   files.push({
@@ -66,13 +66,20 @@ export async function importStudioLibrary(file: Blob): Promise<Omit<StudioHistor
       if (!blob) continue;
       urls.push(URL.createObjectURL(blob));
     }
-    if (!urls.length && item.urls?.[0]) urls.push(...item.urls);
+    if (!urls.length && item.urls?.[0]) {
+      urls.push(
+        ...item.urls.filter((url) =>
+          url.startsWith("data:") || url.startsWith("/works/") || url.startsWith("/gallery/"),
+        ),
+      );
+    }
     if (!urls.length) continue;
     out.push({
       kind: item.kind === "video" ? "video" : "image",
       title: item.title || "导入作品",
       prompt: item.prompt || "",
       model: item.model || "",
+      providerId: item.providerId,
       urls,
     });
   }

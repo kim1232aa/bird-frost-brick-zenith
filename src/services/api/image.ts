@@ -1,7 +1,7 @@
 import axios from "axios";
 
 import { explicitMediaRequestModel, explicitTextRequestModel, resolveApiRequestRoute, routedLocalApiUrl, routedLocalHeaders, type ApiRequestRoute } from "@/services/api/ai-routing";
-import { buildLocalRelayProxyHeaders, buildLocalRelayProxyUrl, rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, buildLocalRelayProxyUrl, rotateRelayApiKey, selectRelayCredential } from "@/services/api/relay-proxy";
 import { isDashscopeRoute, requestDashscopeImages, waitForDashscopeImageTask } from "@/services/api/dashscope";
 import { normalizeSenseNovaImageSize, requestMiaohuaImages, waitForMiaohuaImageTask } from "@/services/api/sensenova";
 import { agnesImageRatio, agnesImageSizeTier, isAgnesRoute } from "@/services/api/agnes";
@@ -129,8 +129,10 @@ export type ResolvedImageRequestCapability = {
     readonly route: ApiRequestRoute;
     readonly service: CivitaiGenerationService | undefined;
     readonly capability: ResolvedImageModelCapability;
-    /** One Civitai key for catalog + what-if + paid create + poll. */
+    /** Runtime-only Civitai key for this request, when available. */
     readonly civitaiApiKey?: string;
+    /** Opaque Civitai vault identity pinned across preflight/create/poll. */
+    readonly civitaiCredentialId?: string;
 };
 
 type ImageApiError = {
@@ -984,11 +986,16 @@ export async function resolveImageRequestCapability(
     // imageModel remains a legacy fallback inside resolveApiRequestRoute, while
     // the old global text model must never become an explicit image override.
     const route = resolveApiRequestRoute(config, "image", explicitMediaRequestModel(config, "image"), boardRouteKey);
-    const civitaiApiKey = route.mode === "local" && isCivitaiRoute(route) ? rotateRelayApiKey(route.provider) : undefined;
+    const civitaiCredential = route.mode === "local" && isCivitaiRoute(route)
+        ? selectRelayCredential(route.provider)
+        : undefined;
     const service = route.mode === "local" && isCivitaiRoute(route)
-        ? await (civitaiApiKey
-            ? resolveCivitaiRouteService(route, route.model, civitaiApiKey)
-            : resolveCivitaiRouteService(route, route.model))
+        ? await resolveCivitaiRouteService(
+            route,
+            route.model,
+            civitaiCredential?.apiKey,
+            civitaiCredential?.credentialId,
+        )
         : undefined;
     const provider = route.mode === "local"
         ? { ...route.provider, displayName: providerDisplayName(route.provider, config.apiRelays || []) }
@@ -999,7 +1006,13 @@ export async function resolveImageRequestCapability(
         provider,
         service,
     });
-    return { route, service, capability, ...(civitaiApiKey ? { civitaiApiKey } : {}) };
+    return {
+        route,
+        service,
+        capability,
+        ...(civitaiCredential?.apiKey ? { civitaiApiKey: civitaiCredential.apiKey } : {}),
+        ...(civitaiCredential?.credentialId ? { civitaiCredentialId: civitaiCredential.credentialId } : {}),
+    };
 }
 
 /**
@@ -1077,7 +1090,7 @@ export async function requestGeneration(
     options: ImageGenerationOptions = {},
 ) {
     const references = options.references || [];
-    const { route, service, capability, advanced, settings, prompt: requestPrompt, plan, civitaiApiKey } = await preflightImageRequest(config, "generate", prompt, references, undefined, boardRouteKey, options);
+    const { route, service, capability, advanced, settings, prompt: requestPrompt, plan, civitaiApiKey, civitaiCredentialId } = await preflightImageRequest(config, "generate", prompt, references, undefined, boardRouteKey, options);
     const hydratedReferences = await Promise.all(references.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) })));
     assertHydratedImageTransportReferences(hydratedReferences);
     const images = await executeImageOutputPlan(plan, (providerOutputCount) => requestImageBatch({
@@ -1091,6 +1104,7 @@ export async function requestGeneration(
         references: hydratedReferences,
         providerOutputCount,
         civitaiApiKey,
+        civitaiCredentialId,
     }), { outputCountIsMaximum: advanced.sequential === true });
     refreshRemoteUser(config);
     return images;
@@ -1116,7 +1130,7 @@ export async function requestEdit(
         loras: options.loras,
         onNativeTaskSubmitted: options.onNativeTaskSubmitted,
     };
-    const { route, service, capability, advanced, settings, prompt: wirePrompt, plan, civitaiApiKey } = await preflightImageRequest(
+    const { route, service, capability, advanced, settings, prompt: wirePrompt, plan, civitaiApiKey, civitaiCredentialId } = await preflightImageRequest(
         config, "edit", prompt, references, mask, boardRouteKey, { ...explicitAdvanced, useReferenceLabels: options.useReferenceLabels },
     );
     const hydratedReferences = await Promise.all(references.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) })));
@@ -1134,6 +1148,7 @@ export async function requestEdit(
         mask: hydratedMask,
         providerOutputCount,
         civitaiApiKey,
+        civitaiCredentialId,
     }), { outputCountIsMaximum: advanced.sequential === true });
     refreshRemoteUser(config);
     return images;
@@ -1147,7 +1162,7 @@ export async function requestVariation(
     options: ImageVariationOptions = {},
 ) {
     const prompt = options.prompt || "";
-    const { route, service, capability, advanced, settings, plan, civitaiApiKey } = await preflightImageRequest(config, "variation", prompt, [source], undefined, boardRouteKey, options);
+    const { route, service, capability, advanced, settings, plan, civitaiApiKey, civitaiCredentialId } = await preflightImageRequest(config, "variation", prompt, [source], undefined, boardRouteKey, options);
     const sourceData = capability.serialization.kind === "civitai-workflow"
         ? String(source.dataUrl || source.url || "").trim()
         : await imageToDataUrl(source);
@@ -1166,6 +1181,7 @@ export async function requestVariation(
         references: [hydratedSource],
         providerOutputCount,
         civitaiApiKey,
+        civitaiCredentialId,
     }));
     refreshRemoteUser(config);
     return images;
@@ -1180,7 +1196,7 @@ export async function requestResponsesImage(
     boardRouteKey?: ApiBoardRouteKey,
     options: ImageResponsesToolOptions = {},
 ) {
-    const { route, service, capability, advanced, settings, plan, civitaiApiKey } = await preflightImageRequest(config, "responses-tool", prompt, references, mask, boardRouteKey, options);
+    const { route, service, capability, advanced, settings, plan, civitaiApiKey, civitaiCredentialId } = await preflightImageRequest(config, "responses-tool", prompt, references, mask, boardRouteKey, options);
     const hydratedReferences = await Promise.all(references.map(async (image) => ({ ...image, dataUrl: await imageToDataUrl(image) })));
     const hydratedMask = mask ? { ...mask, dataUrl: await imageToDataUrl(mask) } : undefined;
     assertHydratedImageTransportReferences(hydratedReferences, hydratedMask);
@@ -1196,6 +1212,7 @@ export async function requestResponsesImage(
         mask: hydratedMask,
         providerOutputCount,
         civitaiApiKey,
+        civitaiCredentialId,
     }), { outputCountIsMaximum: true });
     refreshRemoteUser(config);
     return images;
@@ -1229,14 +1246,14 @@ export async function resumeNativeImageTask(config: AiConfig, snapshot: CanvasIm
     if (snapshot.provider === "dashscope") {
         urls = await waitForDashscopeImageTask(route, {
             taskId: snapshot.taskId,
-            apiKey: restored.apiKey,
+            credentialId: restored.credentialId,
             startedAt: snapshot.startedAt,
             expectedOutputs: snapshot.expectedOutputs,
         });
     } else if (snapshot.provider === "miaohua") {
         urls = await waitForMiaohuaImageTask(route, {
             taskId: snapshot.taskId,
-            apiKey: restored.apiKey,
+            credentialId: restored.credentialId,
             startedAt: snapshot.startedAt,
             expectedOutputs: snapshot.expectedOutputs,
         });
@@ -1244,7 +1261,7 @@ export async function resumeNativeImageTask(config: AiConfig, snapshot: CanvasIm
         const state = await waitCivitaiWorkflow(route, {
             workflowId: snapshot.taskId,
             taskId: snapshot.taskId,
-            apiKey: restored.apiKey,
+            credentialId: restored.credentialId,
             startedAt: snapshot.startedAt,
         });
         if (state.status === "failed") throw new NativeImageTaskTerminalError(state.error);
@@ -1271,6 +1288,7 @@ type ImageBatchContext = {
     readonly providerOutputCount: number;
     readonly onNativeTaskSubmitted?: NativeImageTaskSubmissionObserver;
     readonly civitaiApiKey?: string;
+    readonly civitaiCredentialId?: string;
 };
 
 async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedImageResult[]> {
@@ -1344,13 +1362,17 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
     }
     if (typeof window !== "undefined" && images.length) {
         const { recordGeneratedWork } = await import("@/studio/history");
-        recordGeneratedWork({
+        const saved = await recordGeneratedWork({
             kind: "image",
             title: `画布 · ${context.prompt.slice(0, 32)}`,
             prompt: context.prompt,
             model: context.route.model,
+            providerId: context.route.mode === "local" ? context.route.provider.id : context.route.mode,
             urls: images.map((item) => item.backendUrl || item.dataUrl).filter(Boolean),
         });
+        if (saved?.persistError) {
+            throw new Error(`作品库保存失败：${saved.persistError}`);
+        }
     }
     return images;
 }
@@ -1817,7 +1839,14 @@ async function requestCivitaiImageBatch(context: ImageBatchContext) {
         uCache: context.advanced.uCache,
         allowMatureContent: civitaiAllowsMatureContent(context.route.provider),
     });
-    return requestCivitaiImages(context.route, workflow, context.providerOutputCount, context.advanced.onNativeTaskSubmitted, context.civitaiApiKey);
+    return requestCivitaiImages(
+        context.route,
+        workflow,
+        context.providerOutputCount,
+        context.advanced.onNativeTaskSubmitted,
+        context.civitaiApiKey,
+        context.civitaiCredentialId,
+    );
 }
 
 async function postImageJson(context: ImageBatchContext, path: string, payload: object, fallback: string) {
@@ -1852,16 +1881,17 @@ async function requestCivitaiImages(
     expectedOutputs: number,
     onTaskSubmitted?: NativeImageTaskSubmissionObserver,
     pinnedApiKey?: string,
+    pinnedCredentialId?: string,
 ) {
     try {
-        const created = await createCivitaiWorkflow(route, workflow, 60, pinnedApiKey);
+        const created = await createCivitaiWorkflow(route, workflow, 60, pinnedApiKey, pinnedCredentialId);
         const state: CivitaiWorkflowState = await waitCivitaiWorkflow(route, created, {
             initialState: created.state,
             onTaskSubmitted: onTaskSubmitted
                 ? (task) => onTaskSubmitted({
                       provider: "civitai",
                       taskId: task.taskId,
-                      apiKey: task.apiKey,
+                      credentialId: task.credentialId,
                       startedAt: task.startedAt,
                       expectedOutputs,
                   })
@@ -1976,22 +2006,17 @@ export async function fetchImageModels(config: AiConfig) {
     try {
         route = resolveApiRequestRoute(config, "image");
     } catch (routeError) {
-        // Explicit legacy fallback: old persisted configs may have only the
-        // global baseUrl/apiKey pair and no provider/routing records yet.
         if (config.channelMode === "remote") return config.models;
-        if (config.baseUrl.trim()) return fetchRelayModels(config.baseUrl, config.apiKey);
         throw routeError;
     }
     if (route.mode === "local") return fetchRelayProviderModels(route.provider);
-    if (route.mode === "remote") return config.models;
-    return fetchRelayModels(config.baseUrl, config.apiKey);
+    return config.models;
 }
 
-export async function fetchRelayProviderModels(provider: ApiRelayProvider, overrideKey?: string) {
+export async function fetchRelayProviderModels(provider: ApiRelayProvider, _overrideKey?: string) {
     try {
-        const apiKey = overrideKey?.trim() || provider.apiKey.trim() || provider.apiKeys?.find((key) => key.trim()) || "";
         const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildLocalRelayProxyUrl("/models"), {
-            headers: buildLocalRelayProxyHeaders(provider, undefined, apiKey),
+            headers: buildLocalRelayProxyHeaders(provider),
             timeout: 20_000,
         });
         return normalizeRelayModelResponse((response.data.data || []).map((model) => model.id || ""));
@@ -2002,16 +2027,4 @@ export async function fetchRelayProviderModels(provider: ApiRelayProvider, overr
 
 function normalizeRelayModelResponse(models: readonly string[]) {
     return [...new Set(models.map((model) => String(model || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-export async function fetchRelayModels(baseUrl: string, apiKey: string) {
-    try {
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildLocalRelayProxyUrl("/models"), {
-            headers: buildLocalRelayProxyHeaders({ baseUrl, apiKey }),
-            timeout: 20_000,
-        });
-        return normalizeRelayModelResponse((response.data.data || []).map((model) => model.id || ""));
-    } catch (error) {
-        throw toRelayModelDiscoveryError(error);
-    }
 }

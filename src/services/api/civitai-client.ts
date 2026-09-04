@@ -3,6 +3,7 @@ import axios from "axios";
 import { shouldUseDesktopLoopback } from "@/services/desktop-api-url";
 import { routedLocalApiUrl, type ApiRequestRoute } from "@/services/api/ai-routing";
 import { buildCivitaiWorkflowQuery, civitaiAllowsMatureContent, isCivitaiAdapterType, readCivitaiWorkflowState, type CivitaiWorkflowState } from "@/services/api/civitai-orchestration";
+import { resolveCivitaiVideoMediaContractForIntent } from "@/services/api/civitai-video-media-contract.mjs";
 import {
     CivitaiCatalogContractError,
     CivitaiCatalogUnavailableError,
@@ -15,7 +16,7 @@ import {
     type CivitaiGenerationService,
     type CivitaiGenerationServicePage,
 } from "@/services/api/civitai-services";
-import { buildLocalRelayProxyHeaders, buildLocalRelayProxyUrl, rotateRelayApiKey } from "@/services/api/relay-proxy";
+import { buildLocalRelayProxyHeaders, buildLocalRelayProxyUrl, selectRelayCredential, resolveRelayCredentialId } from "@/services/api/relay-proxy";
 import { FetchCivitaiServices as fetchCivitaiServicesNative } from "../../../wailsjs/go/main/App";
 
 type LocalApiRequestRoute = Extract<ApiRequestRoute, { readonly mode: "local" }>;
@@ -26,11 +27,12 @@ export type CreatedCivitaiWorkflow = {
     readonly workflowId: string;
     readonly taskId: string;
     readonly startedAt: string;
-    readonly apiKey: string;
+    /** Opaque server-vault identity selected for this workflow. */
+    readonly credentialId: string;
     readonly preflight: CivitaiWorkflowPreflight;
 };
 
-export type CivitaiWorkflowTaskSnapshot = Pick<CreatedCivitaiWorkflow, "workflowId" | "taskId" | "startedAt" | "apiKey">;
+export type CivitaiWorkflowTaskSnapshot = Pick<CreatedCivitaiWorkflow, "workflowId" | "taskId" | "startedAt" | "credentialId">;
 
 export type CivitaiWorkflowCostEstimate = {
     readonly total: number;
@@ -55,7 +57,9 @@ export type CivitaiCatalogCacheScope = {
     readonly baseUrl?: string;
     readonly proxyMode?: string;
     readonly proxyUrl?: string;
-    /** Optional current credential; never persisted or rendered. */
+    /** Opaque current credential identity; never persisted or rendered. */
+    readonly credentialId?: string;
+    /** Optional raw credential for desktop-only compatibility; never persisted or rendered. */
     readonly apiKey?: string;
 };
 
@@ -125,8 +129,8 @@ export async function refreshCivitaiGenerationCatalog(
  */
 export function readCivitaiCatalogServiceSnapshot(model: string, scope?: CivitaiCatalogCacheScope) {
     const cacheKey = scope
-        ? (scope.apiKey?.trim()
-            ? civitaiCatalogCacheKey(scope.apiKey, scope)
+        ? (scope.apiKey?.trim() || scope.credentialId?.trim()
+            ? civitaiCatalogCacheKey(scope.apiKey || "", scope)
             : latestCatalogKeyByConnection.get(civitaiCatalogConnectionKey(scope))
                 || latestCatalogKeyByProvider.get(civitaiCatalogProviderKey(scope)))
         : latestCatalogCacheKey;
@@ -134,21 +138,35 @@ export function readCivitaiCatalogServiceSnapshot(model: string, scope?: Civitai
     return cached ? resolveCivitaiService(model, cached.catalog.services) : resolveCivitaiService(model);
 }
 
-export async function resolveCivitaiRouteService(route: LocalApiRequestRoute, model: string, pinnedApiKey?: string) {
-    const apiKey = String(pinnedApiKey ?? rotateRelayApiKey(route.provider)).trim();
+export async function resolveCivitaiRouteService(
+    route: LocalApiRequestRoute,
+    model: string,
+    pinnedApiKey?: string,
+    pinnedCredentialId?: string,
+    catalogModel?: string,
+) {
+    const suppliedApiKey = String(pinnedApiKey || "").trim();
+    const suppliedCredentialId = String(pinnedCredentialId || "").trim();
+    const selected = suppliedApiKey || suppliedCredentialId
+        ? {
+            apiKey: suppliedApiKey,
+            credentialId: suppliedCredentialId || resolveRelayCredentialId(route.provider, suppliedApiKey),
+        }
+        : selectRelayCredential(route.provider);
     return requireCivitaiCatalogService(
-        await fetchCivitaiGenerationCatalog(apiKey, false, civitaiCatalogScopeFromRoute(route, apiKey)),
-        model,
+        await fetchCivitaiGenerationCatalog(selected.apiKey, false, civitaiCatalogScopeFromRoute(route, selected.apiKey, selected.credentialId)),
+        catalogModel || model,
     );
 }
 
-function civitaiCatalogScopeFromRoute(route: LocalApiRequestRoute, apiKey?: string): CivitaiCatalogCacheScope {
+function civitaiCatalogScopeFromRoute(route: LocalApiRequestRoute, apiKey?: string, credentialId?: string): CivitaiCatalogCacheScope {
     return {
         providerId: route.provider.id,
         baseUrl: route.provider.baseUrl,
         proxyMode: route.provider.proxyMode,
         proxyUrl: route.provider.proxyUrl,
         ...(apiKey ? { apiKey } : {}),
+        ...(credentialId ? { credentialId } : {}),
     };
 }
 
@@ -163,8 +181,9 @@ function civitaiCatalogConnectionKey(scope?: CivitaiCatalogCacheScope) {
 
 function civitaiCatalogCacheKey(apiKey: string, scope?: CivitaiCatalogCacheScope) {
     const connection = civitaiCatalogConnectionKey(scope);
+    const credentialId = String(scope?.credentialId || "").trim();
     const effectiveKey = String(apiKey || scope?.apiKey || "").trim();
-    return `civitai-catalog/v2:${connection}:${credentialFingerprint(effectiveKey)}`;
+    return `civitai-catalog/v2:${connection}:${credentialId || credentialFingerprint(effectiveKey)}`;
 }
 
 function civitaiCatalogProviderKey(scope?: CivitaiCatalogCacheScope) {
@@ -183,10 +202,24 @@ function credentialFingerprint(apiKey: string) {
     return `${(hash >>> 0).toString(16)}:${String(apiKey || "").trim().length}`;
 }
 
-export async function createCivitaiWorkflow(route: LocalApiRequestRoute, workflow: object, waitSeconds: number, pinnedApiKey?: string): Promise<CreatedCivitaiWorkflow> {
-    const apiKey = String(pinnedApiKey ?? rotateRelayApiKey(route.provider)).trim();
+export async function createCivitaiWorkflow(
+    route: LocalApiRequestRoute,
+    workflow: object,
+    waitSeconds: number,
+    pinnedApiKey?: string,
+    pinnedCredentialId?: string,
+): Promise<CreatedCivitaiWorkflow> {
+    const suppliedApiKey = String(pinnedApiKey || "").trim();
+    const suppliedCredentialId = String(pinnedCredentialId || "").trim();
+    const selected = suppliedApiKey || suppliedCredentialId
+        ? {
+            apiKey: suppliedApiKey,
+            credentialId: suppliedCredentialId || resolveRelayCredentialId(route.provider, suppliedApiKey),
+        }
+        : selectRelayCredential(route.provider);
+    if (!selected.credentialId) throw new Error("Civitai 工作流凭据缺少稳定标识，未发送付费请求");
     const request = {
-        headers: buildLocalRelayProxyHeaders(route.provider, "application/json", apiKey),
+        headers: buildLocalRelayProxyHeaders(route.provider, "application/json", selected.apiKey, selected.credentialId),
         timeout: route.timeoutMs,
     } as const;
     let preflight: CivitaiWorkflowPreflight;
@@ -213,7 +246,7 @@ export async function createCivitaiWorkflow(route: LocalApiRequestRoute, workflo
             workflowId: state.workflowId,
             taskId: state.workflowId,
             startedAt,
-            apiKey,
+            credentialId: selected.credentialId,
             preflight,
         };
     } catch (error) {
@@ -221,9 +254,15 @@ export async function createCivitaiWorkflow(route: LocalApiRequestRoute, workflo
     }
 }
 
-export async function pollCivitaiWorkflow(route: LocalApiRequestRoute, workflowId: string, apiKey: string, timeoutMs = route.timeoutMs) {
+export async function pollCivitaiWorkflow(
+    route: LocalApiRequestRoute,
+    workflowId: string,
+    apiKey: string,
+    timeoutMs = route.timeoutMs,
+    credentialId?: string,
+) {
     const response = await axios.get<unknown>(routedLocalApiUrl(route, `/workflows/${encodeURIComponent(workflowId)}`), {
-        headers: buildLocalRelayProxyHeaders(route.provider, undefined, apiKey),
+        headers: buildLocalRelayProxyHeaders(route.provider, undefined, apiKey, credentialId),
         params: { hideMatureContent: !civitaiAllowsMatureContent(route.provider) },
         timeout: timeoutMs,
     });
@@ -237,6 +276,7 @@ export async function pollCivitaiWorkflowWithTransientRetry(
     options: {
         deadlineMs: number;
         maxTransientRetries?: number;
+        credentialId?: string;
         wait?: (delayMs: number) => Promise<void>;
         now?: () => number;
     },
@@ -249,7 +289,7 @@ export async function pollCivitaiWorkflowWithTransientRetry(
         try {
             const remainingMs = options.deadlineMs - now();
             if (remainingMs <= 0) throw new Error("Civitai 工作流轮询超时，可稍后从已保存任务继续查询");
-            return await pollCivitaiWorkflow(route, workflowId, apiKey, Math.min(route.timeoutMs, remainingMs));
+            return await pollCivitaiWorkflow(route, workflowId, apiKey, Math.min(route.timeoutMs, remainingMs), options.credentialId);
         } catch (error) {
             if (!isTransientCivitaiPollError(error) || transientAttempt >= maxRetries) throw error;
             const waitMs = Math.min(10_000, 1_000 * (2 ** transientAttempt));
@@ -300,9 +340,10 @@ export async function waitCivitaiWorkflow(
     if (state && state.status !== "pending") return state;
 
     while (now() < deadlineMs) {
-        state = await pollCivitaiWorkflowWithTransientRetry(route, task.workflowId, task.apiKey, {
+        state = await pollCivitaiWorkflowWithTransientRetry(route, task.workflowId, "", {
             deadlineMs,
             maxTransientRetries: options.maxTransientRetries,
+            credentialId: task.credentialId,
             wait,
             now,
         });
@@ -353,9 +394,10 @@ async function loadCivitaiServicesPage(apiKey: string, offset: number, scope?: C
                     // Catalog is a sibling of /v2/consumer, not nested under the workflow base.
                     baseUrl: CIVITAI_CATALOG_BASE_URL,
                     apiKey,
+                    apiKeyId: scope?.credentialId,
                     proxyMode: scope?.proxyMode,
                     proxyUrl: scope?.proxyUrl,
-                }, undefined, apiKey),
+                }, undefined, apiKey, scope?.credentialId),
                 params: { limit: CIVITAI_CATALOG_PAGE_LIMIT, offset },
                 timeout: 20_000,
             });

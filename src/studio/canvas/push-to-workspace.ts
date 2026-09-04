@@ -3,7 +3,11 @@ import { useCanvasStore } from "@/app/canvas/stores/use-canvas-store";
 import { getNodeSpec, NODE_DEFAULT_SIZE } from "@/app/canvas/constants";
 import { CanvasNodeType, type CanvasNodeData, type StoryCharacter, type StoryShot } from "@/app/canvas/types";
 import type { StoryCast, StoryShot as DirectorShot } from "@/studio/story/plan";
-import { buildMediaCanvasProject, type MediaCanvasPayload } from "./media-workspace-project";
+import {
+  buildMediaCanvasProject,
+  canvasWorkspaceSearchFromMedia,
+  type MediaCanvasPayload,
+} from "./media-workspace-project";
 
 function mapCast(cast: StoryCast[]): StoryCharacter[] {
   return cast.map((person, index) => ({
@@ -213,11 +217,13 @@ function mediaNodesToCanvas(nodes: ReturnType<typeof buildMediaCanvasProject>["n
   }));
 }
 
-export function pushMediaToCanvasWorkspace(payload: MediaCanvasPayload) {
+export function pushMediaToCanvasWorkspace(payload: MediaCanvasPayload & { id?: string }) {
   const project = buildMediaCanvasProject(payload);
-  return useCanvasStore.getState().importProject({
+  const id = useCanvasStore.getState().importProject({
+    id: payload.id,
     title: project.title,
     nodes: mediaNodesToCanvas(project.nodes),
     viewport: project.viewport,
   });
+  return canvasWorkspaceSearchFromMedia(id, payload);
 }

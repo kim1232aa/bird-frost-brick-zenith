@@ -14,6 +14,7 @@ export function StudioShell({ children }: { children: ReactNode }) {
   const path = layout.path;
   const isOps = layout.isOps;
   const imageCredits = useOpsStore((state) => state.credits.image);
+  const videoCredits = useOpsStore((state) => state.credits.video);
   const session = useAccountStore((state) => state.session);
   const isGuest = useAccountStore((state) => state.isGuest);
   const hydrated = useAccountStore((state) => state.hydrated);
@@ -69,8 +70,8 @@ export function StudioShell({ children }: { children: ReactNode }) {
             <span className="chip-short">{session?.role === "admin" ? "管理" : session ? "账户" : "登录"}</span>
             {session?.role === "admin" ? <em className="role-pill">管理</em> : null}
           </Link>
-          <Link to="/account" className="studio-credits">
-            {imageCredits} 积分
+          <Link to="/account" className="studio-credits" aria-label={`生图点 ${imageCredits}，视频点 ${videoCredits}`}>
+            生图 {imageCredits} · 视频 {videoCredits}
           </Link>
           {admin ? (
             <Link className={isOps ? "studio-ghost is-active" : "studio-ghost"} to="/admin">

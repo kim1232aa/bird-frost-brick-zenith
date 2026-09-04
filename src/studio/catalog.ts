@@ -118,8 +118,12 @@ export function wiredCatalogByKind(kind: ModelCard["kind"]) {
   return wired.length ? wired : catalogByKind(kind);
 }
 
-export function findCatalog(value: string, kind?: ModelCard["kind"]) {
+export function findCatalog(value: string, kind?: ModelCard["kind"], relays?: ApiRelayProvider[]) {
   const match = (item: ModelCard) => catalogKey(item) === value && (!kind || item.kind === kind);
+  if (relays?.length) {
+    const hit = cardsFromRelays(relays).find(match);
+    if (hit) return hit;
+  }
   return STUDIO_CATALOG.find(match);
 }
 

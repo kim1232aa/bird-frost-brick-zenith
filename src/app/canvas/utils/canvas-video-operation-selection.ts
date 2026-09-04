@@ -2,19 +2,26 @@ import type { ResolvedVideoModelCapability } from "@/services/api/video-model-ca
 import type {
   VideoGenerationOperation,
   VideoGenerationSettingsScope,
-} from "@/stores/use-config-store";
+} from "@/stores/video-generation-settings";
 
 export type WorkflowVideoOperationOption = {
   value: VideoGenerationOperation;
   label: string;
 };
 
+export type WorkflowVideoOperationMigrationSource =
+  | "task-snapshot"
+  | "semantic-contract"
+  | "single-capability-operation"
+  | "auto-materials"
+  | "user-selection";
+
 export type WorkflowVideoOperationSelection = {
   options: WorkflowVideoOperationOption[];
   operation?: VideoGenerationOperation;
   requiresSelection: boolean;
   blockedReason?: string;
-  migrationSource?: "task-snapshot" | "semantic-contract" | "single-capability-operation";
+  migrationSource?: WorkflowVideoOperationMigrationSource;
 };
 
 const OPERATION_LABELS: Record<VideoGenerationOperation, string> = {
@@ -35,6 +42,8 @@ export function resolveWorkflowVideoOperationSelection({
   savedTaskScope,
   savedCapabilityId,
   savedReferenceUses = [],
+  allowLegacyStoryAutoMigration = false,
+  savedOperationMigrationSource,
 }: {
   capability: ResolvedVideoModelCapability | undefined;
   providerId: string;
@@ -43,6 +52,8 @@ export function resolveWorkflowVideoOperationSelection({
   savedTaskScope?: VideoGenerationSettingsScope;
   savedCapabilityId?: string;
   savedReferenceUses?: readonly string[];
+  allowLegacyStoryAutoMigration?: boolean;
+  savedOperationMigrationSource?: WorkflowVideoOperationMigrationSource;
 }): WorkflowVideoOperationSelection {
   if (!capability) {
     return {
@@ -62,12 +73,20 @@ export function resolveWorkflowVideoOperationSelection({
   }
 
   const options = workflowVideoOperationOptionsForCapability(capability);
-  const exactSavedOperation =
+  const hasOption = (candidate: VideoGenerationOperation) => options.some(({ value }) => value === candidate);
+  const savedScopeMatchesRoute =
     savedScope?.providerId === providerId &&
     savedScope.model === model &&
-    options.some(({ value }) => value === savedScope.operation)
-      ? savedScope.operation
-      : undefined;
+    hasOption(savedScope.operation);
+  const treatSavedScopeAsUserSelection = savedOperationMigrationSource === "user-selection";
+  const exactSavedOperation = savedScopeMatchesRoute && (
+    !allowLegacyStoryAutoMigration ||
+    treatSavedScopeAsUserSelection ||
+    savedScope.operation !== "image-to-video" ||
+    !supportsAutomaticStoryReferenceSet(capability, hasOption)
+  )
+    ? savedScope.operation
+    : undefined;
   // savedTaskScope is used as a migration fallback for nodes that pre-date
   // explicit scope saving. But when the user explicitly clears the scope by
   // selecting "auto" (which patches both savedScope and savedCapabilityId to
@@ -76,18 +95,23 @@ export function resolveWorkflowVideoOperationSelection({
   // Brand-new nodes (no tasks ever run) are unaffected because their
   // savedTaskScope is always undefined to begin with.
   const taskScopeSuppressed = savedScope === undefined && savedCapabilityId === undefined;
+  const skipLegacyStoryI2V =
+    allowLegacyStoryAutoMigration &&
+    supportsAutomaticStoryReferenceSet(capability, hasOption);
   const exactTaskOperation =
     !taskScopeSuppressed &&
     savedTaskScope?.providerId === providerId &&
     savedTaskScope.model === model &&
-    options.some(({ value }) => value === savedTaskScope.operation)
+    hasOption(savedTaskScope.operation) &&
+    !(skipLegacyStoryI2V && savedTaskScope.operation === "image-to-video")
       ? savedTaskScope.operation
       : undefined;
   const semanticOperation = operationFromSavedSemanticUses(savedReferenceUses);
   const exactSemanticOperation =
     savedCapabilityId === capability.generationParameters.id &&
     semanticOperation &&
-    options.some(({ value }) => value === semanticOperation)
+    hasOption(semanticOperation) &&
+    !(skipLegacyStoryI2V && semanticOperation === "image-to-video")
       ? semanticOperation
       : undefined;
   const singleCapabilityOperation =
@@ -95,14 +119,25 @@ export function resolveWorkflowVideoOperationSelection({
       ? options[0]?.value
       : undefined;
   const migratedOperation = exactTaskOperation || exactSemanticOperation || singleCapabilityOperation;
-  const operation = exactSavedOperation || migratedOperation;
-  const migrationSource = exactTaskOperation
-    ? "task-snapshot" as const
-    : exactSemanticOperation
-      ? "semantic-contract" as const
-      : singleCapabilityOperation
-        ? "single-capability-operation" as const
-        : undefined;
+  const automaticStoryOperation =
+    allowLegacyStoryAutoMigration &&
+    !exactSavedOperation &&
+    !migratedOperation &&
+    supportsAutomaticStoryReferenceSet(capability, hasOption)
+      ? "reference-to-video" as const
+      : undefined;
+  const operation = exactSavedOperation || migratedOperation || automaticStoryOperation;
+  const migrationSource = exactSavedOperation && treatSavedScopeAsUserSelection
+    ? "user-selection" as const
+    : exactTaskOperation
+      ? "task-snapshot" as const
+      : exactSemanticOperation
+        ? "semantic-contract" as const
+        : singleCapabilityOperation
+          ? "single-capability-operation" as const
+          : automaticStoryOperation
+            ? "auto-materials" as const
+            : undefined;
 
   return {
     options,
@@ -153,6 +188,22 @@ export type WorkflowVideoAutoOperationSelection =
   | { operation: VideoGenerationOperation; autoReason: string; blockedReason?: undefined }
   | { operation?: undefined; autoReason?: undefined; blockedReason: string };
 
+function supportsAutomaticStoryReferenceSet(
+  capability: ResolvedVideoModelCapability,
+  has: (operation: VideoGenerationOperation) => boolean,
+) {
+  const policy = capability.referenceImagePolicy;
+  return (
+    has("reference-to-video") &&
+    policy.supported &&
+    (policy.max === null || policy.max > 1) &&
+    (capability.intentPolicy === "reference-set" ||
+      capability.intentPolicy === "r2v-with-first" ||
+      capability.intentPolicy === "frames-or-reference-set" ||
+      capability.intentPolicy === "reference-set-with-frames")
+  );
+}
+
 /**
  * One-click story runs must not dead-end on a manual mode pick: resolve the
  * best operation the model's declared primary capability (intentPolicy) can
@@ -193,7 +244,32 @@ export function autoWorkflowVideoOperationForMaterials({
         };
       }
     }
-    // 2. 帧+参考集模型（Seedance-2 等，intentPolicy="frames-or-reference-set"）：优先
+    // 2. current-shot 模型仍按镜头分窗，但如果其真实合同同时提供多参考图，
+    //    必须优先走 R2V；current-shot 只描述每镜的窗口锚点，不等于只能提交一张图。
+    if (
+      capability.storyAutoReferencePolicy === "current-shot" &&
+      supportsAutomaticStoryReferenceSet(capability, has)
+    ) {
+      const maximum = capability.referenceImagePolicy.supported
+        ? capability.referenceImagePolicy.max === null
+          ? "官方未公布上限"
+          : `最多 ${capability.referenceImagePolicy.max} 张`
+        : "多参考";
+      return {
+        operation: "reference-to-video",
+        autoReason: `已按模型能力自动选择：${label} 按当前分镜逐镜出片，并支持${maximum}普通参考图；使用多参考素材生视频（当前分镜图不锁定首帧）`,
+      };
+    }
+    if (
+      capability.storyAutoReferencePolicy === "current-shot" &&
+      has("image-to-video")
+    ) {
+      return {
+        operation: "image-to-video",
+        autoReason: `已按模型能力自动选择：${label} 的 Story 合同只有单首帧输入，使用首帧图生视频`,
+      };
+    }
+    // 3. 帧+参考集模型（Seedance-2 等，intentPolicy="frames-or-reference-set"）：优先
     //    多参考图模式，利用多个故事分镜图提升角色/场景一致性。
     if (
       capability.intentPolicy === "frames-or-reference-set" &&

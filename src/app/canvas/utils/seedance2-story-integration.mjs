@@ -21,7 +21,7 @@ function packStoryVideoRequestWindows(options) {
     if (!image) return [];
     return [{ shot, image, prompt: options.prompts?.[index] || "" }];
   });
-  const operation = options.operation || defaultStoryPackOperation(options.policy, pairs.length);
+  const operation = resolveRequestedStoryPackOperation(options.policy, pairs.length, options.operation);
   const titled = (shots) => {
     const first = shots[0];
     const last = shots[shots.length - 1];
@@ -72,19 +72,38 @@ function packStoryVideoRequestWindows(options) {
     const minimum = options.policy.referenceImagePolicy?.supported && typeof options.policy.referenceImagePolicy.min === "number"
       ? options.policy.referenceImagePolicy.min
       : 1;
+    // `current-shot` means one request per story shot; it does not suppress
+    // semantic character/scene references accepted by the chosen R2V operation.
+    if (perShotStoryReferenceWindows(options.policy)) {
+      return pairs.map((item) => windowOf([item], "reference-to-video"));
+    }
     return packNonOverlappingWindows(pairs, minimum, Math.max(maximum, minimum)).map((items) => windowOf(items, "reference-to-video"));
   }
   return pairs.map((item) => windowOf([item], operation));
+}
+function resolveRequestedStoryPackOperation(policy, imageCount, requested) {
+  const auto = defaultStoryPackOperation(policy, imageCount);
+  // An explicit operation is part of the request contract; never replace it
+  // merely because the profile's automatic Story strategy is current-shot.
+  return requested || auto;
 }
 function defaultStoryPackOperation(policy, imageCount) {
   if (imageCount <= 0) return "text-to-video";
   if (policy.requiresFirstLastFrame) return "first-last-frame-to-video";
   if (policy.intentPolicy === "none") return "text-to-video";
   if (policy.intentPolicy === "keyframes" && policy.supportsKeyframeSequence) return "keyframes-to-video";
+  if (perShotStoryReferenceWindows(policy)) return "reference-to-video";
+  if (policy.storyAutoReferencePolicy === "current-shot") return "image-to-video";
   if (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first") {
     return "reference-to-video";
   }
   return "image-to-video";
+}
+function perShotStoryReferenceWindows(policy) {
+  const maximum = policy.referenceImagePolicy?.supported ? policy.referenceImagePolicy.max : 0;
+  return policy.storyAutoReferencePolicy === "current-shot" &&
+    (maximum === null || maximum > 1) &&
+    (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first" || policy.intentPolicy === "reference-set-with-frames");
 }
 function packNonOverlappingWindows(items, minimum, maximum) {
   const windows = [];
@@ -745,6 +764,7 @@ function workflowVideoGenerationSnapshot(metadata) {
   if (metadata.videoGenerationScope !== void 0) snapshot.videoGenerationScope = metadata.videoGenerationScope;
   if (metadata.videoGenerationCapabilityId !== void 0) snapshot.videoGenerationCapabilityId = metadata.videoGenerationCapabilityId;
   if (metadata.videoWireFormat !== void 0) snapshot.videoWireFormat = metadata.videoWireFormat;
+  if (metadata.videoGenerationOperationMigration !== void 0) snapshot.videoGenerationOperationMigration = metadata.videoGenerationOperationMigration;
   return snapshot;
 }
 const VIDEO_REFERENCE_SUBMISSION_OPERATIONS = /* @__PURE__ */ new Set([
@@ -769,6 +789,7 @@ function applyWorkflowVideoGenerationSnapshot(target, baseMetadata, workflowMeta
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationScope");
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationCapabilityId");
   applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoWireFormat");
+  applyOptionalWorkflowSnapshotField(target, workflowMetadata, "videoGenerationOperationMigration");
 }
 function applyOptionalWorkflowSnapshotField(target, source, key) {
   if (source[key] === void 0) {

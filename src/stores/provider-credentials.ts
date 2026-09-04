@@ -57,6 +57,17 @@ export function providerCredentialPool(source: ProviderCredentialPoolSource) {
 }
 
 /**
+ * Returns the ordered, deduplicated opaque identities even when browser-safe
+ * state no longer contains any raw credential values.
+ */
+export function orderedProviderCredentialIds<T extends Pick<ProviderCredentialPoolSource, "apiKeyId" | "apiKeyIds">>(source: T) {
+    return [...new Set([
+        source.apiKeyId,
+        ...(Array.isArray(source.apiKeyIds) ? source.apiKeyIds : []),
+    ].map((id) => String(id || "").trim()).filter(Boolean))];
+}
+
+/**
  * Splits one ordered editor value back into the legacy-compatible primary key
  * plus rotation pool representation, retaining identifiers for unchanged keys.
  */

@@ -56,7 +56,7 @@ export const NODE_SPECS = {
             seedanceApiEndpoint: "",
             seedanceModel: "grok-imagine-video",
             seedanceResolution: "720p",
-            seedanceRatio: "9:16",
+            seedanceRatio: "16:9",
             seedanceDuration: "5",
             seedanceReferenceOrder: ["上游高清参考帧", "当前分镜图", "角色图", "场景图"],
             seedanceRequiredReferences: ["当前分镜图", "角色图", "场景图"],

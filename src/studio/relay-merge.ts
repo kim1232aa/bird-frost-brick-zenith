@@ -2,9 +2,9 @@ import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { clampManagedTokenPlanRelay } from "@/stores/api-relay-presets";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { studioRelays } from "@/studio/wiring";
-import { providerCredentialPool } from "@/stores/provider-credentials";
+import { normalizeProviderKeyInput, providerCredentialPool } from "@/stores/provider-credentials";
 
-function union(left?: string[], right?: string[]) {
+function union(left?: readonly (string | undefined)[], right?: readonly (string | undefined)[]) {
   return Array.from(new Set([...(left || []), ...(right || [])].map((item) => String(item || "").trim()).filter(Boolean)));
 }
 
@@ -58,12 +58,35 @@ function resolveCredentials(template: ApiRelayProvider, override?: ApiRelayProvi
     override ? [override.apiKey, ...(override.apiKeys || [])] : [],
     [template.apiKey, ...(template.apiKeys || [])],
   );
+  const sources = override ? [override, template] : [template];
+  const idsByKey = new Map<string, string>();
+  for (const source of sources) {
+    const sourceKeys = [source.apiKey, ...(source.apiKeys || [])];
+    const sourceIds = [source.apiKeyId, ...(source.apiKeyIds || [])];
+    sourceKeys.forEach((key, index) => {
+      const normalized = normalizeProviderKeyInput(key);
+      const id = String(sourceIds[index] || "").trim();
+      if (normalized && id && !idsByKey.has(normalized)) idsByKey.set(normalized, id);
+    });
+  }
   const [apiKey = "", ...apiKeys] = keys;
+  const ids = keys.map((key) => idsByKey.get(normalizeProviderKeyInput(key)) || "");
+  if (!keys.length) {
+    const identityIds = union(
+      override ? [override.apiKeyId, ...(override.apiKeyIds || [])] : [],
+      [template.apiKeyId, ...(template.apiKeyIds || [])],
+    );
+    return {
+      apiKey: "",
+      ...(identityIds[0] ? { apiKeyId: identityIds[0] } : {}),
+      ...(identityIds.length > 1 ? { apiKeyIds: identityIds.slice(1) } : {}),
+    };
+  }
   return {
     apiKey,
     ...(apiKeys.length ? { apiKeys } : {}),
-    ...(override?.apiKeyId && apiKey === override.apiKey ? { apiKeyId: override.apiKeyId } : {}),
-    ...(override?.apiKeyIds && apiKeys.length ? { apiKeyIds: override.apiKeyIds } : {}),
+    ...(ids[0] ? { apiKeyId: ids[0] } : {}),
+    ...(apiKeys.length && ids.slice(1).some(Boolean) ? { apiKeyIds: ids.slice(1) } : {}),
   };
 }
 

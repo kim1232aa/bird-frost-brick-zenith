@@ -1,7 +1,5 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- Editor previews in-memory data URLs that Next/Image cannot optimize. */
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { App, Button, InputNumber, Modal, Slider } from "antd";
 import { Circle, Grid3X3, Hand, Move, RotateCcw, Save, Undo2, X } from "lucide-react";

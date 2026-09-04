@@ -34,7 +34,8 @@ mock.module("@/services/api/relay-proxy", {
   namedExports: {
     buildLocalRelayProxyHeaders: () => ({}),
     buildLocalRelayProxyUrl: (path: string) => `/local-relay-proxy${path}`,
-    rotateRelayApiKey: () => "token",
+    selectRelayCredential: () => ({ apiKey: "token", credentialId: "credential-test" }),
+    resolveRelayCredentialId: () => "credential-test", 
   },
 });
 
@@ -53,6 +54,13 @@ mock.module("axios", {
 });
 
 const { pollCivitaiWorkflow } = await import("./civitai-client.ts");
+const { isCivitaiAdapterType } = await import("./civitai-orchestration.ts");
+
+test("studio Civitai adapter alias routes to orchestration", () => {
+  assert.equal(isCivitaiAdapterType("civitai"), true);
+  assert.equal(isCivitaiAdapterType("civitai-orchestration"), true);
+  assert.equal(isCivitaiAdapterType("openai-compat"), false);
+});
 
 function route(allowMatureContent?: boolean): Parameters<typeof pollCivitaiWorkflow>[0] {
   return {

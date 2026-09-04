@@ -127,3 +127,21 @@ const BY_SERVICE_ID = new Map(DEFINITIONS.map((item) => [item.serviceId.toLowerC
 export function resolveCivitaiVideoMediaContract(serviceId: string): CivitaiVideoMediaContract | undefined {
     return BY_SERVICE_ID.get(String(serviceId || "").trim().toLowerCase());
 }
+
+export function resolveCivitaiVideoMediaContractForIntent(
+    serviceId: string,
+    referenceKind: string,
+): CivitaiVideoMediaContract | undefined {
+    const direct = resolveCivitaiVideoMediaContract(serviceId);
+    if (direct) return direct;
+    const model = String(serviceId || "").trim().toLowerCase();
+    if (model === "hunyuan") return resolveCivitaiVideoMediaContract("video/hunyuan");
+    if (model === "ltx2.3" || model === "ltx2-3") {
+        return resolveCivitaiVideoMediaContract(
+            referenceKind === "first_last_frame"
+                ? "video/ltx2.3/firstLastFrameToVideo"
+                : "video/ltx2.3/createVideo",
+        );
+    }
+    return undefined;
+}

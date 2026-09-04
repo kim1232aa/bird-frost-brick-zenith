@@ -6,19 +6,49 @@ import {
     reconcileApiRelayModelAssignments,
     type ApiRelayProvider,
 } from "@/stores/api-relay-config";
-import {
-    buildAuthHeaders,
-    rejectUnsupportedCustomRelayProxy,
-} from "@/stores/api-relay-model-inference";
+import { rejectUnsupportedCustomRelayProxy } from "@/stores/api-relay-model-inference";
+import { normalizeProviderKeyInput, orderedProviderCredentialIds } from "@/stores/provider-credentials";
 
 export { buildAuthHeaders } from "@/stores/api-relay-model-inference";
 
 export const LOCAL_RELAY_PROXY_PREFIX = "/local-relay-proxy";
 export const LOCAL_RELAY_BASE_URL_HEADER = "x-local-relay-base-url";
 export const LOCAL_RELAY_PROXY_URL_HEADER = "x-local-relay-proxy-url";
+// Fixed control header: selects one server-vault credential and is stripped before upstream forwarding.
+export const LOCAL_RELAY_CREDENTIAL_ID_HEADER = "x-boundless-relay-credential-id";
 
-// 多 Key 轮询游标：同一 providerId 的请求依次轮换 Key，避免单 Key 限流。
+// Legacy raw-key rotation is retained only for callers that still need a key in memory.
 const relayKeyCursor = new Map<string, number>();
+// Browser-safe callers rotate opaque identities, never raw credential values.
+const relayCredentialCursor = new Map<string, number>();
+
+type RelayCredentialProvider = {
+    id?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    apiKeys?: readonly string[];
+    apiKeyId?: string;
+    apiKeyIds?: readonly string[];
+    hasApiKey?: boolean;
+};
+
+type RelayCredentialSlot = { key: string; id: string };
+
+function rawCredentialSlots(provider: RelayCredentialProvider): RelayCredentialSlot[] {
+    const seen = new Set<string>();
+    const slots: RelayCredentialSlot[] = [];
+    const append = (value: unknown, suppliedId: unknown) => {
+        const key = normalizeProviderKeyInput(String(value || ""));
+        if (!key || seen.has(key)) return;
+        seen.add(key);
+        slots.push({ key, id: String(suppliedId || "").trim() });
+    };
+    append(provider.apiKey, provider.apiKeyId);
+    const pool = Array.isArray(provider.apiKeys) ? provider.apiKeys : [];
+    const poolIds = Array.isArray(provider.apiKeyIds) ? provider.apiKeyIds : [];
+    pool.forEach((value, index) => append(value, poolIds[index]));
+    return slots;
+}
 
 type RelayModelConfiguration = Pick<
     ApiRelayProvider,
@@ -34,16 +64,51 @@ type RelayModelDiscoveryOptions = {
     replaceExisting?: boolean;
 };
 
-export function rotateRelayApiKey(provider: { id?: string; baseUrl: string; apiKey: string; apiKeys?: string[] }) {
-    const keys = Array.from(
-        new Set([provider.apiKey, ...(provider.apiKeys || [])].map((key) => String(key || "").trim()).filter(Boolean)),
-    );
+/** Returns a raw key only when a raw key is actually present. */
+export function rotateRelayApiKey<T extends RelayCredentialProvider & { baseUrl: string; apiKey?: string }>(provider: T) {
+    const keys = rawCredentialSlots(provider).map((slot) => slot.key);
     if (!keys.length) return "";
     if (keys.length === 1) return keys[0];
     const cursorKey = provider.id || provider.baseUrl;
     const index = relayKeyCursor.get(cursorKey) ?? 0;
     relayKeyCursor.set(cursorKey, (index + 1) % keys.length);
     return keys[index % keys.length];
+}
+
+/** Rotates only the ordered opaque IDs, including IDs from redacted state. */
+export function rotateRelayCredentialId<T extends RelayCredentialProvider>(provider: T) {
+    const ids = orderedProviderCredentialIds(provider);
+    if (!ids.length) return "";
+    if (ids.length === 1) return ids[0];
+    const cursorKey = provider.id || provider.baseUrl || "relay";
+    const index = relayCredentialCursor.get(cursorKey) ?? 0;
+    relayCredentialCursor.set(cursorKey, (index + 1) % ids.length);
+    return ids[index % ids.length];
+}
+
+/** Resolves a known opaque ID or maps a legacy raw override to its ID. */
+export function resolveRelayCredentialId<T extends RelayCredentialProvider>(provider: T, requested?: string) {
+    const value = String(requested || "").trim();
+    const ids = orderedProviderCredentialIds(provider);
+    if (!value) return rotateRelayCredentialId(provider);
+    if (ids.includes(value)) return value;
+    const normalizedRaw = normalizeProviderKeyInput(value);
+    const slot = rawCredentialSlots(provider).find((candidate) => candidate.key === value || candidate.key === normalizedRaw);
+    return slot?.id && ids.includes(slot.id) ? slot.id : "";
+}
+
+export type SelectedRelayCredential = {
+    readonly apiKey: string;
+    readonly credentialId: string;
+};
+
+/** Selects one relay slot exactly once; callers must reuse both values. */
+export function selectRelayCredential<T extends RelayCredentialProvider & { baseUrl: string; apiKey?: string }>(provider: T): SelectedRelayCredential {
+    const apiKey = rotateRelayApiKey(provider);
+    return {
+        apiKey,
+        credentialId: apiKey ? resolveRelayCredentialId(provider, apiKey) : rotateRelayCredentialId(provider),
+    };
 }
 
 export function mergeDiscoveredRelayModels(
@@ -135,19 +200,20 @@ export function buildProviderProxyHeaders(provider: { proxyMode?: unknown; proxy
 }
 
 export function buildLocalRelayProxyHeaders(
-    provider: {
-        id?: string;
+    provider: RelayCredentialProvider & {
         baseUrl: string;
-        apiKey: string;
-        apiKeys?: string[];
+        apiKey?: string;
         proxyMode?: unknown;
         proxyUrl?: string;
         authScheme?: "Bearer" | "Key" | "x-api-key";
     },
     contentType?: string,
-    overrideKey?: string,
+    /** Legacy callers may pass a raw key here; it is mapped to an opaque ID or ignored. */
+    _overrideKey?: string,
+    /** Explicit opaque credential identity for the server-vault lookup. */
+    credentialId?: string,
 ) {
-    const effectiveKey = (overrideKey || rotateRelayApiKey(provider)).trim();
+    const relayId = String(provider.id || "").trim();
     let builtin: Record<string, string> = {};
     try {
         if (new URL(provider.baseUrl).hostname.toLowerCase() === "api.x.ai") {
@@ -156,10 +222,34 @@ export function buildLocalRelayProxyHeaders(
     } catch {
         /* ignore */
     }
+    if (!relayId && !builtin["x-boundless-builtin"]) {
+        throw new Error("普通中转请求缺少稳定 relay-id（Provider ID）");
+    }
+
+    const rawOverride = String(_overrideKey || "").trim();
+    const explicitCredentialId = String(credentialId || "").trim();
+    let selectedCredentialId = "";
+    if (explicitCredentialId) {
+        const resolved = resolveRelayCredentialId(provider, explicitCredentialId);
+        // A fourth-argument value is an identity contract. Preserve an
+        // unknown opaque value so the server can fail closed; never echo a
+        // value that is known to be a raw credential.
+        const normalizedExplicitRaw = normalizeProviderKeyInput(explicitCredentialId);
+        selectedCredentialId = resolved ||
+            (rawCredentialSlots(provider).some((slot) => slot.key === explicitCredentialId || slot.key === normalizedExplicitRaw) ? "" : explicitCredentialId);
+    } else if (rawOverride) {
+        selectedCredentialId = resolveRelayCredentialId(provider, rawOverride);
+    } else {
+        selectedCredentialId = rotateRelayCredentialId(provider);
+    }
+
     return {
-        [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl,
+        ...(builtin["x-boundless-builtin"] ? { [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl } : {}),
+        ...(relayId ? { "x-boundless-relay-id": relayId } : {}),
+        ...(relayId && !builtin["x-boundless-builtin"] && selectedCredentialId
+            ? { [LOCAL_RELAY_CREDENTIAL_ID_HEADER]: selectedCredentialId }
+            : {}),
         ...buildProviderProxyHeaders(provider),
-        ...buildAuthHeaders(effectiveKey, provider.authScheme),
         ...builtin,
         ...(contentType ? { "Content-Type": contentType } : {}),
     };
@@ -212,7 +302,9 @@ function normalizeOpenAiCompatibleBaseUrl(baseUrl: string) {
             url.pathname = "/v2/consumer";
             return url.toString().replace(/\/+$/, "");
         }
-    } catch {}
+    } catch {
+        // Keep the original value when it is not a parseable URL.
+    }
     return normalized;
 }
 
