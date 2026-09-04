@@ -9,6 +9,7 @@ import {
   xaiImagineCreatePath,
   xaiImaginePollPath,
 } from "./contracts.ts";
+import { resolveXaiImagineVideoImageFields } from "./xai-imagine-video-refs.ts";
 
 const XAI_IMAGINE_IMAGE_2_MODEL = "grok-imagine-image-2.0";
 const XAI_IMAGINE_ASPECT_RATIOS = new Set([
@@ -100,12 +101,12 @@ export const xaiImagineAdapter: StudioAdapter = {
   },
   async createVideo(ctx, input) {
     const official = isOfficialXaiHost(ctx.provider.baseUrl);
-    const extras = (input.imageUrls || []).map((item) => String(item || "").trim()).filter(Boolean);
-    const first = String(input.imageUrl || "").trim();
-    const last = String(input.lastFrameUrl || "").trim();
-    if (official && last) {
-      throw new Error("xAI 官方视频没有静帧尾帧字段。延长请走 POST /v1/videos/extensions，当前未接线。");
-    }
+    const fields = resolveXaiImagineVideoImageFields({
+      imageUrl: input.imageUrl,
+      lastFrameUrl: input.lastFrameUrl,
+      imageUrls: input.imageUrls,
+      official,
+    });
     const body = buildXaiImagineVideoBody({
       model: input.model,
       prompt: input.prompt,
@@ -135,9 +136,9 @@ export const xaiImagineAdapter: StudioAdapter = {
       sampler: input.sampler,
       scheduler: input.scheduler,
       usePro: input.usePro,
-      image: first ? { url: first } : undefined,
-      last_frame_image: last ? { url: last } : undefined,
-      image_urls: extras,
+      image: fields.image,
+      last_frame_image: fields.last_frame_image,
+      image_urls: fields.image_urls,
       profile: xaiVideoProfile(ctx.provider.baseUrl),
     });
     const data = await studioProxyJson<Record<string, unknown>>({
