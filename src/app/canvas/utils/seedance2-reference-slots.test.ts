@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSeedance2ReferenceSlots } from "./seedance2-reference-slots.mjs";
+import { resolveSeedance2ReferenceSlots, seedance2CanOccupyReferenceSlot } from "./seedance2-reference-slots.mjs";
+import { isCharacterAssetForbiddenForVideo } from "./character-video-guard.mjs";
 
 test("current-shot preview resolves a durable storage key instead of stale blob content", () => {
   const storageKey = "image:current-shot-1";
@@ -44,4 +45,48 @@ test("current-shot preview resolves a durable storage key instead of stale blob 
   assert.equal(slot.role, "current_shot");
   assert.equal(slot.previewValue, storageKey);
   assert.equal(slot.previewValue.startsWith("blob:"), false);
+});
+
+test("four-view character sheets cannot occupy a video reference slot", () => {
+  const sheet = {
+    id: "hero",
+    type: "image",
+    title: "人物四象",
+    metadata: {
+      storyCharacterAssetKind: "turnaround_sheet",
+      content: "https://example.test/hero.png",
+      storageKey: "image:hero",
+    },
+  };
+  const derived = {
+    id: "hero:front",
+    type: "image",
+    title: "Front",
+    metadata: {
+      characterDerivedViewAngle: "front",
+      content: "https://example.test/hero-front.png",
+      storageKey: "image:hero-front",
+    },
+  };
+  assert.equal(isCharacterAssetForbiddenForVideo(sheet), true);
+  assert.equal(isCharacterAssetForbiddenForVideo(derived), true);
+  assert.equal(seedance2CanOccupyReferenceSlot(sheet), false);
+  assert.equal(seedance2CanOccupyReferenceSlot(derived), false);
+
+  const placeholder = {
+    id: "video-1",
+    type: "video",
+    title: "镜头",
+    metadata: {},
+  };
+  const slots = resolveSeedance2ReferenceSlots({
+    placeholder,
+    nodes: [sheet, derived, placeholder],
+    connections: [
+      { id: "c1", fromNodeId: sheet.id, toNodeId: placeholder.id },
+      { id: "c2", fromNodeId: derived.id, toNodeId: placeholder.id },
+    ],
+    visibleSlotCount: 2,
+  });
+  assert.equal(slots.every((slot) => slot.source === "empty" || !slot.nodeId), true);
 });
