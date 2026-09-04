@@ -3,11 +3,29 @@ import type { StoryCast, StoryShot } from "./plan";
 
 export const MAX_STORY_IMAGE_REFS = 5;
 
+export type StoryVideoCapability = {
+  supportsFirstFrame?: boolean;
+  supportsFirstLastFrame?: boolean;
+  requiresFirstLastFrame?: boolean;
+  intentPolicy?: string;
+  referenceImagePolicy?: { supported: boolean; min: number; max: number | null };
+};
+
 export function storyImageReferenceMax(model: string, provider?: ImageCapabilityProvider) {
   const capability = resolveImageModelCapability({ model, operation: "edit", provider });
   if (capability.referenceCount.state === "supported" && capability.referenceCount.max !== null) {
     return Math.max(1, capability.referenceCount.max);
   }
+  return MAX_STORY_IMAGE_REFS;
+}
+
+export function storyVideoReferenceMax(capability?: StoryVideoCapability) {
+  const refs = capability?.referenceImagePolicy;
+  if (refs?.supported && refs.max !== null && refs.max !== undefined) {
+    return Math.max(1, refs.max);
+  }
+  if (capability?.requiresFirstLastFrame || capability?.supportsFirstLastFrame) return 2;
+  if (capability?.supportsFirstFrame) return 1;
   return MAX_STORY_IMAGE_REFS;
 }
 
@@ -78,5 +96,56 @@ export function videoStillBundle(shots: StoryShot[], index = 0, max = MAX_STORY_
     last: last && last !== first ? last : undefined,
     extras,
     all: stills,
+  };
+}
+
+export function videoStillBundleForCapability(
+  shots: StoryShot[],
+  index = 0,
+  capability?: StoryVideoCapability,
+) {
+  const max = storyVideoReferenceMax(capability);
+  const first = String(shots[index]?.url || "").trim();
+  const lastCandidate = lastFrameUrlForShot(shots, index);
+  const sequential = shots
+    .map((shot) => String(shot.url || "").trim())
+    .filter(Boolean);
+  const unique = Array.from(new Set([first, ...sequential].filter(Boolean)));
+  const refsSupported = Boolean(capability?.referenceImagePolicy?.supported);
+  const firstLast = Boolean(capability?.supportsFirstLastFrame || capability?.requiresFirstLastFrame);
+  const firstOnly = Boolean(capability?.supportsFirstFrame) && !firstLast && !refsSupported;
+
+  if (refsSupported) {
+    const all = unique.slice(0, max);
+    return {
+      first: all[0],
+      last: undefined,
+      extras: all.slice(1),
+      all,
+    };
+  }
+  if (firstLast) {
+    const last = lastCandidate && lastCandidate !== first ? lastCandidate : undefined;
+    const all = [first, last].filter(Boolean) as string[];
+    return {
+      first: first || undefined,
+      last,
+      extras: [] as string[],
+      all,
+    };
+  }
+  if (firstOnly || capability?.supportsFirstFrame) {
+    return {
+      first: first || undefined,
+      last: undefined,
+      extras: [] as string[],
+      all: first ? [first] : [],
+    };
+  }
+  return {
+    first: undefined,
+    last: undefined,
+    extras: [] as string[],
+    all: [] as string[],
   };
 }
