@@ -101,7 +101,7 @@ export const xaiImagineAdapter: StudioAdapter = {
   },
   async createVideo(ctx, input) {
     const official = isOfficialXaiHost(ctx.provider.baseUrl);
-    const fields = resolveXaiImagineVideoImageFields({
+    const frames = resolveXaiImagineVideoImageFields({
       imageUrl: input.imageUrl,
       lastFrameUrl: input.lastFrameUrl,
       imageUrls: input.imageUrls,
@@ -136,12 +136,12 @@ export const xaiImagineAdapter: StudioAdapter = {
       sampler: input.sampler,
       scheduler: input.scheduler,
       usePro: input.usePro,
-      image: fields.image,
-      last_frame_image: fields.last_frame_image,
-      image_urls: fields.image_urls,
+      image: frames.image,
+      last_frame_image: frames.last_frame_image,
+      image_urls: frames.image_urls,
       profile: xaiVideoProfile(ctx.provider.baseUrl),
     });
-    const data = await studioProxyJson<Record<string, unknown>>({
+    const data = await studioProxyJson({
       provider: ctx.provider,
       path: xaiImagineCreatePath(),
       body,
@@ -177,7 +177,7 @@ export const xaiImagineAdapter: StudioAdapter = {
     return { status: "completed", url: URL.createObjectURL(blob) };
   },
   async generateText(ctx, input) {
-    const data = await studioProxyJson<{ choices?: Array<{ message?: { content?: string } }> }>({
+    const data = await studioProxyJson({
       provider: ctx.provider,
       path: "/chat/completions",
       body: {
