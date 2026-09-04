@@ -1,4 +1,3 @@
-import { resolveVideoModelCapability } from "@/services/api/video-model-capabilities";
 import { providerCapabilityIsRunnable, type ApiRelayProvider } from "@/stores/api-relay-config";
 import type { VideoCreateInput } from "@/studio/adapters/types";
 import { adapterForProvider } from "@/studio/adapters";
@@ -8,6 +7,7 @@ import { modelPoints, useOpsStore } from "@/studio/ops";
 import { STUDIO_PROVIDERS } from "@/studio/wiring";
 import { toDataUrlIfLocal } from "@/studio/persist-url";
 import { providerById } from "./proxy";
+import { resolveVideoModelCapability } from "@/services/api/video-model-capabilities";
 
 function assertRunnableVideoCapability(provider: ApiRelayProvider, providerName?: string) {
   if (!providerCapabilityIsRunnable(provider, "video")) {
@@ -15,40 +15,37 @@ function assertRunnableVideoCapability(provider: ApiRelayProvider, providerName?
   }
 }
 
-function allocateStudioVideoReferences(
-  provider: ApiRelayProvider,
-  model: string,
-  input: { imageUrl?: string; lastFrameUrl?: string; imageUrls?: string[] },
-) {
-  const capability = resolveVideoModelCapability({ model, provider });
-  const first = String(input.imageUrl || input.imageUrls?.[0] || "").trim();
-  const last = String(input.lastFrameUrl || "").trim();
-  const extras = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
-  const refs = capability.referenceImagePolicy;
-  const refsSupported = Boolean(refs && refs.supported);
+function cropStudioVideoReferences(input: {
+  model: string;
+  provider: ApiRelayProvider;
+  imageUrl?: string;
+  lastFrameUrl?: string;
+  imageUrls?: string[];
+}) {
+  const capability = resolveVideoModelCapability({
+    model: input.model,
+    provider: input.provider,
+  });
+  const refsSupported = capability.referenceImagePolicy?.supported === true;
   const firstLast = Boolean(capability.supportsFirstLastFrame || capability.requiresFirstLastFrame);
+  const first = Boolean(capability.supportsFirstFrame || firstLast);
+  let imageUrl = first ? input.imageUrl : undefined;
+  let lastFrameUrl = firstLast ? input.lastFrameUrl : undefined;
+  let imageUrls = input.imageUrls;
   if (refsSupported) {
-    const max = refs && refs.supported && refs.max != null ? refs.max : extras.length + 1;
-    const all = Array.from(new Set([first, ...extras].filter(Boolean))).slice(0, Math.max(1, max));
-    return { imageUrl: all[0], lastFrameUrl: undefined as string | undefined, imageUrls: all.length ? all : undefined };
+    const max = capability.referenceImagePolicy.max;
+    if (typeof max === "number" && imageUrls) imageUrls = imageUrls.slice(0, Math.max(0, max));
+  } else if (firstLast) {
+    imageUrls = [imageUrl, lastFrameUrl].filter((value): value is string => Boolean(value));
+  } else if (first) {
+    imageUrls = imageUrl ? [imageUrl] : undefined;
+    lastFrameUrl = undefined;
+  } else {
+    imageUrl = undefined;
+    lastFrameUrl = undefined;
+    imageUrls = undefined;
   }
-  if (firstLast) {
-    const lastFrameUrl = last && last !== first ? last : undefined;
-    const all = [first, lastFrameUrl].filter(Boolean) as string[];
-    return { imageUrl: first || undefined, lastFrameUrl, imageUrls: all.length ? all : undefined };
-  }
-  if (capability.supportsFirstFrame) {
-    return {
-      imageUrl: first || undefined,
-      lastFrameUrl: undefined as string | undefined,
-      imageUrls: first ? [first] : undefined,
-    };
-  }
-  return {
-    imageUrl: undefined as string | undefined,
-    lastFrameUrl: undefined as string | undefined,
-    imageUrls: undefined as string[] | undefined,
-  };
+  return { imageUrl, lastFrameUrl, imageUrls };
 }
 
 export function buildStudioVideoCreateInput(input: VideoCreateInput & { adapterId: string }): VideoCreateInput {
@@ -148,11 +145,17 @@ export async function createStudioVideo(input: {
     model,
   );
   if (!adapter.createVideo) throw new Error(`${adapter.label} 不支持生视频`);
-  const allocated = allocateStudioVideoReferences(provider, model, input);
-  const imageUrl = allocated.imageUrl ? await toDataUrlIfLocal(allocated.imageUrl) : undefined;
-  const lastFrameUrl = allocated.lastFrameUrl ? await toDataUrlIfLocal(allocated.lastFrameUrl) : undefined;
-  const imageUrls = allocated.imageUrls
-    ? await Promise.all(allocated.imageUrls.map((url) => toDataUrlIfLocal(url)))
+  const cropped = cropStudioVideoReferences({
+    model,
+    provider,
+    imageUrl: input.imageUrl,
+    lastFrameUrl: input.lastFrameUrl,
+    imageUrls: input.imageUrls,
+  });
+  const imageUrl = cropped.imageUrl ? await toDataUrlIfLocal(cropped.imageUrl) : undefined;
+  const lastFrameUrl = cropped.lastFrameUrl ? await toDataUrlIfLocal(cropped.lastFrameUrl) : undefined;
+  const imageUrls = cropped.imageUrls
+    ? await Promise.all(cropped.imageUrls.map((url) => toDataUrlIfLocal(url)))
     : undefined;
   const videoInput = buildStudioVideoCreateInput({
     adapterId: adapter.id,
