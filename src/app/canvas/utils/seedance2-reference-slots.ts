@@ -6,6 +6,26 @@ import type {
   Seedance2ReferenceSlotUseAs,
   VideoReferenceRole,
 } from "../types";
+import { isCharacterAssetForbiddenForVideo } from "./character-video-guard";
+import {
+  SEEDANCE2_MAX_REFERENCE_SLOT_COUNT,
+  SEEDANCE2_REFERENCE_SLOT_FALLBACK_ORDER,
+  SEEDANCE2_REFERENCE_SLOT_LABELS_BY_KEY,
+  assignExclusiveSeedance2ReferenceUseAs,
+  buildSeedance2ReferenceSlotKeysFromOrder,
+  getSeedance2FirstFrameReference,
+  mergeSeedance2OrderedCustomerReferences,
+  nextSeedance2ReferenceSequence,
+  normalizeSeedance2ReferenceSlotUseAs,
+  normalizeSeedance2StoryReferenceRole,
+  parseSeedance2ExtraReferenceSlotIndex,
+  planSeedance2ReferenceConnection,
+  resolveSeedance2ReferenceSlots as resolveSeedance2ReferenceSlotsRaw,
+  seedance2BoundExtraSlotStats,
+  seedance2CanOccupyReferenceSlot as seedance2CanOccupyReferenceSlotRaw,
+  seedance2ManualReferenceHighestSlotIndex,
+  seedance2ResolvedSlotsToCustomerReferences,
+} from "./seedance2-reference-slots.mjs";
 
 export {
   SEEDANCE2_MAX_REFERENCE_SLOT_COUNT,
@@ -20,12 +40,10 @@ export {
   normalizeSeedance2StoryReferenceRole,
   parseSeedance2ExtraReferenceSlotIndex,
   planSeedance2ReferenceConnection,
-  resolveSeedance2ReferenceSlots,
   seedance2BoundExtraSlotStats,
-  seedance2CanOccupyReferenceSlot,
   seedance2ManualReferenceHighestSlotIndex,
   seedance2ResolvedSlotsToCustomerReferences,
-} from "./seedance2-reference-slots.mjs";
+};
 
 export type Seedance2CustomerReferenceSource = "semantic" | "extra" | "connected";
 
@@ -79,3 +97,15 @@ export type Seedance2ResolvedCustomerReference = {
 };
 
 export type { Seedance2ReferenceSlotBinding, Seedance2ReferenceSlotKey, Seedance2ReferenceSlotUseAs };
+
+export function seedance2CanOccupyReferenceSlot(node: CanvasNodeData | undefined | null) {
+  if (isCharacterAssetForbiddenForVideo(node)) return false;
+  return seedance2CanOccupyReferenceSlotRaw(node);
+}
+
+export function resolveSeedance2ReferenceSlots(options: Seedance2ReferenceSlotResolveOptions) {
+  return resolveSeedance2ReferenceSlotsRaw(options).filter((slot) => {
+    const node = options.nodes.find((item) => item.id === slot.nodeId);
+    return !isCharacterAssetForbiddenForVideo(node);
+  });
+}
