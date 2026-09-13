@@ -22,6 +22,12 @@ export type SafeOutboundDependencies = {
   fetchImpl?: SafeOutboundFetch;
   validateRedirect?: (url: URL) => Promise<URL> | URL;
   dependencies?: SafeOutboundDependencies;
+  /**
+   * Skip private/loopback IP and blocked-hostname checks. Only for the
+   * local relay proxy in single-tenant deployments, where pointing the relay
+   * at a LAN/loopback model server is a legitimate setup.
+   */
+  allowPrivateNetwork?: boolean;
 };
 
 export class UnsafeOutboundUrlError extends Error {
@@ -81,12 +87,16 @@ export async function assertSafeOutboundUrl(
   if (url.username || url.password) return unsafeUrl();
 
   const hostname = normalizeHostname(url.hostname);
-  if (!hostname || isBlockedHostname(hostname)) return unsafeUrl();
+  if (!deps.allowPrivateNetwork) {
+    if (!hostname || isBlockedHostname(hostname)) return unsafeUrl();
 
-  const literalFamily = isIP(hostname);
-  if (literalFamily) {
-    if (isDisallowedIp(hostname, literalFamily)) return unsafeUrl();
-    return url;
+    const literalFamily = isIP(hostname);
+    if (literalFamily) {
+      if (isDisallowedIp(hostname, literalFamily)) return unsafeUrl();
+      return url;
+    }
+  } else if (!hostname) {
+    return unsafeUrl();
   }
 
   const lookup = deps.lookup || deps.resolve || defaultLookup;
@@ -98,10 +108,12 @@ export async function assertSafeOutboundUrl(
   }
   if (!Array.isArray(answers) || answers.length === 0) return unsafeUrl();
 
-  for (const answer of answers) {
-    const address = typeof answer?.address === "string" ? answer.address.trim() : "";
-    const family = isIP(address);
-    if (!family || isDisallowedIp(address, family)) return unsafeUrl();
+  if (!deps.allowPrivateNetwork) {
+    for (const answer of answers) {
+      const address = typeof answer?.address === "string" ? answer.address.trim() : "";
+      const family = isIP(address);
+      if (!family || isDisallowedIp(address, family)) return unsafeUrl();
+    }
   }
   return url;
 }

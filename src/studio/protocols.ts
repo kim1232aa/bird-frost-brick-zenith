@@ -170,7 +170,7 @@ export const PROTOCOL_PRESETS: ProtocolPreset[] = [
     id: "modelscope",
     label: "ModelScope 魔搭",
     docs: "https://www.modelscope.ai/docs/model-service/API-Inference/intro",
-    blurb: "Access Token 鉴权。国际站 api-inference.modelscope.ai。生图走 /v1/images/generations，异步轮询 /v1/tasks。",
+    blurb: "Access Token 鉴权。国际站 api-inference.modelscope.ai 与中国站 api-inference.modelscope.cn 令牌不通用。生图走 /v1/images/generations，异步轮询 /v1/tasks。",
     defaultBaseUrl: "https://api-inference.modelscope.ai/v1",
     authScheme: "Bearer",
     endpoints: {

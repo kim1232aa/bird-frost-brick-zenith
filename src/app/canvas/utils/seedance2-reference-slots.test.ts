@@ -6,14 +6,14 @@ import {
   seedance2CanOccupyReferenceSlot as seedance2CanOccupyReferenceSlotRaw,
 } from "./seedance2-reference-slots.mjs";
 
-function seedance2CanOccupyReferenceSlot(node) {
+function seedance2CanOccupyReferenceSlot(node: any) {
   if (isCharacterAssetForbiddenForVideo(node)) return false;
   return seedance2CanOccupyReferenceSlotRaw(node);
 }
 
-function resolveSeedance2ReferenceSlots(options) {
-  return resolveSeedance2ReferenceSlotsRaw(options).filter((slot) => {
-    const node = options.nodes.find((item) => item.id === slot.nodeId);
+function resolveSeedance2ReferenceSlots(options: any) {
+  return resolveSeedance2ReferenceSlotsRaw(options).filter((slot: any) => {
+    const node = options.nodes.find((item: any) => item.id === slot.nodeId);
     return !isCharacterAssetForbiddenForVideo(node);
   });
 }

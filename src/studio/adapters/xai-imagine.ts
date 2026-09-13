@@ -141,7 +141,7 @@ export const xaiImagineAdapter: StudioAdapter = {
       image_urls: frames.image_urls,
       profile: xaiVideoProfile(ctx.provider.baseUrl),
     });
-    const data = await studioProxyJson({
+    const data = await studioProxyJson<{ url?: unknown }>({
       provider: ctx.provider,
       path: xaiImagineCreatePath(),
       body,
@@ -177,7 +177,7 @@ export const xaiImagineAdapter: StudioAdapter = {
     return { status: "completed", url: URL.createObjectURL(blob) };
   },
   async generateText(ctx, input) {
-    const data = await studioProxyJson({
+    const data = await studioProxyJson<{ choices?: Array<{ message?: { content?: string } }> }>({
       provider: ctx.provider,
       path: "/chat/completions",
       body: {
@@ -197,6 +197,20 @@ export const xaiImagineAdapter: StudioAdapter = {
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 Key" };
+    // 先用免费的 GET /models 验通：直接打 /images/generations 会真扣费生成图片。
+    const modelsPath = ctx.provider.endpoints?.models || "/models";
+    try {
+      const data = await studioProxyJson<{ data?: unknown[] }>({
+        provider: ctx.provider,
+        path: modelsPath,
+        method: "GET",
+        timeoutMs: 15_000,
+      });
+      const count = Array.isArray(data?.data) ? data.data.length : 0;
+      return { ok: true, message: `模型列表可用 ${modelsPath}${count ? ` · ${count} 个模型` : ""}` };
+    } catch {
+      // /models 失败时回退到生图探测
+    }
     try {
       await studioProxyJson({
         provider: ctx.provider,

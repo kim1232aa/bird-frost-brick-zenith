@@ -1,8 +1,41 @@
+import { isIP } from "node:net";
 import {
   assertSafeOutboundUrl,
   fetchSafeRedirecting,
   readResponseWithLimit,
 } from "./safe-outbound-url.server.ts";
+
+/**
+ * Single-tenant local deployments (PGlite, no DATABASE_URL) legitimately point
+ * relays at loopback/LAN model servers; hosted multi-tenant deploys keep the
+ * SSRF guard strict. RELAY_ALLOW_PRIVATE_TARGETS overrides either way.
+ */
+function privateRelayTargetsAllowed() {
+  const flag = (process.env.RELAY_ALLOW_PRIVATE_TARGETS || "").trim().toLowerCase();
+  if (/^(1|true|yes|on)$/u.test(flag)) return true;
+  if (/^(0|false|no|off)$/u.test(flag)) return false;
+  return !process.env.DATABASE_URL?.trim();
+}
+
+/** http is acceptable only for loopback / private-network relay targets. */
+function isLocalRelayHttpUrl(baseUrl: string) {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:") return false;
+  const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  const family = isIP(hostname);
+  if (family === 6) {
+    return hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80");
+  }
+  if (family !== 4) return false;
+  const [a, b] = hostname.split(".").map((part) => Number(part));
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+}
 
 const RELAY_TIMEOUT_MS = 10 * 60 * 1000;
 const FETCH_URL_TIMEOUT_MS = 2 * 60 * 1000;
@@ -287,8 +320,8 @@ async function attachVaultKey(headers: Headers, relayId: string, credentialId?: 
   if (!secret?.apiKey) throw relayRequestError(401, "密钥库中转不存在或没有可用 Key");
   const baseUrl = normalizeHttpUrl(secret.baseUrl);
   if (!baseUrl) throw relayRequestError(400, "密钥库中转缺少有效的 Base URL");
-  if (new URL(baseUrl).protocol !== "https:") {
-    throw relayRequestError(400, "密钥库中转 Base URL 必须使用 HTTPS");
+  if (new URL(baseUrl).protocol !== "https:" && !isLocalRelayHttpUrl(baseUrl)) {
+    throw relayRequestError(400, "密钥库中转 Base URL 必须使用 HTTPS（本机/局域网 http 除外）");
   }
   if (secret.authScheme === "x-api-key") headers.set("x-api-key", secret.apiKey);
   else headers.set("Authorization", `${secret.authScheme} ${secret.apiKey}`);
@@ -324,7 +357,7 @@ export async function proxyLocalRelay(request: Request, splat: string) {
         return proxyErrorResponse(error, "内置 xAI 通道只能转发到 api.x.ai", 400);
       }
     }
-    target = await assertSafeOutboundUrl(target);
+    target = await assertSafeOutboundUrl(target, { allowPrivateNetwork: builtin !== "xai" && privateRelayTargetsAllowed() });
 
     if (builtin === "xai") {
       const key = process.env.XAI_API_KEY;

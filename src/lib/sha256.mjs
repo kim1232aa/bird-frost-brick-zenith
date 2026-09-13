@@ -86,3 +86,11 @@ function sha256Bytes(message) {
   for (let i = 0; i < 8; i += 1) outView.setUint32(i * 4, H[i]);
   return out;
 }
+
+/**
+ * Sync variant for code paths that cannot await (vault credential-id
+ * derivation). Always uses the pure-TS fallback — identical output.
+ */
+export function sha256HexSync(value) {
+  return bytesToHex(sha256Bytes(new TextEncoder().encode(value)));
+}

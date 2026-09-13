@@ -1295,8 +1295,8 @@ export function assertRefCount(count: number, max = SAFE_IMAGE_REF_CAP) {
 }
 
 export function studioEndpoint(
-  endpoints: { chat?: string; images?: string; videosCreate?: string; videosPoll?: string; audio?: string } | undefined,
-  key: "chat" | "images" | "videosCreate" | "videosPoll" | "audio",
+  endpoints: { chat?: string; images?: string; videosCreate?: string; videosPoll?: string; audio?: string; models?: string } | undefined,
+  key: "chat" | "images" | "videosCreate" | "videosPoll" | "audio" | "models",
   fallback: string,
   id?: string,
 ) {

@@ -26,14 +26,15 @@ function cropStudioVideoReferences(input: {
     model: input.model,
     provider: input.provider,
   });
-  const refsSupported = capability.referenceImagePolicy?.supported === true;
+  const policy = capability.referenceImagePolicy;
+  const refsSupported = policy?.supported === true;
   const firstLast = Boolean(capability.supportsFirstLastFrame || capability.requiresFirstLastFrame);
   const first = Boolean(capability.supportsFirstFrame || firstLast);
   let imageUrl = first ? input.imageUrl : undefined;
   let lastFrameUrl = firstLast ? input.lastFrameUrl : undefined;
   let imageUrls = input.imageUrls;
   if (refsSupported) {
-    const max = capability.referenceImagePolicy.max;
+    const max = policy.max;
     if (typeof max === "number" && imageUrls) imageUrls = imageUrls.slice(0, Math.max(0, max));
   } else if (firstLast) {
     imageUrls = [imageUrl, lastFrameUrl].filter((value): value is string => Boolean(value));

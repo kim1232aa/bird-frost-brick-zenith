@@ -6,8 +6,10 @@ import { imageRefs } from "@/studio/image-refs";
 const MODELSCOPE_IMAGE_BASE = "https://api-inference.modelscope.ai/v1";
 
 function modelscopeBase(raw?: string) {
+  // Keep the configured host: modelscope.cn and modelscope.ai issue separate,
+  // non-interchangeable tokens, so rewriting .cn to .ai breaks CN tokens with 401.
   const value = String(raw || "").trim() || MODELSCOPE_IMAGE_BASE;
-  return value.replace(/api-inference\.modelscope\.cn/gi, "api-inference.modelscope.ai").replace(/\/+$/, "");
+  return value.replace(/\/+$/, "");
 }
 
 function modelscopeImageSize(size?: string) {
@@ -106,6 +108,20 @@ export const modelscopeAdapter: StudioAdapter = {
   async testConnection(ctx) {
     if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 ModelScope Access Token" };
     const baseUrl = modelscopeBase(ctx.provider.baseUrl);
+    // 先用免费的 GET /models 验通，避免点一次测试就真起一个付费生图任务。
+    try {
+      const data = await studioProxyJson<{ data?: unknown[] }>({
+        provider: ctx.provider,
+        baseUrl,
+        path: "/models",
+        method: "GET",
+        timeoutMs: 15_000,
+      });
+      const count = Array.isArray(data?.data) ? data.data.length : 0;
+      return { ok: true, message: `魔搭模型列表可用${count ? ` · ${count} 个模型` : ""}` };
+    } catch {
+      // /models 失败时回退到生图任务探测
+    }
     try {
       await studioProxyJson({
         provider: ctx.provider,

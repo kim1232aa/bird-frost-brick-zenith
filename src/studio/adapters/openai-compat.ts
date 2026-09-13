@@ -187,6 +187,21 @@ export const openaiCompatAdapter: StudioAdapter = {
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 Key" };
+    // 先用免费的 GET /models 验 base URL + Key：直接打 /images/generations 会
+    // 真扣费生成一张图（gpt-image-2 要 30s+），点一次测试烧一次钱。
+    const modelsPath = studioEndpoint(ctx.provider.endpoints, "models", "/models");
+    try {
+      const data = await studioProxyJson<{ data?: unknown[] }>({
+        provider: ctx.provider,
+        path: modelsPath,
+        method: "GET",
+        timeoutMs: 15_000,
+      });
+      const count = Array.isArray(data?.data) ? data.data.length : 0;
+      return { ok: true, message: `模型列表可用 ${modelsPath}${count ? ` · ${count} 个模型` : ""}` };
+    } catch {
+      // /models 不存在或失败时回退到生图探测
+    }
     const path = studioEndpoint(ctx.provider.endpoints, "images", "/images/generations");
     const official = isOfficialOpenAiHost(ctx.provider.baseUrl) || ctx.provider.protocol === "openai-official";
     try {

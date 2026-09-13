@@ -67,7 +67,11 @@ mock.module(new URL("../../lib/auth/middleware.ts", import.meta.url).href, {
   namedExports: { authMiddleware: {} },
 });
 mock.module(new URL("../../lib/auth/verify.server.ts", import.meta.url).href, {
-  namedExports: { authConfigured: true, requireUserId: async () => "user-alice" },
+  namedExports: {
+    authConfigured: true,
+    requireUserId: async () => "user-alice",
+    resolveStudioVaultUserId: async () => "user-alice",
+  },
 });
 
 const {

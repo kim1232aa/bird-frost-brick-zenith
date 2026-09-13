@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256HexSync } from "@/lib/sha256";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
 import { orderedProviderCredentialIds, normalizeProviderKeyInput } from "@/stores/provider-credentials";
@@ -48,7 +48,7 @@ type CredentialRelay = Pick<ApiRelayProvider, "apiKey" | "apiKeyId" | "apiKeys" 
 
 /** The digest is calculated only in this server module; its input is never logged or sent. */
 function stableCredentialId(apiKey: string) {
-  return `credential-sha256-${createHash("sha256").update(apiKey, "utf8").digest("hex")}`;
+  return `credential-sha256-${sha256HexSync(apiKey)}`;
 }
 
 function rawCredentialSlots(relay: CredentialRelay) {
@@ -181,7 +181,10 @@ async function readRelayVaultRow(userId: string) {
 
 async function readRelayVaultRaw(userId: string): Promise<RawRelayVaultPayload> {
   const seen = new Set<string>();
-  const candidates = [userId, LEGACY_STUDIO_VAULT_USER_ID, ENV_VAULT_USER_ID].filter((id) => {
+  const sharedIds = [LEGACY_STUDIO_VAULT_USER_ID, ENV_VAULT_USER_ID];
+  // Only the shared single-tenant rows may fall back to each other; a signed-in
+  // user with no vault row of their own must never see the shared/seeded keys.
+  const candidates = (sharedIds.includes(userId) ? [userId, ...sharedIds] : [userId]).filter((id) => {
     if (!id || seen.has(id)) return false;
     seen.add(id);
     return true;
@@ -355,9 +358,17 @@ export async function readImageHostVaultKey(baseUrl: string) {
   return { apiKey: credential.apiKey, baseUrl: credential.baseUrl };
 }
 
+type VaultHandlerContext = { userId?: unknown } | null | undefined;
+
+/** Middleware-injected userId wins; fall back to the request session. */
+async function vaultUserIdFromContext(context: VaultHandlerContext): Promise<string> {
+  const fromContext = typeof context?.userId === "string" ? context.userId.trim() : "";
+  return fromContext || requireVaultSession();
+}
+
 export const loadRelayVault = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const raw = await readRelayVaultRaw(await requireVaultSession());
+  .handler(async ({ context }) => {
+    const raw = await readRelayVaultRaw(await vaultUserIdFromContext(context as VaultHandlerContext));
     return {
       relays: raw.relays.map(redactRelay),
       hiddenPresetIds: raw.hiddenPresetIds,
@@ -367,8 +378,8 @@ export const loadRelayVault = createServerFn({ method: "GET" })
   });
 
 export const loadImageHostCredential = createServerFn({ method: "GET" })
-  .handler(async () => {
-    const raw = await readRelayVaultRaw(await requireVaultSession());
+  .handler(async ({ context }) => {
+    const raw = await readRelayVaultRaw(await vaultUserIdFromContext(context as VaultHandlerContext));
     return publicImageHostCredential(raw.imageHost);
   });
 
@@ -379,14 +390,14 @@ export const saveRelayVault = createServerFn({ method: "POST" })
       : [],
     hiddenPresetIds: Array.isArray(value?.hiddenPresetIds) ? value.hiddenPresetIds.filter((id) => typeof id === "string") : [],
   }))
-  .handler(async ({ data }) => writeRelayVault(await requireVaultSession(), data));
+  .handler(async ({ data, context }) => writeRelayVault(await vaultUserIdFromContext(context as VaultHandlerContext), data));
 
 export const saveImageHostCredential = createServerFn({ method: "POST" })
   .validator((value: Partial<ImageHostCredentialInput>) => ({
     baseUrl: normalizeImageHostBaseUrl(value?.baseUrl),
     apiKey: String(value?.apiKey || "").trim(),
   }))
-  .handler(async ({ data }) => writeImageHostCredential(await requireVaultSession(), data));
+  .handler(async ({ data, context }) => writeImageHostCredential(await vaultUserIdFromContext(context as VaultHandlerContext), data));
 
 type EnvSeededRelay = {
   readonly id: string;
@@ -486,7 +497,7 @@ function applyEnvSeededRelays(existing: ApiRelayProvider[]) {
   return { relays: [...byId.values()], seeded };
 }
 
-export async function seedRelayVaultFromEnv(userId = LEGACY_STUDIO_VAULT_USER_ID) {
+export async function seedRelayVaultFromEnv(userId = ENV_VAULT_USER_ID) {
   const seeds = envSeededRelays();
   if (!seeds.length) return { ok: true as const, seeded: 0 };
   const existing = await readRelayVaultRaw(userId);

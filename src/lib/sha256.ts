@@ -86,3 +86,12 @@ function sha256Bytes(message: Uint8Array): Uint8Array {
   for (let i = 0; i < 8; i += 1) outView.setUint32(i * 4, H[i]);
   return out;
 }
+
+/**
+ * Sync variant for server code paths that cannot await (vault credential-id
+ * derivation). Always uses the pure-TS fallback — output is identical to the
+ * WebCrypto path, just synchronous.
+ */
+export function sha256HexSync(value: string): string {
+  return bytesToHex(sha256Bytes(new TextEncoder().encode(value)));
+}
