@@ -251,7 +251,9 @@ export async function waitStudioVideo(input: {
             urls: [state.url],
           });
           if (saved?.persistError) {
-            throw new Error(`作品库保存失败：${saved.persistError}`);
+            // 视频已生成且已扣费——落库失败（如结果地址本机不可达）不应判整次失败。
+            console.warn(`[studio] 视频落库失败，改用原始地址展示：${saved.persistError}`);
+            return state.url;
           }
           const persisted = saved?.urls?.[0];
           if (persisted) return persisted;

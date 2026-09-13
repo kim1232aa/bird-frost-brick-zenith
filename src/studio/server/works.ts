@@ -3,7 +3,9 @@ import { getSql } from "@/lib/db";
 import { createSerializedManifestUpdater, parseManifestItems } from "./works-manifest.ts";
 import { worksStorageDir, worksStorageDirs } from "./works-path.ts";
 
-export { worksFilePath, worksStorageDir } from "./works-path.ts";
+// NOTE: do not re-export works-path helpers here — this module is imported by
+// client code for its createServerFn RPC stubs, and any re-export would drag
+// node:fs into the browser bundle (Vite externalizes and throws on access).
 
 export type StoredWork = {
   id: string;
@@ -75,11 +77,17 @@ async function writeManifest(items: StoredWork[]) {
   let io: Awaited<ReturnType<typeof fs>> | undefined;
   try {
     io = await fs();
-    await io.mkdir(io.dir, { recursive: true });
-    temporary = `${io.manifest}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
-    await io.writeFile(temporary, JSON.stringify({ items: items.slice(0, 80) }, null, 2), { encoding: "utf8", flag: "wx" });
-    await io.rename(temporary, io.manifest);
-    temporary = "";
+    const payload = JSON.stringify({ items: items.slice(0, 80) }, null, 2);
+    // Dual-write across every served tree (see worksStorageDirs): the primary
+    // dir alone is not always the one the dev server / static host serves.
+    for (const dir of worksStorageDirs()) {
+      await io.mkdir(dir, { recursive: true });
+      const manifest = io.join(dir, "manifest.json");
+      temporary = `${manifest}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+      await io.writeFile(temporary, payload, { encoding: "utf8", flag: "wx" });
+      await io.rename(temporary, manifest);
+      temporary = "";
+    }
     return { ok: true as const };
   } catch (error) {
     if (temporary) await io?.unlink(temporary).catch(() => undefined);

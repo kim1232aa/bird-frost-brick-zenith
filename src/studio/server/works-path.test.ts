@@ -27,5 +27,7 @@ test("vercel preview also mirrors into static/works when both trees exist", asyn
   const root = mkdtempSync(join(tmpdir(), "works-both-"));
   mkdirSync(join(root, "static"));
   mkdirSync(join(root, "public"));
-  assert.deepEqual(worksStorageDirs(root), [join(root, "static", "works")]);
+  // Both trees must receive writes: dev serves public/, nitro serves static/,
+  // and single-tree writes produced /works 404s (broken result images).
+  assert.deepEqual(worksStorageDirs(root), [join(root, "static", "works"), join(root, "public", "works")]);
 });

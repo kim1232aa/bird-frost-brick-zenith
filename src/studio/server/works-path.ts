@@ -14,7 +14,12 @@ export function worksStorageDir(cwd = process.cwd()) {
 
 export function worksStorageDirs(cwd = process.cwd()) {
   const primary = worksStorageDir(cwd);
-  const extra = join(cwd, "static", "works");
+  // Always dual-write across both served trees: which one is actually served
+  // depends on the runtime (vite dev serves public/, nitro serves static/),
+  // and the primary choice alone has repeatedly produced /works 404s.
+  const extra = primary.replaceAll("\\", "/").endsWith("/static/works")
+    ? join(cwd, "public", "works")
+    : join(cwd, "static", "works");
   return extra === primary ? [primary] : [primary, extra];
 }
 

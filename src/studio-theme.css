@@ -1,0 +1,439 @@
+/* ==========================================================================
+   Warm Atelier — visual refresh (loaded last, overrides earlier layers)
+   Direction: warm paper background, ink text, deep pine accent.
+   Low-saturation palette, no neon gradients, generous whitespace.
+   ========================================================================== */
+
+:root {
+  --bp-green: #0f7a4d;
+  --bp-green-light: #15905c;
+  --bp-cyan: #3d8f86;
+  --bp-purple: #8b6f4e;
+  --bp-orange: #c26717;
+  --bp-gen-image: linear-gradient(135deg, #128252 0%, #0b6b44 100%);
+  --bp-gen-video: linear-gradient(135deg, #c26717 0%, #a34f0c 100%);
+  --bp-bg: #f5f2ec;
+  --bp-card: #fffdf8;
+  --bp-border: #e4ddd0;
+  --bp-upload-bg: #eff5ef;
+  --bp-upload-border: #b9d3c1;
+  --bp-selected-bg: #e7f2ea;
+  --bp-selected-border: #0f7a4d;
+  --bp-info-bg: #f1ede3;
+  --bp-warn-bg: #faf0df;
+  --bp-text: #1d1a16;
+  --bp-text-2: #6f685c;
+  --bp-text-3: #a39a8b;
+  --bp-slider: #0f7a4d;
+  --bp-radius-sm: 8px;
+  --bp-radius-md: 12px;
+  --bp-radius-lg: 16px;
+  --bp-radius-card: 18px;
+  --bp-shadow: 0 1px 2px rgba(58, 48, 32, 0.05), 0 10px 28px rgba(58, 48, 32, 0.07);
+  --bp-accent-ring: rgba(15, 122, 77, 0.16);
+}
+
+/* ---------- page base ---------- */
+
+html:not(.dark),
+html:not(.dark) body {
+  background: #f5f2ec !important;
+  color: #1d1a16 !important;
+}
+
+html:not(.dark) .studio-root,
+html:not(.dark) .studio-root.is-canvas,
+html:not(.dark) .studio-root.is-canvas .studio-page,
+html:not(.dark) .studio-flush {
+  background: #f5f2ec;
+  color: #1d1a16;
+}
+
+/* ---------- topbar ---------- */
+
+html:not(.dark) .studio-topbar {
+  border-bottom-color: #e4ddd0;
+  background: rgba(245, 242, 236, 0.88);
+  backdrop-filter: blur(14px);
+}
+
+html:not(.dark) .studio-brand {
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+html:not(.dark) .studio-mark {
+  background: #0f7a4d;
+  box-shadow: 0 0 0 4px rgba(15, 122, 77, 0.14);
+}
+
+html:not(.dark) .studio-nav a {
+  color: #6f685c;
+  font-weight: 500;
+}
+
+html:not(.dark) .studio-nav a:hover {
+  color: #1d1a16;
+  background: rgba(29, 26, 22, 0.05);
+}
+
+html:not(.dark) .studio-nav a.is-active,
+html:not(.dark) .studio-root.is-canvas .studio-nav a.is-active {
+  background: #1d1a16;
+  color: #f7f3ea;
+  font-weight: 600;
+}
+
+html:not(.dark) .studio-credits {
+  background: #e7f2ea;
+  border-color: #c4ddcc;
+  color: #0c5c3b;
+  font-weight: 600;
+}
+
+html:not(.dark) .studio-ghost,
+html:not(.dark) .studio-menu-btn {
+  background: #fffdf8;
+  border-color: #ddd5c4;
+  color: #3f3a31;
+  transition: border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+html:not(.dark) .studio-ghost:hover,
+html:not(.dark) .studio-menu-btn:hover {
+  border-color: #0f7a4d;
+  color: #0c5c3b;
+}
+
+/* ---------- hero / headings ---------- */
+
+.bp-hero h1 {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #1d1a16;
+  font-weight: 650;
+}
+
+.studio-kicker {
+  color: #a39a8b;
+  letter-spacing: 0.14em;
+}
+
+html:not(.dark) .studio-lead,
+html:not(.dark) .studio-hint,
+html:not(.dark) .studio-footnote,
+html:not(.dark) .studio-form p,
+html:not(.dark) .shot-body p,
+html:not(.dark) .library-card p,
+html:not(.dark) .wire-item small {
+  color: #6f685c;
+}
+
+/* ---------- workbench shell ---------- */
+
+html:not(.dark) .bp-work {
+  border-color: #e4ddd0;
+  background: #fffdf8;
+  box-shadow: 0 1px 2px rgba(58, 48, 32, 0.05), 0 14px 36px rgba(58, 48, 32, 0.07);
+}
+
+html:not(.dark) .bp-left {
+  background: #fffdf8;
+  border-right-color: #e4ddd0;
+}
+
+html:not(.dark) .bp-right {
+  background: #f1ede3 !important;
+}
+
+html:not(.dark) .bp-bar {
+  background: #fffdf8;
+  border-bottom-color: #e4ddd0;
+}
+
+html:not(.dark) .bp-cta {
+  background: transparent;
+}
+
+/* ---------- form controls ---------- */
+
+html:not(.dark) .bp-left textarea,
+html:not(.dark) .bp-left input,
+html:not(.dark) .bp-left select,
+html:not(.dark) .bench-side textarea,
+html:not(.dark) .bench-side input,
+html:not(.dark) .bench-side select,
+html:not(.dark) .studio-form textarea,
+html:not(.dark) .studio-form select,
+html:not(.dark) .studio-form input,
+html:not(.dark) .model-picker select {
+  border-color: #e4ddd0 !important;
+  background: #fffefa !important;
+  color: #1d1a16 !important;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+html:not(.dark) .bp-left textarea:focus-visible,
+html:not(.dark) .bp-left input:focus-visible,
+html:not(.dark) .bp-left select:focus-visible,
+html:not(.dark) .studio-form textarea:focus-visible,
+html:not(.dark) .studio-form select:focus-visible,
+html:not(.dark) .studio-form input:focus-visible,
+html:not(.dark) .model-picker select:focus-visible {
+  border-color: #0f7a4d !important;
+  box-shadow: 0 0 0 3px var(--bp-accent-ring);
+  outline: none;
+}
+
+/* ---------- dropzone ---------- */
+
+html:not(.dark) .dropzone {
+  border-color: #b9d3c1 !important;
+  background: #eff5ef !important;
+  color: #3d6b52;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+html:not(.dark) .dropzone:hover {
+  border-color: #0f7a4d !important;
+  background: #e7f2ea !important;
+}
+
+html:not(.dark) .dropzone small {
+  color: #527a63;
+}
+
+/* ---------- chips / segmented / pills ---------- */
+
+html:not(.dark) .chip-row button,
+html:not(.dark) .studio-seg button,
+html:not(.dark) .aspect-grid button {
+  border-color: #ddd5c4;
+  background: #fffdf8;
+  color: #6f685c;
+  font-weight: 500;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+html:not(.dark) .chip-row button:hover,
+html:not(.dark) .studio-seg button:hover,
+html:not(.dark) .aspect-grid button:hover {
+  border-color: #b7ab94;
+  color: #1d1a16;
+}
+
+html:not(.dark) .chip-row button.is-active,
+html:not(.dark) .studio-seg button.is-active,
+html:not(.dark) .studio-root .chip-row button.is-active,
+html:not(.dark) .studio-root .studio-seg button.is-active,
+html:not(.dark) .aspect-grid button.is-active {
+  background: #e7f2ea;
+  border-color: #0f7a4d;
+  color: #0c5c3b;
+  font-weight: 600;
+}
+
+/* ---------- primary actions ---------- */
+
+html:not(.dark) .studio-primary,
+html:not(.dark) .studio-form button.studio-primary {
+  background: #1d1a16 !important;
+  color: #faf7f0 !important;
+  border-radius: 12px;
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+
+html:not(.dark) .studio-primary:hover,
+html:not(.dark) .studio-form button.studio-primary:hover {
+  background: #0f7a4d !important;
+  box-shadow: 0 8px 18px rgba(11, 107, 68, 0.25);
+}
+
+/* big generate button: solid deep pine, no neon gradient, white text */
+.bp-generate {
+  border-radius: 14px;
+  color: #ffffff !important;
+  letter-spacing: 0.01em;
+  box-shadow: 0 8px 20px rgba(11, 107, 68, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, filter 0.14s ease;
+}
+
+.bp-generate small {
+  opacity: 0.82;
+  font-weight: 500;
+}
+
+.bp-generate:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px rgba(11, 107, 68, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  filter: brightness(1.05);
+}
+
+.bp-generate:not(:disabled):active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(11, 107, 68, 0.24);
+}
+
+.bp-generate-video {
+  color: #fff8f0 !important;
+  box-shadow: 0 8px 20px rgba(154, 74, 12, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+/* ---------- result stage ---------- */
+
+html:not(.dark) .bp-stage {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(58, 48, 32, 0.10) 1px, transparent 0) 0 0 / 22px 22px,
+    #efeae0;
+}
+
+.bp-stage img,
+.bp-stage video,
+.bp-stage-grid img {
+  border-radius: 12px;
+}
+
+html:not(.dark) .bp-examples-title {
+  color: #6f685c;
+  font-weight: 600;
+}
+
+html:not(.dark) .bp-examples button {
+  border-color: #e4ddd0;
+  background: #fffdf8;
+  border-radius: 14px;
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+}
+
+html:not(.dark) .bp-examples button:hover {
+  transform: translateY(-2px);
+  border-color: #cfc5b0;
+  box-shadow: 0 10px 22px rgba(58, 48, 32, 0.12);
+}
+
+html:not(.dark) .bp-examples button.is-active {
+  border-color: #0f7a4d;
+  box-shadow: 0 0 0 1px #0f7a4d;
+}
+
+/* ---------- cards across studio pages ---------- */
+
+html:not(.dark) .studio-tool-card,
+html:not(.dark) .library-card,
+html:not(.dark) .shot-card,
+html:not(.dark) .studio-form,
+html:not(.dark) .studio-stage,
+html:not(.dark) .shot-board,
+html:not(.dark) .ws-side,
+html:not(.dark) .param-block,
+html:not(.dark) .wire-item,
+html:not(.dark) .admin-row,
+html:not(.dark) .login-card,
+html:not(.dark) .story-logline,
+html:not(.dark) .cast-card,
+html:not(.dark) .home-tool {
+  border-color: #e4ddd0;
+  background: #fffdf8;
+  box-shadow: 0 1px 2px rgba(58, 48, 32, 0.05), 0 8px 22px rgba(58, 48, 32, 0.05);
+}
+
+/* ---------- destructive actions: soft outline instead of hot pink ---------- */
+
+html:not(.dark) .wire-item-del {
+  background: #fffdf8;
+  border-color: #e5c9c4;
+  color: #b42318;
+}
+
+html:not(.dark) .wire-item-del:hover {
+  background: #faeceb;
+  border-color: #d9a29b;
+}
+
+/* ---------- status / feedback ---------- */
+
+.studio-error {
+  color: #b42318;
+}
+
+html:not(.dark) .bp-status {
+  background: #f7f3ea;
+  border-bottom-color: #e4ddd0;
+  color: #6f685c;
+}
+
+html:not(.dark) .bp-status b {
+  color: #3f3a31;
+}
+
+html:not(.dark) .bp-status span {
+  color: #6f685c;
+}
+
+html:not(.dark) .bp-status em {
+  color: #1d1a16;
+}
+
+html:not(.dark) .bp-status-dot {
+  background: #c9c0ad;
+}
+
+html:not(.dark) .bp-status.is-idle {
+  color: #6f685c;
+}
+
+html:not(.dark) .bp-status.is-run {
+  background: #faf3e2;
+  border-bottom-color: #e0c890;
+  color: #7a5b1e;
+}
+
+html:not(.dark) .bp-status.is-run .bp-status-dot {
+  background: #d9a429;
+  box-shadow: 0 0 0 4px rgba(217, 164, 41, 0.18);
+}
+
+html:not(.dark) .bp-status.is-ok {
+  background: #e9f4ec;
+  border-bottom-color: #bfdcc8;
+  color: #0c5c3b;
+}
+
+html:not(.dark) .bp-status.is-ok .bp-status-dot {
+  background: #0f7a4d;
+}
+
+html:not(.dark) .bp-status.is-err {
+  background: #faeceb;
+  border-bottom-color: #e5b8b3;
+  color: #9c2b21;
+}
+
+html:not(.dark) .bp-status.is-err .bp-status-dot {
+  background: #c93c2e;
+}
+
+/* ---------- scrollbars (workbench panes) ---------- */
+
+html:not(.dark) .bp-left::-webkit-scrollbar,
+html:not(.dark) .bp-right::-webkit-scrollbar,
+html:not(.dark) .bench-main::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html:not(.dark) .bp-left::-webkit-scrollbar-thumb,
+html:not(.dark) .bp-right::-webkit-scrollbar-thumb,
+html:not(.dark) .bench-main::-webkit-scrollbar-thumb {
+  background: #d8d0bf;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+html:not(.dark) .bp-left::-webkit-scrollbar-thumb:hover,
+html:not(.dark) .bp-right::-webkit-scrollbar-thumb:hover {
+  background: #bfb5a0;
+  background-clip: content-box;
+}

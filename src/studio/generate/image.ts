@@ -103,7 +103,10 @@ export async function generateStudioImage(input: {
         urls,
       });
       if (saved?.persistError) {
-        throw new Error(`作品库保存失败：${saved.persistError}`);
+        // 生成已成功且已扣费——落库失败（例如结果图地址在本机网络不可达）不应把
+        // 整张图判为失败。退回厂商返回的原始 URL，让浏览器直接渲染。
+        console.warn(`[studio] 作品落库失败，改用原始地址展示：${saved.persistError}`);
+        return { url: urls[0], urls, model, providerId };
       }
       const persisted = saved?.urls?.filter(Boolean) || [];
       if (persisted[0]) return { url: persisted[0], urls: persisted, model, providerId };
