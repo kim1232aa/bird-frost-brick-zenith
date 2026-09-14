@@ -1397,15 +1397,25 @@ function buildSeedance2PlaceholderVideoSettingsConfig(globalConfig: AiConfig, no
 
 function seedance2VideoProviderModelLabel(node: CanvasNodeData, config: AiConfig) {
     const metadata = node.metadata || {};
-    const task = metadata.videoGenerationTask;
-    const taskState = metadata.seedanceGenerationTaskState;
-    const scope = metadata.videoGenerationScope;
-    const model = String(task?.model || taskState?.model || scope?.model || metadata.seedanceModel || metadata.model || "").trim();
-    const providerId = String(task?.providerId || taskState?.providerId || scope?.providerId || metadata.modelProviderId || "").trim();
+    // 与选择器同一数据源：resolveCanvasGenerationModelSelection。
+    // 只有任务快照锁定（生成进行中/已完成）时才优先 task 快照。
+    if (isVideoTaskSnapshotLocked(metadata)) {
+        const task = metadata.videoGenerationTask;
+        const taskState = metadata.seedanceGenerationTaskState;
+        const model = String(task?.model || taskState?.model || "").trim();
+        const providerId = String(task?.providerId || taskState?.providerId || "").trim();
+        const provider = providerId ? config.apiRelays.find((item) => item.id === providerId) : undefined;
+        const providerLabel = provider
+            ? providerDisplayName(provider, config.apiRelays)
+            : providerId || task?.provider || taskState?.provider || "";
+        if (providerLabel && model) return `${providerLabel} · ${model}`;
+        return model || providerLabel || "未选择模型";
+    }
+    const { selection, legacyModel } = resolveCanvasGenerationModelSelection(config, metadata, "video");
+    const model = String(selection?.model || legacyModel || "").trim();
+    const providerId = String(selection?.providerId || "").trim();
     const provider = providerId ? config.apiRelays.find((item) => item.id === providerId) : undefined;
-    const providerLabel = provider
-        ? providerDisplayName(provider, config.apiRelays)
-        : providerId || task?.provider || taskState?.provider || "";
+    const providerLabel = provider ? providerDisplayName(provider, config.apiRelays) : providerId;
     if (providerLabel && model) return `${providerLabel} · ${model}`;
     return model || providerLabel || "未选择模型";
 }
@@ -2195,9 +2205,11 @@ function Seedance2ReferencePreviewOverlay({ preview, onClose }: { preview: Seeda
 
 function ResolvedCanvasImage({ source, ...imageProps }: Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src"> & { source?: string }) {
     const [resolvedSource, setResolvedSource] = useState(() => needsCanvasImageUrlResolution(source) ? "" : source || "");
+    const [failed, setFailed] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
+        setFailed(false);
         if (!needsCanvasImageUrlResolution(source)) {
             setResolvedSource(source || "");
             return () => {
@@ -2211,14 +2223,28 @@ function ResolvedCanvasImage({ source, ...imageProps }: Omit<React.ImgHTMLAttrib
                 if (!cancelled) setResolvedSource(nextSource);
             })
             .catch(() => {
-                if (!cancelled) setResolvedSource("");
+                if (!cancelled) {
+                    setResolvedSource("");
+                    setFailed(true);
+                }
             });
         return () => {
             cancelled = true;
         };
     }, [source]);
 
-    return resolvedSource ? <img {...imageProps} src={resolvedSource} /> : null;
+    // 解析失败不能静默空白——渲染占位错误态，让节点不再是「空壳」。
+    if (failed) {
+        return (
+            <div
+                className="flex min-h-[120px] min-w-[160px] items-center justify-center rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-500"
+                role="status"
+            >
+                图片加载失败
+            </div>
+        );
+    }
+    return resolvedSource ? <img {...imageProps} src={resolvedSource} onError={() => setFailed(true)} /> : null;
 }
 
 function Seedance2ReferenceThumbnailActions({
@@ -3696,17 +3722,21 @@ function seedance2PlaceholderStatusText(status?: string | null) {
 function Seedance2PlaceholderErrorDetails({ node, className = "" }: { node: CanvasNodeData; className?: string }) {
     const status = String(node.metadata?.status || "").toLowerCase();
     const raw = String(node.metadata?.errorDetails || "").trim();
-    if (!raw || !["error", "failed", "timeout"].includes(status)) return null;
-    const details = formatCanvasGenerationError(raw, "视频生成失败");
-    if (details === "视频生成失败") return null;
+    if (!["error", "failed", "timeout"].includes(status)) return null;
+    // 失败节点不能再只亮红灯零信息：没有细节也要渲染一行可排查的占位。
+    const details = raw ? formatCanvasGenerationError(raw, "视频生成失败") : "";
+    const taskId = String(node.metadata?.videoGenerationTask?.taskId || node.metadata?.seedanceGenerationTaskState?.taskId || "").trim();
+    const text = details && details !== "视频生成失败"
+        ? details
+        : `上游未返回错误详情${taskId ? `（taskId: ${taskId}）` : ""}${status ? ` · 状态 ${status}` : ""}`;
     return (
         <div
             className={`mt-2 rounded-lg border border-red-400/40 bg-red-500/10 px-2.5 py-1.5 font-medium leading-4 text-red-500 ${className}`}
             style={{ borderColor: "rgba(248,113,113,.45)" }}
-            title={details}
+            title={text}
             data-seedance2-generation-error
         >
-            {details}
+            {text}
         </div>
     );
 }

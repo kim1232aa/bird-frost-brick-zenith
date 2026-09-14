@@ -8,6 +8,7 @@ export type ImageProviderFamily =
     | "sensenova"
     | "sensenova-miaohua"
     | "civitai"
+    | "fal"
     | "custom";
 
 export type StoryIdentityReferenceStrategy = "shot-angle" | "portrait-only";
@@ -138,6 +139,7 @@ export type ImageSerializerKind =
     | "sensenova-images-generate"
     | "sensenova-miaohua-image"
     | "civitai-workflow"
+    | "fal-rest"
     | "custom-profile";
 
 /**
@@ -147,7 +149,7 @@ export type ImageSerializerKind =
 export type ImageSerializationPolicy = {
     readonly kind: ImageSerializerKind;
     readonly endpoint: string;
-    readonly quantityField: "n" | "quantity" | "numImages" | "max_images" | "samples" | null;
+    readonly quantityField: "n" | "quantity" | "numImages" | "max_images" | "samples" | "num_images" | null;
     readonly referenceField:
         | "image"
         | "image[]"
@@ -160,6 +162,8 @@ export type ImageSerializationPolicy = {
         | "messages[].content[].image_url"
         | "input[].content[].input_image"
         | "img_url"
+        | "image_url"
+        | "image_urls[]"
         | null;
     readonly maskField: "mask" | "maskImage" | "tools[].input_image_mask" | null;
     readonly sizeField:
@@ -171,6 +175,8 @@ export type ImageSerializationPolicy = {
         | "aspectRatio"
         | "size+aspectRatio"
         | "aspectRatio+resolution"
+        | "image_size"
+        | "aspect_ratio+resolution"
         | null;
     readonly qualityField: "quality" | null;
     readonly outputFormatField: "output_format" | "outputFormat" | "format" | null;
@@ -321,7 +327,16 @@ export type ImageCapabilityProfileId =
     | "civitai-z-image-generate"
     | "civitai-generic-generate"
     | "civitai-generic-edit"
-    | "civitai-generic-variation";
+    | "civitai-generic-variation"
+    | "fal-flux-dev-generate"
+    | "fal-flux-dev-edit"
+    | "fal-flux-schnell-generate"
+    | "fal-flux2-generate"
+    | "fal-flux2-edit"
+    | "fal-banana-generate"
+    | "fal-banana-edit"
+    | "fal-seedream-generate"
+    | "fal-seedream-edit";
 
 export type ImageCapabilityProfileSelection =
     | ImageCapabilityProfileId
@@ -728,6 +743,71 @@ const OPENAI_EDIT_SERIALIZATION = serialization({
     outputFormatField: "output_format",
 });
 
+export const FAL_MODEL_DOCS = evidence("official-doc", "https://docs.fal.ai/model-endpoints", `fal model endpoint docs, checked ${VERIFIED_AT}`);
+const FAL_EDIT_PROBE = evidence(
+    "live-api",
+    "https://fal.run",
+    "2026-09-14 经本站 relay 以空 body 实测：flux-2-pro/edit、flux-2-flex/edit、flux-2/flash/edit、nano-banana/edit、nano-banana-pro/edit、bytedance/seedream/v4.5/edit 均返回 422（缺 prompt/image_urls）而非 404——端点存在且收 image_urls 数组",
+);
+
+const FAL_SIZE = tierAndRatio(["1k", "2k", "3k", "4k"], ["1:1", "16:9", "9:16", "4:3", "3:4"], {
+    required: false,
+    defaultTier: "2k",
+    defaultRatio: "1:1",
+    note: "fal 多数模型收 image_size {width,height}（适配器把档位+宽高比换算成像素）；nano-banana 系改发 aspect_ratio 字符串，pro 另收 resolution 档位",
+});
+
+const FAL_SEED_ONLY: ImageAdvancedFieldsCapability = {
+    ...unknownAdvancedFields(),
+    seed: { state: "supported", kind: "int64", wireName: "seed" },
+};
+
+const FAL_FLUX1_ADVANCED: ImageAdvancedFieldsCapability = {
+    ...FAL_SEED_ONLY,
+    steps: { state: "supported", kind: "number", wireName: "num_inference_steps", min: 1, integer: true },
+    cfgScale: { state: "supported", kind: "number", wireName: "guidance_scale", min: 0, note: "schnell 不收 guidance_scale" },
+};
+
+const FAL_FLUX1_SCHNELL_ADVANCED: ImageAdvancedFieldsCapability = {
+    ...FAL_SEED_ONLY,
+    steps: { state: "supported", kind: "number", wireName: "num_inference_steps", min: 1, integer: true },
+};
+
+function falProfile<O extends "generate" | "edit">(
+    id: ImageCapabilityProfileId,
+    operation: O,
+    input: {
+        readonly label: string;
+        readonly referenceCount?: ImageReferenceCountCapability;
+        readonly advancedFields?: ImageAdvancedFieldsCapability;
+        readonly referenceField?: ImageSerializationPolicy["referenceField"];
+        readonly sizeField?: ImageSerializationPolicy["sizeField"];
+        readonly evidenceNote?: readonly ImageCapabilityEvidence[];
+    },
+): ImageCapabilityProfileBase<O> {
+    return profile({
+        id,
+        provider: "fal",
+        label: input.label,
+        operation,
+        outputCount: nativeBatch(1, null, "fal num_images 上限按模型各异，未逐一核实"),
+        referenceCount: input.referenceCount || UNSUPPORTED_REFERENCES,
+        mask: UNSUPPORTED_MASK,
+        size: FAL_SIZE,
+        quality: UNSUPPORTED_QUALITY,
+        outputFormat: UNKNOWN_OUTPUT_FORMAT,
+        advancedFields: input.advancedFields,
+        serialization: serialization({
+            kind: "fal-rest",
+            endpoint: "https://fal.run/{fal-ai endpoint id}",
+            quantityField: "num_images",
+            referenceField: input.referenceField || null,
+            sizeField: input.sizeField || "image_size",
+        }),
+        evidence: [FAL_MODEL_DOCS, ...(input.evidenceNote || [])],
+    });
+}
+
 export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId, ImageCapabilityProfile>> = {
     "openai-gpt-image-2-generate": profile({
         id: "openai-gpt-image-2-generate",
@@ -884,8 +964,13 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         outputCount: nativeBatch(1, 10, "xAI documents n 1-10 on /v1/images/generations"),
         referenceCount: UNSUPPORTED_REFERENCES,
         mask: UNSUPPORTED_MASK,
-        size: unsupported("xAI Images API 不接受 size 请求字段"),
-        quality: unsupported("xAI Images API 不接受 quality 请求字段"),
+        size: tierAndRatio(["1k", "2k"], XAI_IMAGINE_2_RATIOS, {
+            required: false,
+            defaultTier: "1k",
+            defaultRatio: "auto",
+            note: "xAI Imagine generation 文档（XAI_IMAGINE_GUIDE）：aspect_ratio + resolution 1k|2k 适用于 grok-imagine-image（1.0）与 quality 变体；quality 字段仅 2.0",
+        }),
+        quality: unsupported("xAI Images API 不接受 quality 请求字段（quality 仅 grok-imagine-image-2.0 支持）"),
         outputFormat: enumField(["jpg"], { requestable: false, note: "xAI image output is JPG; response_format only selects url vs b64_json transport" }),
         serialization: serialization({
             kind: "openai-images-generate",
@@ -1176,6 +1261,53 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
     "civitai-generic-generate": civitaiGenericProfile("civitai-generic-generate", "generate"),
     "civitai-generic-edit": civitaiGenericProfile("civitai-generic-edit", "edit"),
     "civitai-generic-variation": civitaiGenericProfile("civitai-generic-variation", "variation"),
+    "fal-flux-dev-generate": falProfile("fal-flux-dev-generate", "generate", {
+        label: "Fal FLUX.1 dev/pro generation",
+        advancedFields: FAL_FLUX1_ADVANCED,
+    }),
+    "fal-flux-dev-edit": falProfile("fal-flux-dev-edit", "edit", {
+        label: "Fal FLUX.1 dev image-to-image",
+        referenceCount: references(1, 1, "fal-ai/flux/dev/image-to-image 只收 1 张 image_url，另有 strength"),
+        referenceField: "image_url",
+        advancedFields: FAL_FLUX1_ADVANCED,
+    }),
+    "fal-flux-schnell-generate": falProfile("fal-flux-schnell-generate", "generate", {
+        label: "Fal FLUX.1 schnell generation",
+        advancedFields: FAL_FLUX1_SCHNELL_ADVANCED,
+    }),
+    "fal-flux2-generate": falProfile("fal-flux2-generate", "generate", {
+        label: "Fal FLUX.2 generation",
+        advancedFields: FAL_SEED_ONLY,
+    }),
+    "fal-flux2-edit": falProfile("fal-flux2-edit", "edit", {
+        label: "Fal FLUX.2 edit",
+        referenceCount: references(1, null, "fal flux-2 */edit 收 image_urls 数组；官方上限未核到"),
+        referenceField: "image_urls[]",
+        advancedFields: FAL_SEED_ONLY,
+        evidenceNote: [FAL_EDIT_PROBE],
+    }),
+    "fal-banana-generate": falProfile("fal-banana-generate", "generate", {
+        label: "Fal nano-banana generation",
+        sizeField: "aspect_ratio+resolution",
+    }),
+    "fal-banana-edit": falProfile("fal-banana-edit", "edit", {
+        label: "Fal nano-banana edit",
+        referenceCount: references(1, null, "nano-banana(-pro)/edit 收 image_urls 数组；官方上限未核到"),
+        referenceField: "image_urls[]",
+        sizeField: "aspect_ratio+resolution",
+        evidenceNote: [FAL_EDIT_PROBE],
+    }),
+    "fal-seedream-generate": falProfile("fal-seedream-generate", "generate", {
+        label: "Fal Seedream 4.5 generation",
+        advancedFields: FAL_SEED_ONLY,
+    }),
+    "fal-seedream-edit": falProfile("fal-seedream-edit", "edit", {
+        label: "Fal Seedream 4.5 edit",
+        referenceCount: references(1, null, "bytedance/seedream/v4.5/edit 收 image_urls 数组；官方上限未核到"),
+        referenceField: "image_urls[]",
+        advancedFields: FAL_SEED_ONLY,
+        evidenceNote: [FAL_EDIT_PROBE],
+    }),
 };
 
 export const IMAGE_CAPABILITY_PROFILE_IDS = Object.freeze(Object.keys(IMAGE_CAPABILITY_PROFILES) as ImageCapabilityProfileId[]);
@@ -1222,6 +1354,7 @@ export function nativeImageAdapterType(provider?: ImageCapabilityProvider): Imag
         if (explicit === "sensenova") return "sensenova";
         if (explicit === "sensenova-miaohua" || explicit === "sensetime-miaohua") return "sensenova-miaohua";
         if (explicit === "civitai" || explicit === "civitai-orchestration") return "civitai";
+        if (explicit === "fal" || explicit === "fal-ai" || explicit === "fal.ai") return "fal";
         return "";
     }
     const host = urlHostname(provider.baseUrl);
@@ -1233,6 +1366,7 @@ export function nativeImageAdapterType(provider?: ImageCapabilityProvider): Imag
     if (host === "token.sensenova.cn") return "sensenova";
     if (host === "mhapi.sensetime.com") return "sensenova-miaohua";
     if (host === "orchestration.civitai.com") return "civitai";
+    if (host === "fal.run" || host === "fal.ai" || host.endsWith(".fal.ai") || host.endsWith(".fal.run")) return "fal";
     return "";
 }
 
@@ -1310,6 +1444,7 @@ export function resolveImageModelCapability(options: {
     if (adapter === "sensenova") return resolveSenseNova(model, options.operation, provider);
     if (adapter === "sensenova-miaohua") return resolveMiaohua(model, options.operation, provider);
     if (adapter === "civitai") return resolveCivitai(model, options.operation, provider, options.service);
+    if (adapter === "fal") return resolveFal(model, options.operation, provider);
 
     // An empty adapterType is the application's established OpenAI-compatible
     // passthrough mode. Preserve known Images API model contracts (OpenAI plus
@@ -1569,6 +1704,39 @@ function resolveDashscope(model: string, operation: ImageOperation, provider?: I
     if (id) return resolvedProfile(id, model, provider, false, "DashScope model ID and operation");
     if (isKnownImageModelKey(key)) return unsupportedResolved(operation, model, provider, "该 DashScope 图片模型没有此 operation");
     return unknownNativeResolved(operation, model, provider, "DashScope 图片模型合同未识别");
+}
+
+function resolveFal(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
+    const key = normalizeModelKey(model);
+    const family = /nano-banana/.test(key)
+        ? "banana"
+        : /seedream/.test(key)
+          ? "seedream"
+          : /flux[-/]?2/.test(key)
+            ? "flux2"
+            : /schnell/.test(key)
+              ? "schnell"
+              : /flux[-/](?:dev|pro)\b|^flux-dev$|^flux-pro$/.test(key)
+                ? "flux1"
+                : "";
+    if (!family) return unknownNativeResolved(operation, model, provider, "Fal 图片模型合同未识别");
+    if (operation !== "generate" && operation !== "edit") {
+        return unsupportedResolved(operation, model, provider, "Fal 图片适配器当前只验证了 generate 与 edit");
+    }
+    if (family === "schnell") {
+        if (operation === "edit") return unsupportedResolved(operation, model, provider, "fal 没有 flux-schnell 的编辑/图生图端点；flux-dev 起才提供 image-to-image");
+        return resolvedProfile("fal-flux-schnell-generate", model, provider, false, "Fal flux-schnell model ID");
+    }
+    if (family === "flux1") {
+        return resolvedProfile(operation === "edit" ? "fal-flux-dev-edit" : "fal-flux-dev-generate", model, provider, false, "Fal flux-1 dev/pro model ID");
+    }
+    if (family === "flux2") {
+        return resolvedProfile(operation === "edit" ? "fal-flux2-edit" : "fal-flux2-generate", model, provider, false, "Fal FLUX.2 model ID");
+    }
+    if (family === "banana") {
+        return resolvedProfile(operation === "edit" ? "fal-banana-edit" : "fal-banana-generate", model, provider, false, "Fal nano-banana model ID");
+    }
+    return resolvedProfile(operation === "edit" ? "fal-seedream-edit" : "fal-seedream-generate", model, provider, false, "Fal Seedream model ID");
 }
 
 function resolveArk(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {

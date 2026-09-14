@@ -1085,6 +1085,10 @@ export function buildDashscopeImageRequest(input: {
   n?: number;
   size?: string;
   aspectRatio?: string;
+  /** qwen-image 多模态 / wanx 支持；不传则用上游默认。 */
+  watermark?: boolean;
+  /** qwen-image 多模态 prompt_extend；不传则上游默认 true。 */
+  promptExpansion?: boolean;
 }): { path: string; async: boolean; body: Record<string, unknown> } {
   const model = input.model.trim();
   const refs = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
@@ -1108,8 +1112,8 @@ export function buildDashscopeImageRequest(input: {
           ],
         },
         parameters: {
-          watermark: false,
-          prompt_extend: true,
+          ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
+          ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : {}),
           n,
           ...(size ? { size } : {}),
           ...(negative ? { negative_prompt: negative } : {}),
@@ -1131,7 +1135,7 @@ export function buildDashscopeImageRequest(input: {
           ...(negative ? { negative_prompt: negative } : {}),
         },
         parameters: {
-          prompt_extend: true,
+          ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : { prompt_extend: true }),
           n,
           ...(seed !== undefined ? { seed } : {}),
         },
@@ -1154,6 +1158,8 @@ export function buildDashscopeImageRequest(input: {
         n,
         size: wanx ? wanxV1Size(input.size) : input.size === "3K" ? "1440*1440" : "1280*1280",
         ...(seed !== undefined ? { seed } : {}),
+        ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
+        ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : {}),
         ...(refs[0] && wanx ? { ref_strength: 0.7, ref_mode: "repaint" } : {}),
       },
     },

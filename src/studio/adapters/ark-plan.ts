@@ -5,7 +5,8 @@ import { buildArkImageGenerationBody, buildArkVideoBody, readArkVideoPoll, studi
 
 function explainVideoError(message: string) {
   if (/UnsupportedModel|does not support the agent plan/i.test(message)) {
-    return "当前 Agent Plan 档位未开通该 Seedance 模型。官方：Small 无视频；Medium 起 doubao-seedance-1.5-pro；Large/Max 才有 Seedance 2.0。生图 doubao-seedream-5.0-lite 已开通。";
+    // 保留上游原文（含 code/request 细节），套餐说明追加在后面。
+    return `${message}（提示：当前 Agent Plan 档位未开通该 Seedance 模型——Small 无视频；Medium 起 doubao-seedance-1.5-pro；Large/Max 才有 Seedance 2.0）`;
   }
   return message;
 }

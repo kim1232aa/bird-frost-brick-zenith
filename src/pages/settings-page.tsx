@@ -12,12 +12,18 @@ import { RelayModelBoard, guessCapabilities } from "@/studio/relay-models";
 type WireFilter = "all" | "ready" | "template" | "paused" | "custom";
 type DeskMode = "edit" | "create";
 
-function relayState(item: Pick<ApiRelayProvider, "enabled" | "apiKey" | "apiKeys" | "hasApiKey" | "baseUrl">) {
+function relayState(item: Pick<ApiRelayProvider, "id" | "enabled" | "apiKey" | "apiKeys" | "hasApiKey" | "baseUrl">) {
   const hasCredential = providerHasUsableCredential(item);
   if (item.enabled && hasCredential) return { label: "启用 · 已填密钥", className: "wire-state-on", filter: "ready" as const };
-  if (item.enabled) return { label: "启用 · 待填密钥", className: "wire-state-on", filter: "template" as const };
   if (hasCredential) return { label: "已填密钥 · 未启用", className: "wire-state-paused", filter: "paused" as const };
-  return { label: "关闭 · 模板", className: "wire-state-off", filter: "template" as const };
+  // 没填密钥时按来源分桶：内置模板 vs 自定义，保证 已接线+未启用+模板+自定义 = 总数。
+  const managed = isManagedRelayId(item.id);
+  if (item.enabled) {
+    return { label: "启用 · 待填密钥", className: "wire-state-on", filter: managed ? ("template" as const) : ("custom" as const) };
+  }
+  return managed
+    ? { label: "关闭 · 模板", className: "wire-state-off", filter: "template" as const }
+    : { label: "关闭 · 自定义", className: "wire-state-off", filter: "custom" as const };
 }
 
 function matchesQuery(item: { name: string; baseUrl: string; protocol?: string; adapterType?: string; remark?: string }, query: string) {
@@ -64,10 +70,11 @@ export function SettingsPage({ embedded = false }: { embedded?: boolean }) {
   const current = relays.find((item) => item.id === active) || relays[0];
   const currentHasKey = current ? providerHasUsableCredential(current) : false;
   const counts = useMemo(() => {
+    // 四个桶互斥且穷尽：已接线 / 未启用 / 模板(无密钥) / 自定义(无密钥)。
     const ready = relays.filter((item) => item.enabled && providerHasUsableCredential(item)).length;
     const paused = relays.filter((item) => providerHasUsableCredential(item) && !item.enabled).length;
-    const template = relays.filter((item) => !providerHasUsableCredential(item)).length;
-    const custom = relays.filter((item) => !isManagedRelayId(item.id)).length;
+    const template = relays.filter((item) => !providerHasUsableCredential(item) && isManagedRelayId(item.id)).length;
+    const custom = relays.filter((item) => !providerHasUsableCredential(item) && !isManagedRelayId(item.id)).length;
     return { ready, paused, template, custom, total: relays.length };
   }, [relays]);
 

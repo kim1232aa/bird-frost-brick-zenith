@@ -87,9 +87,10 @@ function formatCustomerVideoTaskError(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw || isGenericCustomerVideoFailure(raw)) return "视频生成失败";
 
-  const detail = raw.replace(/^protocol_only\s+direct\s+adapter\s+failed:\s*/i, "").trim();
+  const detail = raw.replace(/^protocol_only\s+direct\s+adapter\s+failed:\s*/i, "").trim().slice(0, 300);
   if (/国家\s*\/\s*地区.*不可用/.test(detail)) {
-    return "视频生成失败：当前视频供应商在所在国家/地区不可用，请切换可用的视频供应商或线路。";
+    // 保留上游原文，地区提示追加在后面，不替换。
+    return `视频生成失败：${detail}（提示：当前视频供应商在所在国家/地区不可用，可切换可用的视频供应商或线路）`;
   }
   if (/^视频生成失败(?:[：:]|$)/.test(detail)) return detail;
   return `视频生成失败：${detail}`;

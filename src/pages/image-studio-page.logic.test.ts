@@ -72,9 +72,9 @@ test("LoRA and checkpoint controls follow official engine support, not a regex",
   const qwen = imageStudioParamState("civitai", "qwen-3.0-pro");
   assert.equal(qwen.showLora, false);
   assert.equal(qwen.quantityMax, 6);
-  // Official QwenApiImageGenInput has negativePrompt, but the current adapter
-  // body for qwen-3.0-pro does not forward it — do not fake-show the field.
-  assert.equal(qwen.showNegative, false);
+  // Official QwenApiImageGenInput has negativePrompt and the adapter body now
+  // forwards it — the field is shown.
+  assert.equal(qwen.showNegative, true);
 
   const seedream = imageStudioParamState("civitai", "seedream-4.5");
   assert.equal(seedream.showLora, false);
@@ -584,8 +584,8 @@ test("generate payload omits LoRA/checkpoint for unsupported engines and include
     negativePrompt: "blurry",
     dims: DIMS,
   });
-  assert.equal(qwenNoNeg.negativePrompt, undefined);
-  assert.equal(qwenNoNeg.params.showNegative, false);
+  assert.equal(qwenNoNeg.negativePrompt, "blurry");
+  assert.equal(qwenNoNeg.params.showNegative, true);
 });
 
 test("empty LoRA rows are dropped so unverified blanks never leave the page", () => {

@@ -370,6 +370,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
         // https://developer.civitai.com/orchestration/recipes/qwen
         promptExtend: false,
         ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
+        ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
         ...(refs.length ? { images: refs } : {}),
       };
     },
@@ -770,7 +771,16 @@ export function readCivitaiPollResult(data: unknown, kind: "image" | "video" = "
   const url = readCivitaiMediaUrl(data);
   const status = workflowStatus(data);
   if (TERMINAL_FAILED.has(status)) {
-    return { status: "failed", error: civitaiError(data) || status };
+    const detail = civitaiError(data);
+    if (detail) return { status: "failed", error: detail };
+    // 上游有时只给 status:"failed" 不给原因（实测：图片已产出但 available:false，多为审核拦截）。
+    // 别只吐一个裸 "failed"——带上 workflow id 和排查方向。
+    const id = (data as { id?: string } | null)?.id;
+    const suffix = id ? `（workflow ${id}）` : "";
+    return {
+      status: "failed",
+      error: `Civitai 任务失败${suffix}：上游未给出具体原因，通常是内容审核拦截或引擎暂时不可用；可换模型或调整提示词后重试`,
+    };
   }
   if (url) return { status: "completed", url };
   if (TERMINAL_SUCCEEDED.has(status)) {

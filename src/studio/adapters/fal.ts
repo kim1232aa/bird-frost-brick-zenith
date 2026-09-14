@@ -1,5 +1,6 @@
 import type { ImageGenInput, StudioAdapter } from "./types.ts";
 import { collectImageRefs } from "../image-refs.ts";
+import { huggingfaceImageSize } from "./huggingface.ts";
 
 /** Official fal.run endpoint ids for wiring short names. */
 const FAL_T2I: Record<string, string> = {
@@ -18,6 +19,16 @@ const FAL_I2I: Record<string, string> = {
   "flux-dev": "fal-ai/flux/dev/image-to-image",
   "flux/dev": "fal-ai/flux/dev/image-to-image",
   "fal-ai/flux/dev": "fal-ai/flux/dev/image-to-image",
+  "fal-ai/flux-2-pro": "fal-ai/flux-2-pro/edit",
+  "flux-2-pro": "fal-ai/flux-2-pro/edit",
+  "fal-ai/flux-2-flex": "fal-ai/flux-2-flex/edit",
+  "flux-2-flex": "fal-ai/flux-2-flex/edit",
+  "fal-ai/flux-2/flash": "fal-ai/flux-2/flash/edit",
+  "flux-2-flash": "fal-ai/flux-2/flash/edit",
+  "nano-banana": "fal-ai/nano-banana/edit",
+  "nano-banana-pro": "fal-ai/nano-banana-pro/edit",
+  "seedream-4.5": "fal-ai/bytedance/seedream/v4.5/edit",
+  "fal-ai/bytedance/seedream/v4.5/text-to-image": "fal-ai/bytedance/seedream/v4.5/edit",
 };
 
 function trimFalModel(model: string) {
@@ -52,15 +63,72 @@ export function falEndpointPath(model: string, hasRefs: boolean) {
   return `/${qualifyFalEndpoint(model)}`;
 }
 
-export function planFalImageRequest(input: Pick<ImageGenInput, "model" | "prompt" | "n" | "imageUrl" | "imageUrls" | "strength">) {
+/**
+ * fal 各模型支持的采样参数不一样，乱发会被 422 拒：
+ * - flux-1 dev/schnell/pro：image_size（枚举或 {width,height}）、seed、num_inference_steps、guidance_scale（schnell 无）
+ * - flux-2 pro/flex/flash：image_size、seed（无 steps/guidance）
+ * - nano-banana(-pro)：aspect_ratio（字符串），pro 另有 resolution 档位
+ * - seedream v4.5：image_size、seed
+ */
+type FalParamProfile = {
+  kind: "flux1" | "flux2" | "banana" | "seedream" | "generic";
+  guidance?: boolean;
+  steps?: boolean;
+};
+
+function falParamProfile(endpoint: string): FalParamProfile {
+  if (/nano-banana/i.test(endpoint)) return { kind: "banana" };
+  if (/flux-2/i.test(endpoint)) return { kind: "flux2" };
+  if (/flux\/schnell/i.test(endpoint)) return { kind: "flux1", steps: true };
+  if (/flux/i.test(endpoint)) return { kind: "flux1", steps: true, guidance: true };
+  if (/seedream/i.test(endpoint)) return { kind: "seedream" };
+  return { kind: "generic" };
+}
+
+function falImageSizePixels(size?: string, aspectRatio?: string): { width: number; height: number } | undefined {
+  const mapped = huggingfaceImageSize(size, aspectRatio);
+  if (!mapped) return undefined;
+  const match = /^(\d{2,5})x(\d{2,5})$/i.exec(mapped);
+  if (!match) return undefined;
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
+const FAL_BANANA_RESOLUTION_TIERS = new Set(["1k", "2k", "4k"]);
+
+export function planFalImageRequest(
+  input: Pick<
+    ImageGenInput,
+    "model" | "prompt" | "n" | "imageUrl" | "imageUrls" | "strength" | "size" | "aspectRatio" | "seed" | "steps" | "guidance"
+  >,
+) {
   const refs = collectImageRefs(input);
   const path = falEndpointPath(input.model, refs.length > 0);
   const endpoint = path.replace(/^\//, "");
+  const profile = falParamProfile(endpoint);
   const body: Record<string, unknown> = {
     prompt: input.prompt,
     num_images: input.n || 1,
     enable_safety_checker: false,
   };
+  // 尺寸：banana 系吃 aspect_ratio / resolution 档位，其余吃 image_size {width,height}
+  if (profile.kind === "banana") {
+    const aspect = String(input.aspectRatio || "").trim();
+    if (aspect) body.aspect_ratio = aspect;
+    const tier = String(input.size || "").trim().toLowerCase();
+    if (/nano-banana-pro/i.test(endpoint) && FAL_BANANA_RESOLUTION_TIERS.has(tier)) {
+      body.resolution = tier.toUpperCase();
+    }
+  } else {
+    const pixels = falImageSizePixels(input.size, input.aspectRatio);
+    if (pixels) body.image_size = pixels;
+  }
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) body.seed = input.seed;
+  if (profile.steps && typeof input.steps === "number" && Number.isFinite(input.steps)) {
+    body.num_inference_steps = input.steps;
+  }
+  if (profile.guidance && typeof input.guidance === "number" && Number.isFinite(input.guidance)) {
+    body.guidance_scale = input.guidance;
+  }
   if (refs.length) {
     if (/(?:^|\/)edit(?:\/|$)/i.test(endpoint)) {
       body.image_urls = refs;

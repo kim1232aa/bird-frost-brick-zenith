@@ -153,6 +153,14 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
   }, []);
 
   const models = liveCatalog("video", true);
+  // 选择器显示与逻辑取值必须是同一个：selection 失效（如 URL 带错 key）时纠偏到第一个已接线模型，
+  // 与生图页一致；否则选择器显示 A、生成却按 B 判断接线状态。
+  useEffect(() => {
+    if (!models.length) return;
+    if (!models.some((item) => catalogKey(item) === selection)) {
+      setSelection(catalogKey(models[0]));
+    }
+  }, [models, selection]);
   const card = models.find((item) => catalogKey(item) === selection) || findCatalog(selection);
   const selectedLive = card ? liveCard(card) : models[0] ? liveCard(models[0]) : undefined;
   const { providerId, model: selectedModel } = splitModel(selection);
@@ -490,10 +498,11 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     } catch (err) {
       const message = err instanceof Error ? err.message : "视频生成失败";
       failJob(jobId, message);
+      // 上游报错原样展示，建议以「（提示：…）」追加，不替换原文。
       if (message.includes("eligible")) {
-        setError(`${card?.model || "当前模型"} 返回额度不足。换一条已接线的视频模型，或稍后再试。不会自动改线路。`);
+        setError(`${message}（提示：${card?.model || "当前模型"} 返回额度不足，可换一条已接线的视频模型或稍后再试）`);
       } else if (/cloudflare|403/i.test(message)) {
-        setError(`${card?.provider || "当前中转"} 被拦截（403）。换一条已接线的视频模型，或稍后再试。不会自动改线路。`);
+        setError(`${message}（提示：${card?.provider || "当前中转"} 可能被 Cloudflare 拦截，可换一条已接线的视频模型或稍后再试）`);
       } else {
         setError(message);
       }
@@ -870,22 +879,24 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             })}
           </div>
         ) : null}
-        {showResolution ? (
+{showResolution ? (
           <>
-            <p className="studio-kicker">{resolutionField?.label || "分辨率档位"}</p>
             {resolutionOptions.length ? (
-              <div className="chip-row">
-                {resolutionOptions.map((item) => (
-                  <button
-                    key={item}
-                    type="button"
-                    className={resolution === item ? "is-active" : undefined}
-                    onClick={() => setResolution(item)}
-                  >
-                    {item}
-                  </button>
-                ))}
-              </div>
+              <>
+                <p className="studio-kicker">{resolutionField?.label || "分辨率档位"}</p>
+                <div className="chip-row">
+                  {resolutionOptions.map((item) => (
+                    <button
+                      key={item}
+                      type="button"
+                      className={resolution === item ? "is-active" : undefined}
+                      onClick={() => setResolution(item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </>
             ) : (
               <label>
                 {resolutionField?.label || "分辨率档位"}

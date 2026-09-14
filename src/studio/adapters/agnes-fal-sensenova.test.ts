@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
-import { falAdapter, planFalImageRequest } from "./fal.ts";
+
+const aliasLoader = `
+const SRC = new URL("file://" + process.cwd() + "/src/").href;
+const SUFFIXES = [".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.tsx"];
+export async function resolve(specifier, context, nextResolve) {
+  let target = specifier;
+  if (specifier.startsWith("@/")) target = SRC + specifier.slice(2);
+  else if (specifier.startsWith("./") || specifier.startsWith("../")) target = new URL(specifier, context.parentURL).href;
+  try {
+    return await nextResolve(target, context);
+  } catch (error) {
+    if (!target.startsWith("file:")) throw error;
+    for (const suffix of SUFFIXES) {
+      try {
+        return await nextResolve(target + suffix, context);
+      } catch {}
+    }
+    throw error;
+  }
+}
+`;
+register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.url);
+
+const { falAdapter, planFalImageRequest } = await import("./fal.ts");
 import {
   agnesVideoPollPath,
   buildAgnesImageBody,
@@ -43,13 +67,30 @@ test("Fal keeps already-qualified endpoint ids", () => {
 });
 
 test("Fal refuses image_url on a pure text-to-image endpoint", () => {
+  // flux-schnell 上游没有 edit/i2i 端点（其余 flux-2/nano-banana/seedream 的 edit
+  // 端点 2026-09-14 经 relay 空 body 实测返回 422 = 存在），带参考图必须拒绝而不是静默丢图。
   assert.throws(
-    () => planFalImageRequest({ model: "flux-2-pro", prompt: "p", imageUrl: "https://example.test/a.png" }),
+    () => planFalImageRequest({ model: "flux-schnell", prompt: "p", imageUrl: "https://example.test/a.png" }),
     /文生图|image_url|edit/,
   );
   const t2i = planFalImageRequest({ model: "flux-dev", prompt: "p" });
   assert.equal("image_url" in t2i.body, false);
   assert.equal("image_urls" in t2i.body, false);
+});
+
+test("Fal routes references to the verified per-model edit endpoints", () => {
+  for (const [model, path] of [
+    ["flux-2-pro", "/fal-ai/flux-2-pro/edit"],
+    ["flux-2-flex", "/fal-ai/flux-2-flex/edit"],
+    ["flux-2-flash", "/fal-ai/flux-2/flash/edit"],
+    ["nano-banana", "/fal-ai/nano-banana/edit"],
+    ["nano-banana-pro", "/fal-ai/nano-banana-pro/edit"],
+    ["seedream-4.5", "/fal-ai/bytedance/seedream/v4.5/edit"],
+  ] as const) {
+    const planned = planFalImageRequest({ model, prompt: "p", imageUrl: "https://example.test/a.png" });
+    assert.equal(planned.path, path, model);
+    assert.deepEqual(planned.body.image_urls, ["https://example.test/a.png"], model);
+  }
 });
 
 test("Fal flux/dev image-to-image sends a single official image_url", () => {

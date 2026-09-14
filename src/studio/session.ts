@@ -202,9 +202,13 @@ export const useStudioSession = create<StudioSession>()(
           hydrating = false;
           await get().flushVault();
         } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err);
+          const unauthorized = /401|unauthorized|未登录/i.test(raw);
           set({
-            vaultStatus: "error",
-            vaultMessage: `密钥库同步失败（本站）：${err instanceof Error ? err.message : String(err)}`,
+            vaultStatus: unauthorized ? "idle" : "error",
+            vaultMessage: unauthorized
+              ? "未登录：密钥只保存在本机浏览器，登录后才能云端同步。"
+              : `密钥库同步失败（本站）：${raw}`,
           });
         } finally {
           hydrating = false;
@@ -222,9 +226,13 @@ export const useStudioSession = create<StudioSession>()(
           lastPushed = vaultSnapshot({ relays: redacted, hiddenPresetIds: state.hiddenPresetIds });
           set({ relays: redacted, vaultStatus: "ok", vaultMessage: "密钥已保存到数据库" });
         } catch (err) {
+          const raw = err instanceof Error ? err.message : String(err);
+          const unauthorized = /401|unauthorized|未登录/i.test(raw);
           set({
-            vaultStatus: "error",
-            vaultMessage: `密钥库写入失败（本站）：${err instanceof Error ? err.message : String(err)}`,
+            vaultStatus: unauthorized ? "idle" : "error",
+            vaultMessage: unauthorized
+              ? "未登录：密钥只保存在本机浏览器，登录后才能云端同步。"
+              : `密钥库写入失败（本站）：${raw}`,
           });
         }
       },

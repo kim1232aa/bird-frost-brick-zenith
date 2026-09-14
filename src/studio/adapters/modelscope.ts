@@ -12,7 +12,23 @@ function modelscopeBase(raw?: string) {
   return value.replace(/\/+$/, "");
 }
 
-function modelscopeImageSize(size?: string) {
+/**
+ * Qwen-Image / Z-Image 官方支持的尺寸（ModelScope API-Inference 实测可用）。
+ * 按宽高比选最近档位；不再把 4:3/3:4/3:2/2:3 粗暴折叠进三档。
+ */
+const MODELSCOPE_SIZE_BY_ASPECT: Record<string, string> = {
+  "1:1": "1328x1328",
+  "16:9": "1664x928",
+  "9:16": "928x1664",
+  "4:3": "1472x1140",
+  "3:4": "1140x1472",
+  "3:2": "1584x1056",
+  "2:3": "1056x1584",
+};
+
+function modelscopeImageSize(size?: string, aspectRatio?: string) {
+  const aspect = String(aspectRatio || "").trim();
+  if (MODELSCOPE_SIZE_BY_ASPECT[aspect]) return MODELSCOPE_SIZE_BY_ASPECT[aspect];
   const value = String(size || "").trim();
   if (!value) return "1664x928";
   if (value === "1K" || value === "1:1" || value === "1024x1024" || value === "1328x1328") return "1328x1328";
@@ -77,8 +93,12 @@ export const modelscopeAdapter: StudioAdapter = {
       model: input.model,
       prompt: input.prompt,
       n: input.n || 1,
-      size: modelscopeImageSize(input.size),
+      size: modelscopeImageSize(input.size, input.aspectRatio),
       ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+      // API-Inference 参数表支持 seed(0~2^31-1) / steps(1-100) / guidance(1.5-20)
+      ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
+      ...(typeof input.steps === "number" && Number.isFinite(input.steps) ? { steps: input.steps } : {}),
+      ...(typeof input.guidance === "number" && Number.isFinite(input.guidance) ? { guidance: input.guidance } : {}),
     };
     if (refs.length === 1) {
       body.image_url = refs[0];

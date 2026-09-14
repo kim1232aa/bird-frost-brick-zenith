@@ -59,10 +59,12 @@ export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, u
 
   const body: Record<string, unknown> = { model: input.model, prompt: input.prompt, n: input.n || 1 };
   const isImage2 = input.model.trim().toLowerCase() === XAI_IMAGINE_IMAGE_2_MODEL;
-  if (!editing && isImage2) {
+  if (!editing) {
+    // xAI Imagine generation（1.0 / quality / 2.0）都接受 aspect_ratio 与 resolution 1k|2k；
+    // quality 仅 grok-imagine-image-2.0 支持。
     const aspectRatio = normalizeXaiImagineAspectRatio(input.aspectRatio);
     const resolution = normalizeXaiImagineResolution(input.size);
-    const quality = normalizeXaiImagineQuality(input.quality);
+    const quality = isImage2 ? normalizeXaiImagineQuality(input.quality) : "";
     if (aspectRatio) body.aspect_ratio = aspectRatio;
     if (resolution) body.resolution = resolution;
     if (quality) body.quality = quality;
@@ -71,10 +73,10 @@ export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, u
 
   if (refs.length === 1) body.image = imagineImagePart(refs[0]);
   else if (refs.length > 1) body.images = refs.map(imagineImagePart);
-  if (refs.length > 1 && isImage2) {
-    const aspectRatio = normalizeXaiImagineAspectRatio(input.aspectRatio);
-    if (aspectRatio) body.aspect_ratio = aspectRatio;
-  }
+  // 编辑路径：aspect_ratio 仅在多图编辑有效（OpenAPI 已核实：1.0 单图 edit 不收；
+  // 2.0 单图未见官方依据，不乱发）；resolution/quality 是 generation 字段，编辑一律不发。
+  const aspectRatio = refs.length > 1 ? normalizeXaiImagineAspectRatio(input.aspectRatio) : "";
+  if (aspectRatio) body.aspect_ratio = aspectRatio;
   return body;
 }
 

@@ -1,6 +1,7 @@
 import type { StudioAdapter } from "./types";
 import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
 import { collectImageRefs } from "@/studio/image-refs";
+import { huggingfaceImageSize } from "./huggingface";
 import {
   buildOpenAiOfficialImageBody,
   isOfficialOpenAiHost,
@@ -11,6 +12,20 @@ import {
   SAFE_IMAGE_REF_CAP,
   studioEndpoint,
 } from "./contracts";
+
+/**
+ * NanoGPT 的 /v1/images/generations 只接受模型支持的具体分辨率值
+ * （如 "1024x1024"；见 docs.nano-gpt.com 的 image-models supported_parameters）。
+ * 档位串（"2K"）原样发送会被上游 400 INVALID_RESOLUTION 拒绝 —— 已实测。
+ * 这里把档位+比例换算成显式像素。只作用于 nano-gpt 域名，其他兼容站保持原样。
+ */
+function nanogptImageSize(baseUrl: string | undefined, size?: string, aspectRatio?: string): string | undefined {
+  if (!/nano-gpt\.com/i.test(String(baseUrl || ""))) return size;
+  const raw = String(size || "").trim();
+  if (!raw) return undefined;
+  if (/^\d{2,5}x\d{2,5}$/i.test(raw)) return raw;
+  return huggingfaceImageSize(raw, aspectRatio) || undefined;
+}
 
 function openaiImageRefCap(baseUrl: string, protocol?: string, model?: string) {
   // GPT image models officially accept up to 16 refs; relay proxy should not cap at 5.
@@ -44,7 +59,9 @@ export const openaiCompatAdapter: StudioAdapter = {
           model: input.model,
           prompt: input.prompt,
           n: input.n || 1,
-          ...(input.size ? { size: input.size } : {}),
+          ...(nanogptImageSize(ctx.provider.baseUrl, input.size, input.aspectRatio)
+            ? { size: nanogptImageSize(ctx.provider.baseUrl, input.size, input.aspectRatio) }
+            : {}),
           ...(input.quality ? { quality: input.quality } : {}),
           ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
           ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),

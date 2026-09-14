@@ -253,6 +253,9 @@
   margin: 0;
   font-size: 1.35rem;
   letter-spacing: -0.04em;
+  /* flex 容器里防止被压成 0 高（故事导演标题消失的根因） */
+  flex: none;
+  min-height: 1.4em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -479,7 +482,7 @@
   letter-spacing: 0.04em;
 }
 
-.bp-status span {
+.bp-status span:not(.bp-status-dot) {
   min-width: 0;
   flex: 1;
   overflow: hidden;

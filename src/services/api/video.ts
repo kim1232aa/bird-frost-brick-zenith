@@ -1443,15 +1443,23 @@ function readAxiosError(error: unknown, fallback: string) {
             operation: fallback,
         });
         if (responseError) return responseError;
-        return readErrorValue(responseData) || statusMessage(error.response?.status, fallback);
+        return readErrorValue(responseData) || statusMessage(error.response?.status, fallback, responseData);
     }
     return error instanceof Error ? error.message : fallback;
 }
 
-function statusMessage(status: number | undefined, fallback: string) {
-    if (status === 401 || status === 403) return "鉴权失败，请检查 API Key、套餐权限或模型权限";
-    if (status === 429) return "请求被限流或额度不足，请稍后重试";
-    return status ? `${fallback}（${status}）` : fallback;
+function statusMessage(status: number | undefined, fallback: string, raw?: unknown) {
+    // 状态话术之外附上上游原始返回（截断），别把 401/403/429 的真实原因吞掉。
+    let rawText = "";
+    try {
+        rawText = typeof raw === "string" ? raw.trim() : raw ? JSON.stringify(raw).slice(0, 200) : "";
+    } catch {
+        rawText = "";
+    }
+    const suffix = rawText ? `：${rawText}` : "";
+    if (status === 401 || status === 403) return `鉴权失败，请检查 API Key、套餐权限或模型权限（HTTP ${status}）${suffix}`;
+    if (status === 429) return `请求被限流或额度不足，请稍后重试（HTTP 429）${suffix}`;
+    return status ? `${fallback}（${status}）${suffix}` : `${fallback}${suffix}`;
 }
 
 function isPublicMediaUrl(value: string) {

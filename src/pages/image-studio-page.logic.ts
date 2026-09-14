@@ -133,15 +133,13 @@ const CIVITAI_NO_REF_MODELS = new Set(["z-image-turbo", "anima"]);
 
 /**
  * Engines whose current adapter body actually forwards negativePrompt.
- * Official recipes / live OpenAPI: SDXL, Anima, Z-Image, Flux 2 Klein, Comfy Krea.
+ * Official recipes / live OpenAPI: SDXL, Anima, Z-Image, Flux 2 Klein, Comfy Krea, Qwen 3.0 Pro.
  * Flux1 Comfy and Flux2 Dev/Pro/Grok/Seedream do not.
- * QwenApiImageGenInput has negativePrompt, but the qwen-3.0-pro adapter body
- * still omits it — the page must not fake-show a field the adapter will drop.
  * Sources: https://developer.civitai.com/orchestration/recipes/flux2
  *          https://developer.civitai.com/orchestration/recipes/qwen
  *          https://orchestration.civitai.com/openapi/v2-consumers.json
  */
-const CIVITAI_NEGATIVE_MODELS = new Set(["krea2-turbo", "krea2-raw", "z-image-turbo", "sdxl", "anima", "flux2-klein"]);
+const CIVITAI_NEGATIVE_MODELS = new Set(["krea2-turbo", "krea2-raw", "z-image-turbo", "sdxl", "anima", "flux2-klein", "qwen-3.0-pro"]);
 
 /**
  * Live OpenAPI width/height ranges (v2-consumers.json, 2026-08-27).
@@ -344,8 +342,9 @@ export function imageStudioParamState(
     quantityMax,
     quantityOptions: studioImageQuantityOptions(quantityMax),
     // Seedream's official imageGen input accepts an int32 seed; only the Grok
-    // engine lacks a seed field in the adapter body.
-    showSeed: civitai && model !== "civitai-grok",
+    // engine lacks a seed field in the adapter body. 其他家族按能力合同开：
+    // fal flux/seedream 等 profile 已把 seed 标记为 supported。
+    showSeed: (civitai && model !== "civitai-grok") || capability.advancedFields.seed.state === "supported",
     showNegative: civitai
       ? CIVITAI_NEGATIVE_MODELS.has(model)
       : capability.advancedFields.negativePrompt.state === "supported",

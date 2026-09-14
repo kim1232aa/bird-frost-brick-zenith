@@ -345,7 +345,13 @@ export function buildVideoStudioGenerateFields(input: {
   const genericCompatibilityRelay = adapterType === "openai-compat" && !officialOpenAi;
   const civitai = isCivitaiStudioAdapter(input.adapterType, input.providerId);
   const civitaiDurations = civitai ? civitaiVideoDurationOptions(input.model) : undefined;
-  const durationOptions = civitaiDurations || videoDurationOptions(host, protocol);
+  // 时长档位优先用能力合同的枚举值（合同说只有 5 就别渲染 4/6/8/10 让用户点了被拦）；
+  // 合同没有枚举才回落到 host/protocol 的通用档位。
+  const contractDurationField = capability.generationParameters.duration;
+  const contractDurations = contractDurationField.status === "supported" && Array.isArray(contractDurationField.enumValues)
+    ? contractDurationField.enumValues.filter((v): v is number => typeof v === "number")
+    : [];
+  const durationOptions = civitaiDurations || (contractDurations.length ? contractDurations : videoDurationOptions(host, protocol));
   const validationErrors: string[] = [];
   const isProvided = (value: unknown) => value !== undefined
     && value !== null
@@ -375,6 +381,9 @@ export function buildVideoStudioGenerateFields(input: {
       return value;
     }
     try {
+      // 「官方合同未公布」≠「不支持」：不发该参数、也不拦截生成。
+      // 只有明确 unsupported / conflict 才报错（validateVideoGenerationParameters 会拦）。
+      if (capability.generationParameters[name]?.status === "unpublished") return undefined;
       validateVideoGenerationParameters(capability, { [name]: value } as Partial<Record<VideoGenerationParameterName, VideoGenerationParameterValue>>);
       return value;
     } catch (error) {

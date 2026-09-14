@@ -38,6 +38,14 @@ export type ImageGenInput = {
   strength?: number;
   /** Civitai Flux1 / SDXL checkpoint AIR. Never invent one. */
   checkpointAir?: string;
+  /** Sampling steps for engines that accept them (fal flux-1 等映射为 num_inference_steps)。 */
+  steps?: number;
+  /** Guidance / CFG for engines that accept it (fal flux-dev 映射为 guidance_scale)。 */
+  guidance?: number;
+  /** DashScope qwen-image/wanx：水印开关；不传用上游默认。 */
+  watermark?: boolean;
+  /** DashScope qwen-image/wanx：prompt_extend 智能改写；不传用上游默认。 */
+  promptExpansion?: boolean;
 };
 
 export type ImageGenResult = {

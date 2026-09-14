@@ -97,7 +97,7 @@ test("xAI Imagine 2.0 text-to-image maps size, aspect ratio, and quality", () =>
   });
 });
 
-test("xAI Imagine non-2.0 image models omit unsupported advanced fields", () => {
+test("xAI Imagine non-2.0 image models send generation-only fields and omit 2.0-only quality", () => {
   const body = buildXaiImagineImageBody({
     model: "grok-imagine-image",
     prompt: "p",
@@ -106,8 +106,10 @@ test("xAI Imagine non-2.0 image models omit unsupported advanced fields", () => 
     quality: "low",
   });
 
-  assert.equal("resolution" in body, false);
-  assert.equal("aspect_ratio" in body, false);
+  // 官方模型目录给 grok-imagine-image（1.0）同时列了 1K/2K resolutionPricing，
+  // generation 文档的 aspect_ratio/resolution 未限版本；quality 仅 2.0。
+  assert.equal(body.aspect_ratio, "16:9");
+  assert.equal("resolution" in body, true);
   assert.equal("quality" in body, false);
   assert.equal("image" in body, false);
   assert.equal("images" in body, false);

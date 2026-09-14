@@ -737,17 +737,27 @@ function resolveImageResult(item: Record<string, unknown>, outputFormat?: string
     };
 }
 
+/** 上游返回了错误但解析不出结构化 message 时，把原始 payload 截断附上，别吞。 */
+function imageErrorPayloadExcerpt(payload: unknown) {
+    try {
+        const text = JSON.stringify(payload);
+        return text && text !== "{}" ? `：${text.slice(0, 400)}` : "";
+    } catch {
+        return "";
+    }
+}
+
 function parseImagePayload(payload: ImageApiResponse, outputFormat?: string) {
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(
             detectTextApiResponseError(payload, { operation: "图片生成失败" }) ||
-            "图片生成失败：上游返回错误，请检查请求配置后重试",
+            "图片生成失败：上游返回错误" + imageErrorPayloadExcerpt(payload),
         );
     }
     if (payload.error) {
         throw new Error(
             detectTextApiResponseError(payload, { operation: "图片生成失败" }) ||
-            "图片生成失败：上游返回错误，请检查请求配置后重试",
+            "图片生成失败：上游返回错误" + imageErrorPayloadExcerpt(payload),
         );
     }
     const images =
@@ -1609,7 +1619,7 @@ function parseChatImageStream(text: string, operationLabel: string): GeneratedIm
         if (record.error) {
             throw new Error(
                 detectTextApiResponseError(record as ImageApiResponse, { operation: `${operationLabel}失败` }) ||
-                `${operationLabel}失败：上游返回错误，请检查请求配置后重试`,
+                `${operationLabel}失败：上游返回错误` + imageErrorPayloadExcerpt(record),
             );
         }
         const choices = Array.isArray(record.choices) ? record.choices : [];
@@ -1647,7 +1657,7 @@ function parseChatImagePayload(payload: unknown, operationLabel: string): Genera
     if (record.error) {
         throw new Error(
             detectTextApiResponseError(record as ImageApiResponse, { operation: `${operationLabel}失败` }) ||
-            `${operationLabel}失败：上游返回错误，请检查请求配置后重试`,
+            `${operationLabel}失败：上游返回错误` + imageErrorPayloadExcerpt(record),
         );
     }
     const choices = Array.isArray(record.choices) ? record.choices : [];

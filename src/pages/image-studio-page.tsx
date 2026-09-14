@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { findCatalog, catalogKey } from "@/studio/catalog";
+import { findCatalog, catalogKey, type ModelCard } from "@/studio/catalog";
 import { defaultEditKey, isEditModel, isEditOnlyModel } from "@/studio/edit-models";
+import type { ApiRelayProvider } from "@/stores/api-relay-config";
 import { generateStudioImage } from "@/studio/generate/image";
 import { useStudioJobs } from "@/studio/generate/jobs";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
@@ -30,6 +31,11 @@ import {
 } from "@/pages/image-studio-page.logic";
 import { imageStudioModeFromQuery, imageStudioModeLocation } from "@/pages/studio-mode-routes";
 import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
+
+/** 卡片 providerId → 已配置 relay，供能力合同按 provider 上下文判定 edit/generate 支持。 */
+function cardRelay(relays: readonly ApiRelayProvider[], card: Pick<ModelCard, "providerId">) {
+  return relays.find((item) => item.id === card.providerId);
+}
 
 const ASPECTS: Record<string, { w: number; h: number }> = {
   "1:1": { w: 1024, h: 1024 },
@@ -69,7 +75,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const [negative, setNegative] = useState("");
   const [selection, setSelection] = useState(() => {
     if (initialMode !== "edit") return preferredImageKey();
-    const editKeys = liveCatalog("image", true).filter((card) => isEditModel(card.model)).map(catalogKey);
+    const editKeys = liveCatalog("image", true)
+      .filter((card) => isEditModel(card.model, cardRelay(relays, card)))
+      .map(catalogKey);
     return defaultEditKey(editKeys) || preferredImageKey();
   });
   const [textModel, setTextModel] = useState(preferredTextKey());
@@ -99,9 +107,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   }, []);
 
   const models = useMemo(() => {
-    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model));
-    return allModels.filter((card) => !isEditOnlyModel(card.model));
-  }, [allModels, mode]);
+    if (mode === "edit") return allModels.filter((card) => isEditModel(card.model, cardRelay(relays, card)));
+    return allModels.filter((card) => !isEditOnlyModel(card.model, cardRelay(relays, card)));
+  }, [allModels, mode, relays]);
 
   useEffect(() => {
     if (!models.length) return;

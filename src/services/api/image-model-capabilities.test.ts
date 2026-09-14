@@ -190,7 +190,7 @@ test("generic xAI profile mapping still specializes Imagine 2.0 to official fiel
   assert.equal(capability.quality.state, "supported");
 });
 
-test("legacy grok-imagine-image generate still omits Imagine 2.0-only size and quality fields", () => {
+test("legacy grok-imagine-image generate supports size (1k/2k per live model catalog) but not 2.0-only quality", () => {
   const capability = resolveImageModelCapability({
     model: "grok-imagine-image",
     operation: "generate",
@@ -198,7 +198,9 @@ test("legacy grok-imagine-image generate still omits Imagine 2.0-only size and q
   });
   assert.equal(capability.id, "xai-grok-image-generate");
   assert.equal(supportedOutput(capability.outputCount).max, 10);
-  assert.equal(capability.size.state, "unsupported");
+  // 官方模型目录为 grok-imagine-image（1.0）列出 1K/2K 两档 resolutionPricing；
+  // supportedQualities 只在 2.0 上出现。
+  assert.equal(capability.size.state, "supported");
   assert.equal(capability.quality.state, "unsupported");
 });
 

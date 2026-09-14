@@ -154,6 +154,8 @@ export const dashscopeAdapter: StudioAdapter = {
       n: isQwenImage(input.model) ? qwenImageCount(input.model, input.n) : input.n,
       size: dashscopeImageSize(input.model, input.size, input.aspectRatio),
       aspectRatio: input.aspectRatio,
+      watermark: input.watermark,
+      promptExpansion: input.promptExpansion,
     });
 
     const created = await studioProxyJson<Record<string, unknown>>({
