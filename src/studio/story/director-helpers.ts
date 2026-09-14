@@ -8,7 +8,7 @@ export type StoryVideoCapability = {
   supportsFirstLastFrame?: boolean;
   requiresFirstLastFrame?: boolean;
   intentPolicy?: string;
-  referenceImagePolicy?: { supported: boolean; min: number; max: number | null };
+  referenceImagePolicy?: { supported: boolean; min?: number; max?: number | null };
 };
 
 export function storyImageReferenceMax(model: string, provider?: ImageCapabilityProvider) {

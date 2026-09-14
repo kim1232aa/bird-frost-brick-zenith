@@ -17,3 +17,7 @@ dist/
 *.log
 /tmp/
 .grok/status
+
+# 生成的作品是运行时数据，不进仓库
+public/works/
+static/works/

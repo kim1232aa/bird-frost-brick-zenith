@@ -1,5 +1,5 @@
-import { readdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
+import { extname, join, resolve } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
@@ -19,6 +19,75 @@ function hasGlobbedMigrations(root: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Dev-only /works static serving straight from disk.
+ *
+ * `server.watch.ignored` excludes both works trees so a generation save can no
+ * longer full-reload the page mid-flow — but Vite only serves publicDir files
+ * its watcher registered, so ignoring the trees also hides every NEW work.
+ * This middleware closes the gap: try public/works then static/works on every
+ * request, before Vite's cached publicDir middleware runs. Supports HTTP Range
+ * so <video> playback works.
+ */
+function worksStaticDevPlugin(): Plugin {
+  const types: Record<string, string> = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".json": "application/json; charset=utf-8",
+  };
+  return {
+    name: "app-builder:works-static-dev",
+    apply: "serve",
+    configureServer(server) {
+      const roots = [join(server.config.root, "public", "works"), join(server.config.root, "static", "works")];
+      server.middlewares.use("/works", (req, res, next) => {
+        try {
+          const rawName = decodeURIComponent((req.url || "").split("?")[0] || "").replace(/^\/+/, "");
+          if (!rawName || rawName.includes("..") || rawName.includes("/")) {
+            next();
+            return;
+          }
+          const file = roots.map((root) => join(root, rawName)).find((candidate) => existsSync(candidate));
+          if (!file) {
+            next();
+            return;
+          }
+          const size = statSync(file).size;
+          const type = types[extname(file).toLowerCase()] || "application/octet-stream";
+          res.setHeader("content-type", type);
+          res.setHeader("cache-control", "no-cache");
+          res.setHeader("accept-ranges", "bytes");
+          const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ""));
+          if (range && (range[1] || range[2])) {
+            const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+            const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+            if (start >= size || start > end) {
+              res.statusCode = 416;
+              res.setHeader("content-range", `bytes */${size}`);
+              res.end();
+              return;
+            }
+            res.statusCode = 206;
+            res.setHeader("content-range", `bytes ${start}-${end}/${size}`);
+            res.setHeader("content-length", end - start + 1);
+            createReadStream(file, { start, end }).pipe(res);
+            return;
+          }
+          res.setHeader("content-length", size);
+          createReadStream(file).pipe(res);
+        } catch {
+          next();
+        }
+      });
+    },
+  };
 }
 
 /**
@@ -150,6 +219,13 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
+    watch: {
+      // Works are generated artifacts dual-written into public/works and
+      // static/works at runtime. Without this ignore, every save triggers a
+      // Vite full-reload that wipes in-flight story-board state mid-flow
+      // (cards losing freshly generated stills, occasional blank page).
+      ignored: ["**/public/works/**", "**/static/works/**"],
+    },
     warmup: {
       clientFiles: [
         "./src/pages/boundless-canvas-home.tsx",
@@ -179,6 +255,7 @@ export default defineConfig(({ command, isPreview }) => ({
     },
   },
   plugins: [
+    worksStaticDevPlugin(),
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),

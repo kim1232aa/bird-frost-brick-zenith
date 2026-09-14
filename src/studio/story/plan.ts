@@ -57,6 +57,10 @@ export type StoryPlan = {
   sceneBoard: StoryScene[];
   cast: StoryCast[];
   shots: StoryShot[];
+  /** true when the AI analysis failed and this is the locally drafted board. */
+  degraded?: boolean;
+  /** why the board is degraded (the original analysis error). */
+  degradedReason?: string;
 };
 
 const FALLBACK: StoryPlan = {
@@ -202,7 +206,7 @@ function parseAnalysis(raw: string, count: number, fallback: StoryPlan, style: s
       status: "pending",
     };
   });
-  const shots = (parsed.shots || []).slice(0, count).map((shot, index) => {
+  const shots: StoryShot[] = (parsed.shots || []).slice(0, count).map((shot, index): StoryShot => {
     const appearing = shot.appearingCharacterIds || [];
     const names = appearing.map((id) => cast.find((person) => person.id === id)?.name).filter(Boolean) as string[];
     const prompt = shot.imagePrompt || shot.visualContent || shot.prompt || fallback.shots[index]?.prompt || "";
@@ -229,8 +233,36 @@ function parseAnalysis(raw: string, count: number, fallback: StoryPlan, style: s
     };
   });
   if (!cast.length && !shots.length) throw new Error("分析 JSON 没有角色和镜头");
-  if (shots.length && shots.length !== count) {
-    throw new Error(`故事分析镜头数不符合要求：要求 ${count} 个镜头，实际返回 ${shots.length} 个镜头`);
+  // Pad missing shots from the local draft instead of throwing the whole board
+  // away — a short AI answer must never silently drop 分镜 2、3.
+  const paddedShots = shots.length ? [...shots] : [];
+  for (let index = paddedShots.length; index < count; index += 1) {
+    const draft = fallback.shots[index];
+    paddedShots.push(
+      draft
+        ? {
+            ...draft,
+            imagePrompt: draft.imagePrompt || draft.prompt,
+            visualContent: draft.visualContent || draft.prompt,
+            status: "pending" as const,
+          }
+        : {
+            id: `shot_${String(index + 1).padStart(3, "0")}`,
+            index: index + 1,
+            title: `镜头 ${index + 1}`,
+            prompt: fallback.shots[0]?.prompt || "",
+            imagePrompt: fallback.shots[0]?.prompt || "",
+            visualContent: fallback.shots[0]?.prompt || "",
+            action: undefined,
+            emotion: undefined,
+            camera: "35mm 中景",
+            scene: fallback.scenes[0] || "",
+            characters: [],
+            dialogue: "",
+            duration: 5,
+            status: "pending" as const,
+          },
+    );
   }
   return {
     logline: parsed.logline || fallback.logline,
@@ -239,7 +271,7 @@ function parseAnalysis(raw: string, count: number, fallback: StoryPlan, style: s
     scenes: sceneBoard.length ? sceneBoard.map((item) => item.name) : fallback.scenes,
     sceneBoard: sceneBoard.length ? sceneBoard : fallback.sceneBoard,
     cast: cast.length ? cast : fallback.cast,
-    shots: shots.length ? shots : fallback.shots,
+    shots: paddedShots,
   };
 }
 
@@ -282,7 +314,10 @@ export async function planStory(input: {
       return parseAnalysis(repaired, count, fallback, style);
     }
   } catch (err) {
-    throw new Error(err instanceof Error ? err.message : "故事分析失败");
+    // 分析失败不能悄悄变成空结果或错误结果：退回本地分镜，并明确标记降级原因，
+    // 让 UI 告诉用户这是本地草稿而不是 AI 分析结果。
+    const reason = err instanceof Error ? err.message : "故事分析失败";
+    return { ...fallback, degraded: true, degradedReason: reason };
   }
 }
 

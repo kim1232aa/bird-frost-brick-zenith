@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { createId } from "../lib/create-id.ts";
 import { persistUrl } from "./persist-url.ts";
 
@@ -182,7 +182,39 @@ export const useStudioHistory = create<HistoryState>()(
     {
       name: "boundless-studio:history",
       skipHydration: typeof window === "undefined",
-      partialize: (state) => ({ items: state.items }),
+      // b64 data URLs from providers (HF 等) 一张图就几 MB，直接塞 localStorage
+      // 会把 5MB 配额打爆并让后续 setItem 抛错、打断结果展示。持久化时剥掉
+      // data: URL（作品文件已落 /works，历史记录只留可重载的地址），
+      // 并把 storage 包成永不抛错的版本兜底配额异常。
+      partialize: (state) => ({
+        items: state.items.map((item) => ({
+          ...item,
+          urls: item.urls.map((url) => (url.startsWith("data:") ? "" : url)),
+        })),
+      }),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => {
+          try {
+            return window.localStorage.getItem(name);
+          } catch {
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            window.localStorage.setItem(name, value);
+          } catch {
+            /* quota —— 生成结果优先展示，历史快照丢了不阻塞 */
+          }
+        },
+        removeItem: (name) => {
+          try {
+            window.localStorage.removeItem(name);
+          } catch {
+            /* ignore */
+          }
+        },
+      })),
     },
   ),
 );

@@ -8,7 +8,7 @@ import { useStudioSession } from "@/studio/session";
 import { dropToCanvas, queryParam, splitModel } from "@/studio/split";
 import { STYLE_PRESETS } from "@/studio/canvas/types";
 import { characterLock, type StoryCast, type StoryShot } from "@/studio/story/plan";
-import { shotImageRefs, stillSizeForQuality, storyImageReferenceMax, storyStillUrls, videoStillBundle } from "@/studio/story/director-helpers";
+import { shotImageRefs, stillSizeForQuality, storyImageReferenceMax, videoStillBundleForCapability } from "@/studio/story/director-helpers";
 import { WorkbenchStatus } from "@/studio/workbench-status";
 import { pushStoryToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
 
@@ -32,6 +32,7 @@ export function StoryDirectorPage() {
   const [busy, setBusy] = useState("");
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [warn, setWarn] = useState("");
   const [job, setJob] = useState<{ type: "char" | "shot" | "video" | "analyze" | "all"; index?: number } | null>(null);
   const [boardReady, setBoardReady] = useState(false);
 
@@ -107,6 +108,7 @@ export function StoryDirectorPage() {
     setJob({ type: "analyze" });
     setBusy("正在拆分镜…");
     setError("");
+    setWarn("");
     setLogline("");
     setScenes([]);
     setCast([]);
@@ -118,6 +120,9 @@ export function StoryDirectorPage() {
       setScenes(plan.scenes);
       setCast(plan.cast);
       setShots(plan.shots);
+      if (plan.degraded) {
+        setWarn(`AI 分析没成功（${plan.degradedReason || "上游报错"}），下面是用本地分镜草稿排的，角色和镜头都在，可以继续出图。`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "分析失败");
     } finally {
@@ -200,14 +205,31 @@ export function StoryDirectorPage() {
     const shot = boardShots[index];
     if (!shot) return;
     setJob({ type: "video", index });
-    setBusy(`正在用 ${storyStillUrls(boardShots).length || 1} 张分镜静帧生成视频…`);
     setError("");
     try {
       const { createStudioVideo, waitStudioVideo } = await import("@/studio/generate/video");
-      const stills = videoStillBundle(boardShots, index);
-      if ((stills.all.length || 0) < 2) {
-        throw new Error("视频需要至少 2 张分镜静帧。当前模型按它自己的接口提交，不会改线路。");
+      const { resolveVideoModelCapability } = await import("@/services/api/video-model-capabilities");
+      const videoProvider = relays.find((relay) => relay.id === videoSel.providerId);
+      // 参考图按每个视频模型自己的本事分：能首帧的只给首帧，能首尾帧的才给首尾，
+      // 能多参考的才给多张；纯文生视频模型一张不塞。
+      const capability = resolveVideoModelCapability({ model: videoSel.model, provider: videoProvider });
+      const stills = videoStillBundleForCapability(boardShots, index, capability);
+      const refsPolicy = capability.referenceImagePolicy;
+      const refsMin = refsPolicy?.supported ? refsPolicy.min || 0 : 0;
+      const needsFirst = Boolean(capability.supportsFirstFrame || capability.supportsFirstLastFrame || capability.requiresFirstLastFrame);
+      const required = Math.max(refsMin, needsFirst ? 1 : 0);
+      if (stills.all.length < required) {
+        throw new Error(
+          required > 1
+            ? `当前视频模型至少需要 ${required} 张分镜静帧。先把前面的镜头出图，再生成视频。`
+            : "当前镜头还没有分镜静帧。先点「生成这一镜」，再生成视频。",
+        );
       }
+      setBusy(
+        stills.all.length
+          ? `正在用 ${stills.all.length} 张分镜静帧生成视频…`
+          : "当前模型走纯文生视频，不塞参考图…",
+      );
       const created = await createStudioVideo({
         relays,
         prompt: `${shot.prompt}. Camera: ${shot.camera || "slow push in"}. Continuity across ${stills.all.length} storyboard stills, adult 24+ fashion photoshoot.`,
@@ -289,6 +311,7 @@ export function StoryDirectorPage() {
     setJob({ type: "all" });
     setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
     setError("");
+    setWarn("");
     setLogline("");
     setScenes([]);
     setCast([]);
@@ -300,6 +323,9 @@ export function StoryDirectorPage() {
       setScenes(plan.scenes);
       setCast(plan.cast);
       setShots(plan.shots);
+      if (plan.degraded) {
+        setWarn(`AI 分析没成功（${plan.degradedReason || "上游报错"}），已改用本地分镜草稿继续全流程。`);
+      }
       const stills = await runStillPipeline(plan);
       if (stills?.length && stills.every((item) => item.url)) {
         setBusy("正在用全部分镜静帧生成视频…");
@@ -391,6 +417,7 @@ export function StoryDirectorPage() {
             推到画布
           </button>
           {error ? <p className="studio-error" role="alert">{error}</p> : null}
+          {warn ? <p className="studio-warning" role="status">{warn}</p> : null}
           {progress ? <p className="studio-hint">{progress}</p> : null}
         </div>
       </aside>
