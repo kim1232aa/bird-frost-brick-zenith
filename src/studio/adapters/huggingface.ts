@@ -95,7 +95,10 @@ export const huggingfaceAdapter: StudioAdapter = {
     for (const baseUrl of imageBases(ctx.provider.baseUrl)) {
       try {
         const data = await studioProxyJson<Record<string, unknown>>({
-          provider: ctx.provider,
+          // baseUrlHint lets the relay honor the per-provider failover bases
+          // (nscale → together → fal-ai → wavespeed); all stay on the
+          // router.huggingface.co origin, which the server enforces.
+          provider: { ...ctx.provider, baseUrlHint: true },
           baseUrl,
           path: "/images/generations",
           body: {

@@ -328,6 +328,23 @@ async function attachVaultKey(headers: Headers, relayId: string, credentialId?: 
   return baseUrl;
 }
 
+/**
+ * Allow a caller-requested base URL only when it stays on the vault-configured
+ * origin (e.g. Hugging Face router per-provider paths like /fal-ai/v1 under
+ * router.huggingface.co). Cross-origin overrides are ignored so a vault key can
+ * never be attached to a host the vault entry did not configure.
+ */
+function resolveSameOriginBaseOverride(vaultBaseUrl: string, requested: string) {
+  const override = normalizeHttpUrl(requested);
+  if (!override) return vaultBaseUrl;
+  try {
+    if (new URL(override).origin === new URL(vaultBaseUrl).origin) return override;
+  } catch {
+    /* malformed override: fall back to the vault base URL */
+  }
+  return vaultBaseUrl;
+}
+
 export async function proxyLocalRelay(request: Request, splat: string) {
   try {
     assertSameOriginRelayRequest(request);
@@ -340,7 +357,9 @@ export async function proxyLocalRelay(request: Request, splat: string) {
     headers.delete("Authorization");
     headers.delete("x-api-key");
     if (builtin !== "xai") {
+      const requestedBaseUrl = baseUrl;
       baseUrl = await attachVaultKey(headers, relayId, credentialId || undefined);
+      baseUrl = resolveSameOriginBaseOverride(baseUrl, requestedBaseUrl);
     }
 
     let target: URL;

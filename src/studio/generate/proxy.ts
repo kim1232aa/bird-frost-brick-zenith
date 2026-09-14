@@ -100,7 +100,7 @@ export function parseStudioProxyBody<T = unknown>(input: {
 }
 
 export async function studioProxyJson<T = unknown>(input: {
-  provider: Pick<ApiRelayProvider, "baseUrl" | "apiKey" | "apiKeys"> & { id?: string };
+  provider: Pick<ApiRelayProvider, "baseUrl" | "apiKey" | "apiKeys"> & { id?: string; baseUrlHint?: boolean };
   path: string;
   method?: "GET" | "POST" | "DELETE";
   body?: unknown;

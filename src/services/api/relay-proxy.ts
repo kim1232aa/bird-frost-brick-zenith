@@ -206,6 +206,8 @@ export function buildLocalRelayProxyHeaders(
         proxyMode?: unknown;
         proxyUrl?: string;
         authScheme?: "Bearer" | "Key" | "x-api-key";
+        /** Opt in to sending the base URL as a same-origin-only routing hint. */
+        baseUrlHint?: boolean;
     },
     contentType?: string,
     /** Legacy callers may pass a raw key here; it is mapped to an opaque ID or ignored. */
@@ -244,7 +246,13 @@ export function buildLocalRelayProxyHeaders(
     }
 
     return {
-        ...(builtin["x-boundless-builtin"] ? { [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl } : {}),
+        // Sent for builtin channels, or when the caller explicitly opts in via
+        // `baseUrlHint` (e.g. the Hugging Face router's per-provider bases).
+        // The server ignores it unless it stays on the vault-configured
+        // origin, so the vault key can never leak cross-host.
+        ...(builtin["x-boundless-builtin"] || provider.baseUrlHint
+            ? { [LOCAL_RELAY_BASE_URL_HEADER]: provider.baseUrl }
+            : {}),
         ...(relayId ? { "x-boundless-relay-id": relayId } : {}),
         ...(relayId && !builtin["x-boundless-builtin"] && selectedCredentialId
             ? { [LOCAL_RELAY_CREDENTIAL_ID_HEADER]: selectedCredentialId }

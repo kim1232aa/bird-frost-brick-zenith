@@ -429,6 +429,62 @@ test("relay-id uses vault key instead of client Authorization or x-api-key heade
   assert.equal(new URL(fetchCalls[0]?.url || "").origin, "https://public.example");
 });
 
+test("relay honors a same-origin caller base URL hint (HF router per-provider failover)", async () => {
+  vaultById.set("preset-huggingface", {
+    apiKey: "vault-secret",
+    baseUrl: "https://public.example/nscale/v1",
+    authScheme: "Bearer",
+  });
+  installFetch(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+
+  const response = await proxyLocalRelay(
+    new Request("http://boundless.test/local-relay-proxy/images/generations", {
+      method: "POST",
+      headers: {
+        "x-local-relay-base-url": "https://public.example/fal-ai/v1",
+        "x-boundless-relay-id": "preset-huggingface",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    "images/generations",
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(fetchCalls.length, 1);
+  const sent = headerRecord(fetchCalls[0]?.init?.headers);
+  assert.equal(sent.authorization, "Bearer vault-secret");
+  assert.equal(new URL(fetchCalls[0]?.url || "").href, "https://public.example/fal-ai/v1/images/generations");
+});
+
+test("relay ignores a cross-origin caller base URL hint even on a lookalike host", async () => {
+  vaultById.set("preset-huggingface", {
+    apiKey: "vault-secret",
+    baseUrl: "https://public.example/nscale/v1",
+    authScheme: "Bearer",
+  });
+  installFetch(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+
+  const response = await proxyLocalRelay(
+    new Request("http://boundless.test/local-relay-proxy/images/generations", {
+      method: "POST",
+      headers: {
+        "x-local-relay-base-url": "https://evil.example/v1",
+        "x-boundless-relay-id": "preset-huggingface",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    "images/generations",
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(fetchCalls.length, 1);
+  const target = new URL(fetchCalls[0]?.url || "");
+  assert.equal(target.origin, "https://public.example");
+  assert.equal(target.pathname, "/nscale/v1/images/generations");
+});
+
 test("ordinary relay rejects a plaintext vault target before the first upstream hop", async () => {
   vaultById.set("plaintext-relay", {
     apiKey: "vault-secret",

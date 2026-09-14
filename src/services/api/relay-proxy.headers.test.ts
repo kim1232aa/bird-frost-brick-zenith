@@ -37,6 +37,23 @@ test("ordinary relay proxy headers send only the vault lookup id, not caller bas
   assert.equal(new Headers(headers).get("x-local-relay-base-url"), null);
 });
 
+test("ordinary relay proxy headers send the base URL hint only when the caller opts in", () => {
+  const headers = buildLocalRelayProxyHeaders({
+    id: "preset-huggingface",
+    baseUrl: "https://router.huggingface.co/fal-ai/v1",
+    baseUrlHint: true,
+    apiKey: "",
+    authScheme: "Bearer",
+  });
+  assert.equal(headers["x-boundless-relay-id"], "preset-huggingface");
+  // Only a hint: the server ignores it unless it stays on the vault-configured
+  // origin, so the vault key can never leak cross-host.
+  assert.equal(
+    new Headers(headers).get("x-local-relay-base-url"),
+    "https://router.huggingface.co/fal-ai/v1",
+  );
+});
+
 test("relay proxy headers never send a client key when provider.id is set", () => {
   const headers = buildLocalRelayProxyHeaders({
     id: "preset-grok-relay",
