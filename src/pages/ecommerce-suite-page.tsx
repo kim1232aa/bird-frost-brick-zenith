@@ -262,7 +262,7 @@ export function EcommerceSuitePage() {
         <header className="story-logline">
           <p className="studio-kicker">套图台</p>
           <h2>
-            {pack.label} · {ECOMMERCE_SCENES.find((item) => item.id === sceneId)?.label} · {doneCount}/{pack.shots.length} 已完成
+            {pack.label} · {ECOMMERCE_SCENES.find((item) => item.id === sceneId)?.label} · {doneCount ? `${doneCount}/${pack.shots.length} 已完成` : `${pack.shots.length} 个镜头待生成`}
           </h2>
         </header>
         <WorkbenchStatus

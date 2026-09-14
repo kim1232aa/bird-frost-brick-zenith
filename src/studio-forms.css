@@ -34,6 +34,22 @@
   float: none !important;
 }
 
+/* 复选框行是横排，不能被上面的通用 label 列排规则压成上下两行 */
+.bp-left > label.flow-check,
+.bench-side > label.flow-check {
+  flex-direction: row !important;
+  align-items: center !important;
+  width: auto !important;
+}
+
+.bp-left > label.flow-check input[type="checkbox"],
+.bench-side > label.flow-check input[type="checkbox"] {
+  width: 16px !important;
+  height: 16px !important;
+  flex: none !important;
+  margin: 0 !important;
+}
+
 .studio-field-label,
 .bench-side > label > span:first-child,
 .bp-left > label > span:first-child {

@@ -108,7 +108,7 @@ export function StudioModelField({
           }
         }}
       >
-        {cards.length === 0 ? <option value="">还没有可选手模型。去设置启用供应商，或确认目录没有被下架。</option> : null}
+        {cards.length === 0 ? <option value="">暂无可选模型：请先在设置页接线</option> : null}
         {groups.map(([provider, list]) => (
           <optgroup key={provider} label={provider}>
             {list.map((card) => {

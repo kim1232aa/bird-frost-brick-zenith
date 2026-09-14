@@ -74,6 +74,8 @@
 .acct-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  /* 卡片按内容高度，别把 SESSION 卡拉出半屏空白 */
+  align-items: start;
   gap: 16px;
 }
 

@@ -1482,6 +1482,11 @@ optgroup {
   background: #17171d;
 }
 
+/* 目录页每行只有 名称+描述 两格，别套管理行那条 1fr 100px 110px（描述会被挤成竖排） */
+.catalog-row {
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr);
+}
+
 .admin-row small {
   display: block;
   color: #7d786e;

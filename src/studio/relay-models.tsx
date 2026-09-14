@@ -176,7 +176,7 @@ export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
         <input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="手动加模型 ID，例如 grok-imagine-video"
+          placeholder="加模型 ID，如 grok-imagine-video"
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();

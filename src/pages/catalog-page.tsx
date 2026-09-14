@@ -18,7 +18,7 @@ export function CatalogPage() {
       </header>
       <div className="admin-table">
         {STUDIO_CATALOG.map((item) => (
-          <div key={catalogKey(item)} className="admin-row">
+          <div key={catalogKey(item)} className="admin-row catalog-row">
             <div>
               <b>{item.model}</b>
               <small>

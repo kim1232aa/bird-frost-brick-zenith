@@ -439,8 +439,8 @@ export function StoryDirectorPage() {
             <div className="story-empty" aria-hidden>
               {Array.from({ length: 6 }).map((_, index) => (
                 <div key={index} className="story-empty-card">
-                  <b>{index + 1} 镜</b>
-                  <span>待拆分</span>
+                  <b>占位</b>
+                  <span>拆分后这里是分镜</span>
                 </div>
               ))}
             </div>
