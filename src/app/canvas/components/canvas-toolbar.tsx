@@ -156,7 +156,7 @@ export function CanvasToolbar({
                 <ToolbarButton id="tool-story-director" label="故事导演" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddStoryDirector}>
                     <Clapperboard className="size-4.5" />
                 </ToolbarButton>
-                <ToolbarButton id="tool-seedance2-workflow" label="Seedance2 视频工作流" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddSeedance2Workflow}>
+                <ToolbarButton id="tool-seedance2-workflow" label="分镜视频工作流" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onAddSeedance2Workflow}>
                     <Film className="size-4.5" />
                 </ToolbarButton>
                 <ToolbarButton id="tool-upload" label="上传素材" hovered={hovered} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onUpload}>
@@ -353,7 +353,7 @@ function toolLabel(id: string) {
     if (id === "tool-video") return "视频";
     if (id === "tool-audio") return "音频";
     if (id === "tool-config") return "生成配置";
-    if (id === "tool-seedance2-workflow") return "Seedance2 视频工作流";
+    if (id === "tool-seedance2-workflow") return "分镜视频工作流";
     if (id === "tool-upload") return "上传素材";
     if (id === "tool-library") return "素材库";
     if (id === "tool-assets") return "我的素材";

@@ -1066,7 +1066,7 @@ function CanvasInner() {
             <button type="button" title="故事导演" onClick={() => add("story")}>
               <Clapperboard size={16} />
             </button>
-            <button type="button" title="Seedance2 视频工作流" onClick={seedanceTemplate}>
+            <button type="button" title="分镜视频工作流" onClick={seedanceTemplate}>
               <Wand2 size={16} />
             </button>
             <button type="button" title="上传素材" onClick={() => add("upload")}>

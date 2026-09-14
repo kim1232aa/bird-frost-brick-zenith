@@ -563,7 +563,7 @@ export function buildSeedance2WorkflowNodes(
     const placeholder: CanvasNodeData = {
       id: `video-seedance2-shot-${index}-${now}-${Math.random().toString(36).slice(2, 7)}`,
       type: CanvasNodeType.Video,
-      title: `第${index}镜 Seedance2 视频`,
+      title: `第${index}镜 分镜视频`,
       position: {
         x: origin.x + workflowSpec.width + 140 + ((index - 1) % 3) * (videoSpec.width + 40),
         y: origin.y + Math.floor((index - 1) / 3) * (videoSpec.height + 60),

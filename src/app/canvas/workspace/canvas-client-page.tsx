@@ -849,7 +849,7 @@ function createSeedance2VideoPlaceholderNode(
     ...node,
     title: options.sourceImageNode
       ? "Seedance2 图片转视频"
-      : "Seedance2 视频占位框",
+      : "分镜视频占位框",
     width: size.width,
     height: size.height,
     metadata,
@@ -2875,7 +2875,7 @@ function Seedance2WorkflowPanel({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-base font-semibold">
-            <span className="truncate">Seedance2 视频工作流</span>
+            <span className="truncate">分镜视频工作流</span>
             <span className="rounded-full bg-orange-500/15 px-2 py-0.5 text-[10px] font-medium text-orange-300">分镜式</span>
           </div>
           <div className="mt-1 text-xs leading-5" style={{ color: theme.node.muted }}>
@@ -6743,7 +6743,7 @@ function InfiniteCanvasPage() {
       if (!sessionActive()) return;
       setSelectedNodeIds(new Set([workflowNode.id]));
       setSelectedConnectionId(null);
-      message.success(`已创建 Seedance2 视频占位框 V${rawBuilt.setVersion}（${storyShotCount} 镜）`);
+      message.success(`已创建分镜视频占位框 V${rawBuilt.setVersion}（${storyShotCount} 镜）`);
     } catch (error) {
       if (sessionActive()) {
         const errorDetails = safeSeedance2PromptRewriteError(error);
@@ -19531,7 +19531,7 @@ function normalizeEmptyVideoNodeToSeedance2Placeholder(
     title:
       node.title && node.title !== "Video"
         ? node.title
-        : "Seedance2 视频占位框",
+        : "分镜视频占位框",
     width: isExistingSeedance2Placeholder ? Math.max(size.width, node.width) : size.width,
     height: isExistingSeedance2Placeholder ? Math.max(size.height, node.height) : size.height,
     metadata,

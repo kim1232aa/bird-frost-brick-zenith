@@ -390,11 +390,11 @@ export function commitSeedance2PlaceholderSetAtomic(options: {
         Number(node.metadata?.seedanceStoryShotIndex || 0) <= 0,
     )
   ) {
-    throw new Error("Seedance2 视频占位框集合不完整，未写入画布");
+    throw new Error("分镜视频占位框集合不完整，未写入画布");
   }
   const createdIds = new Set(orderedCreatedNodes.map((node) => node.id));
   if (createdIds.size !== orderedCreatedNodes.length) {
-    throw new Error("Seedance2 视频占位框集合包含重复节点，未写入画布");
+    throw new Error("分镜视频占位框集合包含重复节点，未写入画布");
   }
   // A refresh supersedes this workflow's earlier placeholder sets: remove the
   // ones still safe to reconcile (idle/pending/failed, no content or task) so
@@ -644,7 +644,7 @@ export function buildStoryDirectorSlicePlaceholders(options: {
       ? {
           ...existingPlaceholder,
           type: CanvasNodeType.Video,
-          title: existingPlaceholder.title || `${shotTitle} Seedance2 视频`,
+          title: existingPlaceholder.title || `${shotTitle} 分镜视频`,
           width: existingPlaceholder.width,
           height: existingPlaceholder.height,
           metadata,
@@ -652,7 +652,7 @@ export function buildStoryDirectorSlicePlaceholders(options: {
       : {
           id: placeholderId,
           type: CanvasNodeType.Video,
-          title: `${shotTitle} Seedance2 视频`,
+          title: `${shotTitle} 分镜视频`,
           position: placeholderPosition(workflowNode, videoSize, orderIndex),
           width: videoSize.width,
           height: videoSize.height,
@@ -913,7 +913,7 @@ export function buildVersionedStoryDirectorSlicePlaceholders(options: {
     const placeholder: CanvasNodeData = {
       id: placeholderId,
       type: CanvasNodeType.Video,
-      title: `${shotTitle} Seedance2 视频 V${setVersion}`,
+      title: `${shotTitle} 分镜视频 V${setVersion}`,
       position: versionedPlaceholderPosition(workflowNode, videoSize, orderIndex, groupStartY),
       width: videoSize.width,
       height: videoSize.height,

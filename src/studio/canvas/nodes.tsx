@@ -375,7 +375,7 @@ export function SeedanceNode({ id, data, selected }: NodeProps<Node<CanvasData>>
       <Port id="last" type="target" position={Position.Top} label="尾帧" tone="scene" />
       <header>
         <div>
-          <b>Seedance2 视频工作流</b>
+          <b>分镜视频工作流</b>
           <small>分镜式</small>
         </div>
       </header>

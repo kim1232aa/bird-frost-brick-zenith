@@ -3754,9 +3754,9 @@ function Seedance2WorkflowContent({ node, theme }: NodeContentRendererProps) {
                 <div className="min-w-0">
                     <div className="flex items-center gap-2 text-base font-semibold">
                         <Film className="size-5 shrink-0 text-orange-300" />
-                        <span className="truncate">{node.title || "Seedance2 视频工作流"}</span>
+                        <span className="truncate">{node.title || "分镜视频工作流"}</span>
                     </div>
-                    <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>故事导演 → 视频占位 → Seedance2</div>
+                    <div className="mt-1 text-xs" style={{ color: theme.node.muted }}>故事导演 → 分镜视频占位</div>
                 </div>
                 <span className="rounded-full border px-2 py-1 text-[11px]" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>{mode}</span>
             </div>
