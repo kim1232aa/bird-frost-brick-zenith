@@ -134,9 +134,9 @@ test("Fal rejects an unmapped short name instead of posting it bare", () => {
   assert.throws(() => planFalImageRequest({ model: "not-a-fal-endpoint", prompt: "p" }), /未映射|官方 endpoint|fal-ai/);
 });
 
-test("Fal adapter does not claim video create/poll in this task", () => {
-  assert.equal(falAdapter.createVideo, undefined);
-  assert.equal(falAdapter.pollVideo, undefined);
+test("Fal adapter wires video create/poll through the queue API", () => {
+  assert.equal(typeof falAdapter.createVideo, "function");
+  assert.equal(typeof falAdapter.pollVideo, "function");
 });
 
 test("Agnes image requires a documented size and defaults to 1K", () => {

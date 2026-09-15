@@ -155,7 +155,7 @@ function isOfficialNativeRelayPath(url: URL, relayPath: string) {
   return (
     ((host === "dashscope.aliyuncs.com" || host === "token-plan.cn-beijing.maas.aliyuncs.com") &&
       (path === "api/v1" || path.startsWith("api/v1/"))) ||
-    (host === "fal.run" && (path === "fal-ai" || path.startsWith("fal-ai/")))
+    ((host === "fal.run" || host === "queue.fal.run") && (path === "fal-ai" || path.startsWith("fal-ai/")))
   );
 }
 
@@ -331,14 +331,25 @@ async function attachVaultKey(headers: Headers, relayId: string, credentialId?: 
 /**
  * Allow a caller-requested base URL only when it stays on the vault-configured
  * origin (e.g. Hugging Face router per-provider paths like /fal-ai/v1 under
- * router.huggingface.co). Cross-origin overrides are ignored so a vault key can
- * never be attached to a host the vault entry did not configure.
+ * router.huggingface.co) or on a subdomain of the vault host (e.g. the fal
+ * queue API at queue.fal.run when the vault entry is fal.run). Anything else
+ * is ignored so a vault key can never be attached to a host outside the
+ * provider's own domain.
  */
 function resolveSameOriginBaseOverride(vaultBaseUrl: string, requested: string) {
   const override = normalizeHttpUrl(requested);
   if (!override) return vaultBaseUrl;
   try {
-    if (new URL(override).origin === new URL(vaultBaseUrl).origin) return override;
+    const vaultOrigin = new URL(vaultBaseUrl);
+    const requestedOrigin = new URL(override);
+    if (requestedOrigin.origin === vaultOrigin.origin) return override;
+    // Same scheme + subdomain of the vault host (never a sibling/parent domain).
+    if (
+      requestedOrigin.protocol === vaultOrigin.protocol &&
+      requestedOrigin.hostname.endsWith(`.${vaultOrigin.hostname}`)
+    ) {
+      return override;
+    }
   } catch {
     /* malformed override: fall back to the vault base URL */
   }

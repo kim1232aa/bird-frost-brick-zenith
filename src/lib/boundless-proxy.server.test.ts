@@ -27,7 +27,7 @@ register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.
 type LookupAddress = { address: string; family: number };
 
 const PUBLIC_TEST_NET3 = "203.0.113.10";
-const PUBLIC_HOSTS = new Set(["api.x.ai", "public.example", "evil.example"]);
+const PUBLIC_HOSTS = new Set(["api.x.ai", "public.example", "evil.example", "fal.run", "queue.fal.run"]);
 
 mock.module("node:dns/promises", {
   namedExports: {
@@ -455,6 +455,36 @@ test("relay honors a same-origin caller base URL hint (HF router per-provider fa
   const sent = headerRecord(fetchCalls[0]?.init?.headers);
   assert.equal(sent.authorization, "Bearer vault-secret");
   assert.equal(new URL(fetchCalls[0]?.url || "").href, "https://public.example/fal-ai/v1/images/generations");
+});
+
+test("relay honors a subdomain caller base URL hint (fal queue API under the vault host domain)", async () => {
+  vaultById.set("preset-fal", {
+    apiKey: "vault-secret",
+    baseUrl: "https://fal.run",
+    authScheme: "Key",
+  });
+  installFetch(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+
+  const response = await proxyLocalRelay(
+    new Request("http://boundless.test/local-relay-proxy/fal-ai/kling-video/v3/turbo/text-to-video", {
+      method: "POST",
+      headers: {
+        "x-local-relay-base-url": "https://queue.fal.run",
+        "x-boundless-relay-id": "preset-fal",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    "fal-ai/kling-video/v3/turbo/text-to-video",
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(fetchCalls.length, 1);
+  const sent = headerRecord(fetchCalls[0]?.init?.headers);
+  assert.equal(sent.authorization, "Key vault-secret");
+  const target = new URL(fetchCalls[0]?.url || "");
+  assert.equal(target.origin, "https://queue.fal.run");
+  assert.equal(target.pathname, "/fal-ai/kling-video/v3/turbo/text-to-video");
 });
 
 test("relay ignores a cross-origin caller base URL hint even on a lookalike host", async () => {

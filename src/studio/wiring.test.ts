@@ -79,14 +79,14 @@ test("Token Plan, Agent Plan, and DashScope retain their supported model entries
   assert.ok(dashscope.videoModels.includes("happyhorse-1.1-t2v"));
 });
 
-test("Fal preset retains its video pool while showing that video is not wired", () => {
+test("Fal preset retains its video pool and marks video wired through the queue API", () => {
   const fal = providerById("preset-fal");
   assert.ok(fal.capabilities.includes("video"));
   assert.ok(fal.imageModels.includes("flux-2-pro"));
-  assert.deepEqual(fal.videoModels, ["kling-3-pro", "kling-3-turbo", "hailuo-2.3", "veo-3.1", "wan-pro", "minimax-h3"]);
+  assert.deepEqual(fal.videoModels, ["kling-3-pro", "kling-3-standard", "kling-3-turbo", "kling-3-turbo-pro", "hailuo-2.3", "veo-3.1", "wan-pro", "minimax-h3"]);
   assert.ok(fal.models.includes("kling-3-pro"));
   assert.equal(fal.endpoints.videosCreate, "/fal-ai/kling-video/v3/pro/text-to-video");
-  assert.match(`${fal.name} ${fal.remark}`, /视频.*未接线|未接线.*视频/);
+  assert.match(`${fal.name} ${fal.remark}`, /queue\.fal\.run|视频走 queue/);
 });
 
 test("Fal keeps Authorization Key through preset, vault, and browser relay merges", () => {
@@ -119,7 +119,7 @@ test("Kling and MiniMax retain video entries but stay explicitly unconnected", (
 
 test("explicit runnable capabilities survive key restore without enabling unsupported video", () => {
   const expected = {
-    "preset-fal": { runnableCapabilities: ["image"], image: true, video: false },
+    "preset-fal": { runnableCapabilities: ["image", "video"], image: true, video: true },
     "preset-kling": { runnableCapabilities: [], image: false, video: false },
     "preset-minimax": { runnableCapabilities: [], image: false, video: false },
   } as const;
@@ -134,7 +134,7 @@ test("explicit runnable capabilities survive key restore without enabling unsupp
   }
 
   const falRelay = studioRelays().find((item) => item.id === "preset-fal");
-  assert.deepEqual(falRelay?.runnableCapabilities, ["image"]);
+  assert.deepEqual(falRelay?.runnableCapabilities, ["image", "video"]);
 });
 
 test("configured routes cannot dispatch a gated video capability", () => {

@@ -58,7 +58,16 @@ export type VideoCapabilityProfileId =
     | "civitai-unknown"
     | "openai-video"
     | "openai-unknown"
-    | "xai-imagine-video";
+    | "xai-imagine-video"
+    | "fal-kling3-pro"
+    | "fal-kling3-standard"
+    | "fal-kling3-turbo"
+    | "fal-kling3-turbo-pro"
+    | "fal-hailuo-2-3"
+    | "fal-veo-3-1"
+    | "fal-wan-pro"
+    | "fal-minimax-h3"
+    | "fal-unknown";
 
 export const VIDEO_CAPABILITY_PROFILE_IDS: readonly VideoCapabilityProfileId[] = [
     "agnes-video-v2",
@@ -95,6 +104,15 @@ export const VIDEO_CAPABILITY_PROFILE_IDS: readonly VideoCapabilityProfileId[] =
     "openai-video",
     "openai-unknown",
     "xai-imagine-video",
+    "fal-kling3-pro",
+    "fal-kling3-standard",
+    "fal-kling3-turbo",
+    "fal-kling3-turbo-pro",
+    "fal-hailuo-2-3",
+    "fal-veo-3-1",
+    "fal-wan-pro",
+    "fal-minimax-h3",
+    "fal-unknown",
 ];
 
 export type VideoReferenceImagePolicy =
@@ -110,7 +128,7 @@ export type VideoInputPolicy =
 
 export type VideoCapabilityProfile = {
     id: VideoCapabilityProfileId;
-    provider: "agnes" | "dashscope" | "ark" | "civitai" | "openai";
+    provider: "agnes" | "dashscope" | "ark" | "civitai" | "openai" | "fal";
     label: string;
     supportsFirstFrame: boolean;
     supportsFirstLastFrame: boolean;
@@ -682,6 +700,114 @@ const VIDEO_CAPABILITY_PROFILES = defineVideoCapabilityProfiles({
         supportedOperations: ["text-to-video", "image-to-video", "reference-to-video"],
         intentPolicy: "frames-or-reference-set",
     },
+    // fal 视频队列（2026-09-14 queue.fal.run 探针 + 官方文档 schema 实证）
+    "fal-kling3-pro": {
+        id: "fal-kling3-pro",
+        provider: "fal",
+        label: "Fal Kling v3 Pro",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-kling3-standard": {
+        id: "fal-kling3-standard",
+        provider: "fal",
+        label: "Fal Kling v3 Standard",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: true,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video", "first-last-frame-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-kling3-turbo-pro": {
+        id: "fal-kling3-turbo-pro",
+        provider: "fal",
+        label: "Fal Kling v3 Turbo Pro",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-kling3-turbo": {
+        id: "fal-kling3-turbo",
+        provider: "fal",
+        label: "Fal Kling v3 Turbo",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-hailuo-2-3": {
+        id: "fal-hailuo-2-3",
+        provider: "fal",
+        label: "Fal MiniMax Hailuo 2.3 Pro",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-veo-3-1": {
+        id: "fal-veo-3-1",
+        provider: "fal",
+        label: "Fal Veo 3.1",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-wan-pro": {
+        id: "fal-wan-pro",
+        provider: "fal",
+        label: "Fal Wan Pro",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-minimax-h3": {
+        id: "fal-minimax-h3",
+        provider: "fal",
+        label: "Fal MiniMax Hailuo 03",
+        supportsFirstFrame: true,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        storyAutoReferencePolicy: "current-shot",
+        supportsReferenceSetWithFirst: false,
+        supportedOperations: ["text-to-video", "image-to-video"],
+        intentPolicy: "i2v",
+    },
+    "fal-unknown": {
+        id: "fal-unknown",
+        provider: "fal",
+        label: "Fal 未知视频模型",
+        supportsFirstFrame: false,
+        supportsFirstLastFrame: false,
+        referenceImagePolicy: { supported: false },
+        supportsReferenceSetWithFirst: false,
+        requiresExplicitProfile: true,
+        intentPolicy: "none",
+    },
 });
 
 const VIDEO_GENERATION_PARAMETER_LABELS: Record<VideoGenerationParameterName, string> = {
@@ -888,6 +1014,95 @@ const XAI_RELAY_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContra
         resolution: supportedParameter("string", "resolution", "兼容 relay 原样接收非空 resolution；不套用 api.x.ai 枚举"),
         aspectRatio: supportedParameter("string", "aspect_ratio", "兼容 relay 原样接收非空 aspect_ratio；未填时与官方/serializer 一致走 16:9", { defaultValue: "16:9" }),
         audio: supportedParameter("boolean", "generate_audio", "兼容 relay 的 generate_audio 布尔扩展；保留 true/false"),
+    },
+);
+
+// fal 视频队列参数合同。注意：fal 队列对任意路径都回 IN_QUEUE，submit 不是存活证据；
+// 2026-09-15 以「结果拉取」重验全量端点：真端点回参数校验错误/真实任务，
+// 假端点秒回 0.05s COMPLETED 且结果 404 Path not found。
+const FAL_VIDEO_EVIDENCE = [
+    "https://fal.ai/models/fal-ai/kling-video/v3/pro/image-to-video/api (verified 2026-09-15; start_image_url/end_image_url, duration 3-15, aspect_ratio t2v only, generate_audio, negative_prompt, cfg_scale)",
+    "queue.fal.run result-fetch probes 2026-09-15: kling v3 pro/standard + v3/turbo/standard + v3/turbo/pro t2v+i2v all REAL (validation errors returned); fal-ai/kling-video/v3/turbo direct path is FAKE (404 Path not found)",
+    "queue.fal.run result-fetch probes 2026-09-15: veo3.1 t2v lives at ROOT fal-ai/veo3.1 (t2v/i2v real, duration 4s/6s/8s); fal-ai/veo3.1/text-to-video is FAKE",
+    "queue.fal.run result-fetch probes 2026-09-15: minimax/hailuo-2.3/pro t2v+i2v real (image_url first frame, prompt_optimizer); wan-pro t2v+i2v real (seed, enable_safety_checker)",
+    "queue.fal.run result-fetch probes 2026-09-15: minimax/hailuo-03 t2v+i2v real and GA (duration numeric <=15), early-access caveat removed",
+    "https://fal.ai/models/fal-ai/veo3.1/image-to-video/api (verified 2026-09-14; image_url first frame only, duration 4s/6s/8s, aspect_ratio auto/16:9/9:16, resolution 720p/1080p/4k, seed)",
+    "https://fal.ai/models/fal-ai/minimax/hailuo-2.3/pro/image-to-video/api (verified 2026-09-14; image_url first frame only, prompt_optimizer)",
+] as const;
+const FAL_KLING_DURATION = supportedParameter("integer", "duration", "出片时长 3 到 15 秒；HTTP 传输为字符串枚举", {
+    enumValues: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    defaultValue: 5,
+    integer: true,
+    minimum: 3,
+    maximum: 15,
+});
+const FAL_KLING_ASPECT = supportedParameter("string", "aspect_ratio", "画面比例（仅文生视频；图生视频跟原图走）", {
+    enumValues: ["16:9", "9:16", "1:1"],
+    defaultValue: "16:9",
+});
+const FAL_KLING3_PRO_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:kling-video-v3-pro",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: FAL_KLING_DURATION,
+        aspectRatio: FAL_KLING_ASPECT,
+        audio: supportedParameter("boolean", "generate_audio", "是否生成原生音轨", { defaultValue: true }),
+        negativePrompt: supportedParameter("string", "negative_prompt", "负面提示词", { defaultValue: "blur, distort, and low quality" }),
+        guidance: supportedParameter("number", "cfg_scale", "CFG 引导强度 0..1", { defaultValue: 0.5, minimum: 0, maximum: 1 }),
+    },
+);
+const FAL_KLING3_TURBO_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:kling-video-v3-turbo",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    { duration: FAL_KLING_DURATION, aspectRatio: FAL_KLING_ASPECT },
+);
+const FAL_VEO31_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:veo3.1",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: supportedParameter("string", "duration", "出片时长枚举（HTTP 为 4s/6s/8s 字符串）", {
+            enumValues: ["4s", "6s", "8s"],
+            defaultValue: "8s",
+        }),
+        aspectRatio: supportedParameter("string", "aspect_ratio", "画面比例", { enumValues: ["auto", "16:9", "9:16"], defaultValue: "auto" }),
+        resolution: supportedParameter("string", "resolution", "画面清晰度", { enumValues: ["720p", "1080p", "4k"], defaultValue: "720p" }),
+        audio: supportedParameter("boolean", "generate_audio", "是否生成音轨", { defaultValue: true }),
+        negativePrompt: supportedParameter("string", "negative_prompt", "负面提示词"),
+        seed: supportedParameter("integer", "seed", "随机种子", { integer: true }),
+    },
+);
+const FAL_HAILUO23_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:minimax-hailuo-2.3-pro",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        promptExpansion: supportedParameter("boolean", "prompt_optimizer", "是否启用模型提示词优化", { defaultValue: true }),
+    },
+);
+const FAL_WANPRO_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:wan-pro",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: unavailableParameter("unsupported", "Wan Pro 固定 6 秒 1080p30，官方请求合同没有 duration 字段"),
+        seed: supportedParameter("integer", "seed", "随机种子；不传随机", { integer: true }),
+        safetyChecker: supportedParameter("boolean", "enable_safety_checker", "是否启用安全检查器", { defaultValue: true }),
+    },
+);
+const FAL_MINIMAX_H3_PARAMETERS = makeVideoGenerationParameterContract(
+    "fal:minimax-hailuo-03",
+    FAL_VIDEO_EVIDENCE,
+    "unsupported",
+    {
+        duration: supportedParameter("integer", "duration", "出片时长（数字，≤15 秒；2026-09-15 校验报错实证）", {
+            defaultValue: 5,
+            integer: true,
+            minimum: 1,
+            maximum: 15,
+        }),
     },
 );
 
@@ -1418,6 +1633,7 @@ export function nativeVideoAdapterType(provider?: VideoCapabilityProvider) {
     const explicit = String(provider.adapterType || "").trim().toLowerCase();
     if (explicit === "ark-plan") return "ark";
     if (explicit === "civitai") return "civitai-orchestration";
+    if (explicit === "fal") return "fal";
     if (explicit) return explicit === "agnes" || explicit === "dashscope" || explicit === "ark" || explicit === "civitai-orchestration" ? explicit : "";
     const baseUrl = String(provider.baseUrl || "").trim();
     try {
@@ -1425,6 +1641,7 @@ export function nativeVideoAdapterType(provider?: VideoCapabilityProvider) {
         if (host === "agnes-ai.com" || host.endsWith(".agnes-ai.com")) return "agnes";
         if (host === "dashscope.aliyuncs.com" || host.endsWith(".dashscope.aliyuncs.com") || host.endsWith(".maas.aliyuncs.com")) return "dashscope";
         if (host === "ark.cn-beijing.volces.com" || host.endsWith(".volces.com")) return "ark";
+        if (host === "fal.run" || host.endsWith(".fal.run")) return "fal";
     } catch {
         return "";
     }
@@ -1458,7 +1675,7 @@ export function videoCapabilityProfileCompatibility(
     const adapter: VideoCapabilityProfile["provider"] | "" =
         nativeAdapter === "civitai-orchestration"
             ? "civitai"
-            : nativeAdapter === "agnes" || nativeAdapter === "dashscope" || nativeAdapter === "ark"
+            : nativeAdapter === "agnes" || nativeAdapter === "dashscope" || nativeAdapter === "ark" || nativeAdapter === "fal"
               ? nativeAdapter
               : explicitAdapter === "openai" || (!explicitAdapter && !nativeAdapter)
                 ? "openai"
@@ -1504,6 +1721,7 @@ export function resolveVideoModelCapability(options: { model: string; provider?:
     if (adapter === "dashscope") return resolvedProfile(dashscopeProfileForModel(model), model, provider, false);
     if (adapter === "ark") return resolvedProfile(arkProfileForModel(model), model, provider, false);
     if (adapter === "civitai-orchestration") return resolvedCivitaiProfile(model, provider);
+    if (adapter === "fal") return resolvedProfile(falProfileForModel(model), model, provider, false);
 
     const explicitAdapter = String(provider?.adapterType || "").trim().toLowerCase();
     // Model ids are not provider identities. A provider-less preview remains
@@ -2223,6 +2441,19 @@ function arkProfileForModel(model: string): VideoCapabilityProfileId {
     return "ark-unknown";
 }
 
+function falProfileForModel(model: string): VideoCapabilityProfileId {
+    const value = normalizeModelKey(model);
+    if (value === "kling-3-pro" || value === "fal-ai-kling-video-v3-pro") return "fal-kling3-pro";
+    if (value === "kling-3-standard" || value === "fal-ai-kling-video-v3-standard") return "fal-kling3-standard";
+    if (value === "kling-3-turbo-pro" || value === "fal-ai-kling-video-v3-turbo-pro") return "fal-kling3-turbo-pro";
+    if (value === "kling-3-turbo" || value === "fal-ai-kling-video-v3-turbo" || value === "fal-ai-kling-video-v3-turbo-standard") return "fal-kling3-turbo";
+    if (value === "hailuo-2-3" || value.includes("hailuo-2-3")) return "fal-hailuo-2-3";
+    if (value === "veo-3-1" || value === "fal-ai-veo3-1") return "fal-veo-3-1";
+    if (value === "wan-pro" || value === "fal-ai-wan-pro") return "fal-wan-pro";
+    if (value === "minimax-h3" || value.includes("hailuo-03")) return "fal-minimax-h3";
+    return "fal-unknown";
+}
+
 function civitaiProfileForModel(model: string): VideoCapabilityProfileId {
     const shortModel = String(model || "").trim().toLowerCase();
     if (shortModel === "kling-v3") return "civitai-frames-or-references";
@@ -2328,6 +2559,17 @@ function videoGenerationParametersForModel(provider: VideoCapabilityProfile["pro
         if (normalized === "happyhorse-1-1-r2v") return DASHSCOPE_HAPPYHORSE_R2V_PARAMETERS;
         if (normalized === "happyhorse-1-1-t2v") return DASHSCOPE_HAPPYHORSE_T2V_PARAMETERS;
         return unknownGenerationParameters("dashscope", model);
+    }
+    if (provider === "fal") {
+        if (normalized === "kling-3-pro" || normalized === "fal-ai-kling-video-v3-pro") return FAL_KLING3_PRO_PARAMETERS;
+        if (normalized === "kling-3-standard" || normalized === "fal-ai-kling-video-v3-standard") return FAL_KLING3_PRO_PARAMETERS;
+        if (normalized === "kling-3-turbo-pro" || normalized === "fal-ai-kling-video-v3-turbo-pro") return FAL_KLING3_TURBO_PARAMETERS;
+        if (normalized === "kling-3-turbo" || normalized === "fal-ai-kling-video-v3-turbo" || normalized === "fal-ai-kling-video-v3-turbo-standard") return FAL_KLING3_TURBO_PARAMETERS;
+        if (normalized === "veo-3-1" || normalized === "fal-ai-veo3-1") return FAL_VEO31_PARAMETERS;
+        if (normalized.includes("hailuo-2-3")) return FAL_HAILUO23_PARAMETERS;
+        if (normalized === "wan-pro" || normalized === "fal-ai-wan-pro") return FAL_WANPRO_PARAMETERS;
+        if (normalized === "minimax-h3" || normalized.includes("hailuo-03")) return FAL_MINIMAX_H3_PARAMETERS;
+        return unknownGenerationParameters("fal", model);
     }
     return UNKNOWN_VIDEO_GENERATION_PARAMETERS;
 }

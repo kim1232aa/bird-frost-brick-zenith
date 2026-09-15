@@ -47,6 +47,15 @@ const META: Record<string, Partial<ModelCard>> = {
   "flux-pro": { tags: ["NSFW", "Pro", "待接线"], nsfw: true, cost: "Fal", blurb: "Fal Flux Pro。" },
   "wan3.0-video": { tags: ["万相3.0", "全能", "推荐"], cost: "百炼", size: "1080P", blurb: "万相 3.0 全能视频：文生、首帧/首尾帧、最多 10 张参考图 / 5 段参考视频。最长 30 秒。" },
   "wan3.0-video-prime": { tags: ["万相3.0", "高速", "推荐"], cost: "百炼", size: "1080P", blurb: "万相 3.0 高速版，能力和标准版对齐，出片更快。" },
+  // Fal 视频（queue.fal.run 队列；端点 2026-09-15 以结果拉取全量实证）
+  "kling-3-pro": { tags: ["Kling", "首尾帧", "音频"], cost: "Fal", size: "1080p", blurb: "Kling v3 Pro：首帧+尾帧、3–15 秒、原生音轨、negative_prompt、cfg_scale。端点已验。" },
+  "kling-3-standard": { tags: ["Kling", "首尾帧", "音频"], cost: "Fal", size: "1080p", blurb: "Kling v3 Standard：与 Pro 同合同（首帧+尾帧、3–15 秒、音轨），价格更低。端点已验。" },
+  "kling-3-turbo": { tags: ["Kling", "快", "首帧"], cost: "Fal", size: "1080p", blurb: "Kling v3 Turbo Standard：仅首帧、3–15 秒。已实测出片（2026-09-15 前端点击 t2v）。", verified: true },
+  "kling-3-turbo-pro": { tags: ["Kling", "快", "首帧"], cost: "Fal", size: "1080p", blurb: "Kling v3 Turbo Pro：仅首帧、3–15 秒，画质高于 Standard 档。端点已验。" },
+  "hailuo-2.3": { tags: ["MiniMax", "首帧"], cost: "Fal", size: "1080p", blurb: "Hailuo 2.3 Pro：仅首帧，prompt_optimizer。端点已验。" },
+  "veo-3.1": { tags: ["Veo", "首帧", "音频"], cost: "Fal", size: "720p–4k", blurb: "Veo 3.1：仅首帧、4s/6s/8s、720p/1080p/4k、音轨、seed。文生视频在根路径。端点已验。" },
+  "wan-pro": { tags: ["万相", "首帧"], cost: "Fal", size: "1080p", blurb: "Wan Pro：仅首帧、seed、安全检查器；固定 6 秒 1080p。端点已验。" },
+  "minimax-h3": { tags: ["MiniMax", "首帧", "2K"], cost: "Fal", size: "2K", blurb: "MiniMax Hailuo 03（H3）：仅首帧、时长数字 ≤15 秒、2K。已 GA，端点已验。" },
 };
 
 for (const engine of CIVITAI_ENGINES) {
