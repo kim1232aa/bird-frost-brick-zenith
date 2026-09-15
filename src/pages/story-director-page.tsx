@@ -309,7 +309,7 @@ export function StoryDirectorPage() {
       return;
     }
     setJob({ type: "all" });
-    setBusy("一键：拆分镜 → 角色图 → 5 张分镜 → 视频");
+    setBusy(`一键：拆分镜 → 角色图 → ${shotCount} 张分镜 → 视频`);
     setError("");
     setWarn("");
     setLogline("");
