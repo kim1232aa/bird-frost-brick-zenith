@@ -449,6 +449,22 @@ function ensureRouting(config: RelayCompatibleConfig, providers: ApiRelayProvide
             return routing;
         }
 
+        if (savedProvider && !providerCanRunCapability(savedProvider, capability)) {
+            // 绑定的供应商当前跑不动（被停用 / 密钥失效）：优先换绑到
+            // 另一个带同型号且可跑的供应商，避免状态乱导致的误拦。
+            const rebound = savedModel
+                ? providers.find(
+                      (item) => item.id !== savedProvider.id
+                          && providerCanRunCapability(item, capability)
+                          && modelBelongsToProvider(item, capability, savedModel),
+                  )
+                : undefined;
+            if (rebound) {
+                routing[capability] = { source: "relay", providerId: rebound.id, model: savedModel };
+                return routing;
+            }
+        }
+
         if (savedProvider && savedModel) {
             routing[capability] = { source: "relay", providerId: savedProviderId, model: savedModel };
             return routing;
@@ -456,11 +472,23 @@ function ensureRouting(config: RelayCompatibleConfig, providers: ApiRelayProvide
 
         const provider = savedProvider;
         if (!provider) {
+            // 从未配置路由时不再交白卷（空路由会在生成时弹设置窗拦截）：
+            // 自动绑定第一个已启用、有密钥、可跑该能力的供应商。
+            const candidate = providers.find((item) => providerCanRunCapability(item, capability));
+            if (candidate) {
+                const model = savedModel && modelBelongsToProvider(candidate, capability, savedModel)
+                    ? savedModel
+                    : providerModelsForCapability(candidate, capability)[0] || savedModel;
+                routing[capability] = { source: "relay", providerId: candidate.id, model };
+                return routing;
+            }
             routing[capability] = { source: "relay", providerId: "", model: "" };
             return routing;
         }
         const fallback = fallbackModels[capability];
-        const model = modelBelongsToProvider(provider, capability, fallback) ? fallback : "";
+        const model = modelBelongsToProvider(provider, capability, fallback)
+            ? fallback
+            : providerModelsForCapability(provider, capability)[0] || "";
         routing[capability] = {
             source: "relay",
             providerId: provider.id,

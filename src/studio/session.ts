@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createApiRelayProvider, providerHasUsableCredential, type ApiRelayProvider } from "@/stores/api-relay-config";
+import { mergeRelayProviderLists, publishRelayProviders, subscribeRelayProviders } from "@/stores/relay-bridge";
 import { isManagedRelayId } from "@/studio/relay-ids";
 import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
 import { loadRelayVault, saveRelayVault } from "@/studio/server/relay-vault";
@@ -263,3 +264,19 @@ export const useStudioSession = create<StudioSession>()(
     },
   ),
 );
+
+// Bridge: keep useConfigStore.config.apiRelays in sync with this list so the
+// 中转设置对话框 and the 接线页 / model selectors never disagree about which
+// providers exist, are enabled, or have a stored key.
+useStudioSession.subscribe((state, prev) => {
+  if (state.relays !== prev.relays) publishRelayProviders(state.relays, "session");
+});
+
+subscribeRelayProviders((incoming, source) => {
+  if (source !== "config") return;
+  const current = useStudioSession.getState().relays;
+  const merged = mergeRelayProviderLists(current, incoming);
+  if (merged === current) return;
+  useStudioSession.setState({ relays: merged });
+  scheduleFlush();
+});

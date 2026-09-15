@@ -35,6 +35,7 @@ import {
     type ProviderModelSelection,
 } from "@/stores/api-relay-config";
 import { mergePersistedRelays, mergeRelaySources } from "@/studio/relay-merge";
+import { mergeRelayProviderLists, publishRelayProviders, subscribeRelayProviders } from "@/stores/relay-bridge";
 import { shouldReplaceManagedRelays, studioRelays, studioRouting } from "@/studio/wiring";
 import { useStudioSession } from "@/studio/session";
 import { loadImageHostCredential, saveImageHostCredential, saveRelayVault } from "@/studio/server/relay-vault";
@@ -614,16 +615,20 @@ function relayHasPendingCredentials(provider: ApiRelayProvider) {
 }
 
 function redactRelayCredentials(provider: ApiRelayProvider): ApiRelayProvider {
+    const hasApiKey = Boolean(
+        provider.hasApiKey
+        || relayHasPendingCredentials(provider)
+        || provider.apiKeyId
+        || provider.apiKeyIds?.length,
+    );
     return {
         ...provider,
         apiKey: "",
         apiKeys: undefined,
-        hasApiKey: Boolean(
-            provider.hasApiKey
-            || relayHasPendingCredentials(provider)
-            || provider.apiKeyId
-            || provider.apiKeyIds?.length,
-        ),
+        hasApiKey,
+        // 密钥已入库即视为可用：不再用「未启用」拦截刚配好 key 的供应商；
+        // 用户仍可保存后手动停用。
+        enabled: hasApiKey ? true : provider.enabled,
     };
 }
 
@@ -779,3 +784,21 @@ export async function persistApiSettingsBeforeClose(
         return failure;
     }
 }
+
+// Bridge: mirror the 接线页 / studio provider list (useStudioSession.relays)
+// into this config's apiRelays and publish our own edits back, so a key saved
+// in the 中转设置对话框 immediately appears in model selectors and vice
+// versa. Raw keys never cross the bridge — see relay-bridge.ts.
+useConfigStore.subscribe((state, prev) => {
+    if (state.config.apiRelays !== prev.config.apiRelays) {
+        publishRelayProviders(state.config.apiRelays, "config");
+    }
+});
+
+subscribeRelayProviders((incoming, source) => {
+    if (source !== "session") return;
+    const current = useConfigStore.getState().config;
+    const merged = mergeRelayProviderLists(current.apiRelays, incoming);
+    if (merged === current.apiRelays) return;
+    useConfigStore.setState({ config: { ...current, apiRelays: merged } });
+});
