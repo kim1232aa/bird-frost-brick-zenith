@@ -220,6 +220,7 @@ test("env seed maps Civitai/Fal/Grok/OpenAI-compat without leaking empty templat
   assert.deepEqual(seeds.map((item) => item.id), [
     "preset-grok-relay",
     "preset-civitai",
+    "preset-civitai-orchestration",
     "preset-fal",
     "preset-custom-compat",
   ]);

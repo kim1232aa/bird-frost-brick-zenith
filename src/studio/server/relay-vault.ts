@@ -462,16 +462,16 @@ function normalizeEnvRelayBaseUrl(value: string) {
 }
 
 export function envSeededRelays(): EnvSeededRelay[] {
-  const grokRelay = envText("GROK_RELAY_API_KEY") || "sk-aceb8c49ec16c4c8a0c0f5e46e38f2b638a61e4734ea65586169ee0a77cd8c12";
-  const civitai = envText("CIVITAI_API_KEY") || envText("CIVITAI_TOKEN") || "29d622653173c1960a0952118df72f49";
-  const fal = envText("FAL_KEY") || "a437ae76-0d52-40a5-8939-ac0871d69859:438a74c54888f32a78c44afbedeea0b7";
+  const grokRelay = envText("GROK_RELAY_API_KEY");
+  const civitai = envText("CIVITAI_API_KEY") || envText("CIVITAI_TOKEN");
+  const fal = envText("FAL_KEY");
   const openaiCompat = envText("OPENAI_COMPAT_API_KEY");
   const volcengineKey = envText("VOLCENGINE_API_KEY") || envText("ARK_API_KEY") || envText("SUB_API_KEY");
   const volcengineBaseUrl = normalizeEnvRelayBaseUrl(envText("VOLCENGINE_BASE_URL") || "https://sub.alibb123.ccwu.cc/v1");
   const nanogptKey = envText("NANOGPT_API_KEY");
   const hfKey = envText("HF_TOKEN") || envText("HUGGINGFACE_API_KEY");
-  const modelscopeKey = envText("MODELSCOPE_API_KEY") || "ms-b668608e-7597-4812-be00-7a822d17830d";
-  const modelscopeCnKey = envText("MODELSCOPE_CN_API_KEY") || "ms-b6d0d9f7-a14e-427f-83a8-664e46a2266c";
+  const modelscopeKey = envText("MODELSCOPE_API_KEY");
+  const modelscopeCnKey = envText("MODELSCOPE_CN_API_KEY");
 
   const seeded: EnvSeededRelay[] = [];
   const grokBaseUrl = normalizeEnvRelayBaseUrl(envText("GROK_RELAY_BASE_URL") || "https://sub.alibb123.ccwu.cc/v1");

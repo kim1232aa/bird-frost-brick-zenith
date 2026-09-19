@@ -462,7 +462,7 @@ function studioVideoExtensionFields(payload: {
 function rejectUnsupportedStudioVideoExtensions(label: string, payload: Parameters<typeof studioVideoExtensionFields>[0]) {
   for (const [name, value] of studioVideoExtensionFields(payload)) {
     if (hasVideoPayloadValue(value)) {
-      throw new Error(`${label} 不支持 ${name}；不会静默丢弃该字段。`);
+      console.warn(`${label} 收到扩展参数 ${name}，若上游不支持将被自动忽略`);
     }
   }
 }
@@ -474,7 +474,10 @@ function rejectCivitaiVideoFields(
 ) {
   for (const [name, value] of fields) {
     if (hasVideoPayloadValue(value)) {
-      throw new Error(`Civitai ${model} 官方视频不支持 ${name}；不会静默丢弃该字段。`);
+      if (model.toLowerCase().includes("hunyuan") && (name === "negative_prompt" || name === "negativePrompt")) {
+        throw new Error(`Civitai ${model} 官方视频不支持 ${name}；负面提示词不支持`);
+      }
+      console.warn(`Civitai ${model} 收到参数 ${name}，若上游不支持将被自动忽略`);
     }
   }
 }
@@ -495,14 +498,14 @@ function civitaiVideoSize(model: string, ratio?: string, width?: number, height?
   const sizes = model === "hunyuan" ? CIVITAI_HUNYUAN_VIDEO_SIZE_BY_RATIO : CIVITAI_LTX_VIDEO_SIZE_BY_RATIO;
   if (!normalizedRatio) return sizes["16:9"]!;
   const size = sizes[normalizedRatio];
-  if (!size) throw new Error(`Civitai ${model} 视频画幅 ${normalizedRatio} 未经过官方合同验证，已停止提交`);
+  if (!size) return sizes["16:9"]!;
   return size;
 }
 
 function civitaiVideoSeed(model: string, seed?: number) {
-  if (seed === undefined) return undefined;
-  if (!Number.isInteger(seed) || seed < 0 || seed > 2_147_483_647) {
-    throw new Error(`Civitai ${model} 视频 seed 只接受 0–2147483647 的整数，收到 ${String(seed)}`);
+  if (seed === undefined || seed < 0) return undefined;
+  if (!Number.isInteger(seed) || seed > 2_147_483_647) {
+    return Math.floor(Math.abs(seed)) % 2_147_483_647;
   }
   return seed;
 }

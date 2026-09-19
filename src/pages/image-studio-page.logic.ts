@@ -475,12 +475,12 @@ export function buildImageStudioGenerateFields(input: {
     error: error || undefined,
     params,
     count,
-    steps: typeof input.steps === "number" ? input.steps : params.defaultSteps,
-    cfgScale: typeof input.cfgScale === "number" ? input.cfgScale : params.defaultCfgScale,
-    outputFormat: input.outputFormat || params.defaultOutputFormat,
-    sampler: input.sampler || params.defaultSampler,
-    scheduler: input.scheduler || params.defaultScheduler,
-    denoise: typeof input.denoise === "number" ? input.denoise : params.defaultDenoise,
+    steps: typeof input.steps === "number" ? input.steps : (params.showSteps ? params.defaultSteps : undefined),
+    cfgScale: typeof input.cfgScale === "number" ? input.cfgScale : (params.showCfgScale ? params.defaultCfgScale : undefined),
+    outputFormat: input.outputFormat || (input.family === "civitai" && params.showOutputFormat ? params.defaultOutputFormat : undefined),
+    sampler: input.sampler || (params.showSampler ? params.defaultSampler : undefined),
+    scheduler: input.scheduler || (params.showScheduler ? params.defaultScheduler : undefined),
+    denoise: typeof input.denoise === "number" ? input.denoise : (params.showDenoise && input.mode !== "t2i" && input.family === "civitai" ? params.defaultDenoise : undefined),
     size:
       input.family === "ark"
         ? input.size
@@ -513,6 +513,12 @@ export function buildImageStudioGenerateFields(input: {
     checkpointAir: error || !params.needsCheckpoint ? undefined : input.checkpointAir.trim(),
     negativePrompt: params.showNegative ? input.negativePrompt || undefined : undefined,
     dynamicParams: input.dynamicParams || {},
+    ...(input.steps !== undefined ? { steps: input.steps } : {}),
+    ...(input.cfgScale !== undefined ? { cfgScale: input.cfgScale } : {}),
+    ...(input.outputFormat ? { outputFormat: input.outputFormat } : {}),
+    ...(input.sampler ? { sampler: input.sampler } : {}),
+    ...(input.scheduler ? { scheduler: input.scheduler } : {}),
+    ...(input.denoise !== undefined ? { denoise: input.denoise } : {}),
   };
 }
 
@@ -545,13 +551,13 @@ export function buildImageStudioRequest<TRelay>(input: {
     operation: input.mode === "t2i" ? "generate" as const : "edit" as const,
     loras: input.payload.loras,
     checkpointAir: input.payload.checkpointAir,
-    steps: input.payload.steps,
-    cfgScale: input.payload.cfgScale,
-    outputFormat: input.payload.outputFormat,
-    sampler: input.payload.sampler,
-    scheduler: input.payload.scheduler,
-    denoise: input.payload.denoise,
+    ...(input.payload.steps !== undefined ? { steps: input.payload.steps } : {}),
+    ...(input.payload.cfgScale !== undefined ? { cfgScale: input.payload.cfgScale } : {}),
+    ...(input.payload.outputFormat !== undefined ? { outputFormat: input.payload.outputFormat } : {}),
+    ...(input.payload.sampler !== undefined ? { sampler: input.payload.sampler } : {}),
+    ...(input.payload.scheduler !== undefined ? { scheduler: input.payload.scheduler } : {}),
+    ...(input.payload.denoise !== undefined ? { denoise: input.payload.denoise } : {}),
     workTitle: input.workTitle,
-    advanced: input.payload.dynamicParams,
+    ...(input.payload.dynamicParams && Object.keys(input.payload.dynamicParams).length > 0 ? { advanced: input.payload.dynamicParams } : {}),
   };
 }

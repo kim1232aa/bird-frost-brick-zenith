@@ -70,7 +70,7 @@ export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, u
     const quality = normalizeXaiImagineQuality(input.quality);
     if (aspectRatio) body.aspect_ratio = aspectRatio;
     if (resolution) body.resolution = resolution;
-    if (quality) body.quality = quality;
+    if (isImage2 && quality) body.quality = quality;
     return body;
   }
 

@@ -2713,7 +2713,6 @@ export const CIVITAI_OPTIONAL_IMAGE_ENGINES = [
     "krea",
     "comfy",
     "flux1",
-    "flux2",
     "sdxl",
     "sd1",
 ] as const;
