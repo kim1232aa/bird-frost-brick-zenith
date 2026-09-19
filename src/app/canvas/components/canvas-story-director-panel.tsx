@@ -9,7 +9,7 @@ import { ModelIcon } from "@/components/model-icon";
 import { resolveImageSettingsContext } from "@/components/image-settings-panel";
 import { resolveImageModelCapability } from "@/services/api/image-model-capabilities";
 
-import { canvasThemes } from "@/lib/canvas-theme";
+import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { AiConfig } from "@/stores/use-config-store";
 import type { CanvasNodeData, CanvasNodeMetadata } from "../types";
@@ -213,7 +213,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     primary
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     title="一键全流程"
-                    description={`分析故事 → 角色图 → ${storyShotCount} 张分镜 → 视频占位`}
+                    description={`分析故事 → 核心角色 → ${storyShotCount} 张分镜图`}
                     disabled={isAnalyzing || isGenerating}
                     onClick={() => onRunAll(node)}
                 />
@@ -399,14 +399,12 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     ) : null}
                 </div>
 
-                <div
-                    role="note"
-                    aria-label="故事快捷生成参数说明"
-                    className="mt-2 text-[10px] leading-4 opacity-70"
-                    data-canvas-no-drag
-                >
-                    图片模型就在这页选。角色图和分镜图都用它。如果你在旁边另挂了一块设置，以那块为准。有参考图就按图改，没有就按文字出。
-                </div>
+                <StoryDirectorLoraSection
+                    nodeId={node.id}
+                    advancedSettings={(node as any).metadata?.imageAdvancedSettings || (node as any).imageAdvancedSettings}
+                    theme={theme}
+                    onConfigChange={onConfigChange}
+                />
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
                     <SummaryTile label="角色" value={`${importantCharacters.length} 个 / 缺 ${missingCharacterCount}`} />
@@ -654,6 +652,142 @@ function ResultRow({ title, meta, done, loading }: { title: string; meta: string
                 {loading ? <LoaderCircle className="size-3 animate-spin" /> : done ? <CheckCircle2 className="size-3" /> : null}
                 {meta}
             </span>
+        </div>
+    );
+}
+
+function StoryDirectorLoraSection({
+    nodeId,
+    advancedSettings,
+    theme,
+    onConfigChange,
+}: {
+    nodeId: string;
+    advancedSettings: any;
+    theme: CanvasTheme;
+    onConfigChange: (nodeId: string, patch: Record<string, any>) => void;
+}) {
+    const [input, setInput] = useState("");
+    const loras = (advancedSettings?.loras || []) as any[];
+
+    const handleAdd = () => {
+        const text = input.trim();
+        if (!text) return;
+        const newLora = {
+            resource: text,
+            resourceKind: text.startsWith("urn:air:") ? "air" : /^\d+$/.test(text) ? "versionId" : "modelId",
+            weight: 1.0,
+            resolvedAir: text.startsWith("urn:air:") ? text : undefined,
+            modelName: text,
+        };
+        const nextLoras = [...loras, newLora];
+        onConfigChange(nodeId, {
+            imageAdvancedSettings: {
+                ...(advancedSettings || {}),
+                loras: nextLoras,
+            },
+        });
+        setInput("");
+    };
+
+    const handleRemove = (index: number) => {
+        const nextLoras = loras.filter((_, i) => i !== index);
+        onConfigChange(nodeId, {
+            imageAdvancedSettings: {
+                ...(advancedSettings || {}),
+                loras: nextLoras,
+            },
+        });
+    };
+
+    const handleWeightChange = (index: number, weight: number) => {
+        const nextLoras = loras.map((item, i) => (i === index ? { ...item, weight } : item));
+        onConfigChange(nodeId, {
+            imageAdvancedSettings: {
+                ...(advancedSettings || {}),
+                loras: nextLoras,
+            },
+        });
+    };
+
+    const [collapsed, setCollapsed] = useState(loras.length === 0);
+
+    return (
+        <div className="mt-2.5 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
+            <div
+                className="flex items-center justify-between cursor-pointer select-none"
+                onClick={() => setCollapsed(!collapsed)}
+            >
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] opacity-60">{collapsed ? "▶" : "▼"}</span>
+                    <span className="text-[11px] font-medium opacity-85">LoRA 资源挂载</span>
+                </div>
+                <span className="text-[10px] opacity-55">{loras.length > 0 ? `已挂载 ${loras.length} 个` : "展开添加"}</span>
+            </div>
+
+            {!collapsed ? (
+                <div className="mt-2">
+                    <div className="flex items-center gap-1.5 nodrag nopan" onKeyDown={(e) => e.stopPropagation()}>
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="输入 LoRA 名称 / AIR / 版本ID / 直链"
+                            className="flex-1 rounded-lg border bg-transparent px-2.5 py-1 text-xs outline-none focus:border-blue-500"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === "Enter") handleAdd();
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={handleAdd}
+                            className="rounded-lg px-2.5 py-1 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
+                        >
+                            + 添加
+                        </button>
+                    </div>
+
+                    {loras.length > 0 ? (
+                        <div className="mt-2 space-y-1.5">
+                            {loras.map((lora, idx) => (
+                                <div
+                                    key={idx}
+                                    className="flex items-center justify-between gap-2 rounded-lg border p-1.5 text-xs nodrag nopan"
+                                    style={{ borderColor: theme.node.stroke, background: "rgba(0,0,0,0.03)" }}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                >
+                                    <span className="truncate flex-1 font-mono text-[11px]" title={lora.resource || lora.modelName}>
+                                        {lora.modelName || lora.resource}
+                                    </span>
+                                    <div className="flex items-center gap-1">
+                                        <span className="text-[10px] opacity-60">权重:</span>
+                                        <input
+                                            type="number"
+                                            step="0.05"
+                                            min="0"
+                                            max="2"
+                                            value={lora.weight ?? 1.0}
+                                            onChange={(e) => handleWeightChange(idx, parseFloat(e.target.value) || 1.0)}
+                                            className="w-12 rounded border bg-transparent px-1 py-0.5 text-center text-xs font-mono outline-none"
+                                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRemove(idx)}
+                                            className="text-red-500 hover:text-red-700 px-1 py-0.5 text-xs"
+                                            title="删除"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+            ) : null}
         </div>
     );
 }

@@ -10,6 +10,7 @@ import {
   type ApiCapability,
   type ApiRelayProvider,
 } from "@/stores/api-relay-config";
+import { fetchDynamicModelsForProvider } from "@/services/api/dynamic-model-registry";
 import { studioProxyJson } from "@/studio/generate/proxy";
 import { useStudioSession } from "@/studio/session";
 
@@ -32,20 +33,6 @@ function modelPool(relay: ApiRelayProvider) {
     ...(relay.videoModels || []),
     ...(relay.audioModels || []),
   ]);
-}
-
-function parseModelIds(data: unknown): string[] {
-  if (!data) return [];
-  if (Array.isArray(data)) {
-    return data
-      .map((item) => (typeof item === "string" ? item : item && typeof item === "object" ? String((item as { id?: string }).id || (item as { name?: string }).name || "") : ""))
-      .filter(Boolean);
-  }
-  if (typeof data === "object") {
-    const record = data as Record<string, unknown>;
-    return parseModelIds(record.data || record.models || record.output);
-  }
-  return [];
 }
 
 export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
@@ -116,13 +103,18 @@ export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
     setNote("");
     try {
       const path = relay.endpoints?.models || "/models";
-      const data = await studioProxyJson({
-        provider: relay,
-        path,
-        method: "GET",
-        timeoutMs: 20_000,
+      const registry = await fetchDynamicModelsForProvider(relay.id, {
+        forceRefresh: true,
+        staleWhileRevalidate: false,
+        request: () => studioProxyJson({
+          provider: relay,
+          path,
+          method: "GET",
+          timeoutMs: 20_000,
+        }),
       });
-      const discovered = normalizeModelList(parseModelIds(data));
+      const records = registry.models;
+      const discovered = normalizeModelList(records.map((record) => record.id));
       if (!discovered.length) {
         setNote("上游没返回模型 ID。可以自己在下面添加，再勾选文本 / 图片 / 视频。");
         return;
@@ -133,11 +125,12 @@ export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
         models: normalizeModelList([...relay.models, ...discovered]),
       };
       let classified = 0;
-      for (const model of discovered) {
+      for (const record of records) {
+        const model = record.id;
         if (existing.has(model)) continue;
-        const guessed = guessCapabilities(model);
+        const capabilities: ApiCapability[] = [record.category];
         classified += 1;
-        for (const cap of guessed) {
+        for (const cap of capabilities) {
           const list =
             cap === "text" ? next.textModels : cap === "image" ? next.imageModels : cap === "video" ? next.videoModels : next.audioModels;
           const patch = classifyProviderModels(next, cap, [...list, model]);
@@ -152,7 +145,7 @@ export function RelayModelBoard({ relay }: { relay: ApiRelayProvider }) {
         audioModels: next.audioModels,
         capabilities: next.capabilities,
       });
-      setNote(`读到 ${discovered.length} 个模型，新分类 ${classified} 个。可在下面改勾选，同一模型可同时用于图和视频。`);
+      setNote(`读到 ${discovered.length} 个模型（已按上游模型记录分类），新分类 ${classified} 个。可在下面改勾选，同一模型可同时用于图和视频。`);
     } catch (err) {
       setNote(err instanceof Error ? `读取失败：${err.message}` : "读取失败");
     } finally {

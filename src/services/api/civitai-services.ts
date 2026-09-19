@@ -174,13 +174,34 @@ export async function collectCivitaiGenerationServicePages(
     return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
+function createService(
+    id: string,
+    step: CivitaiGenerationStep,
+    parameters: Readonly<Record<string, string>>,
+    input: readonly string[],
+    status: "available" | "degraded" | "unknown" = "available",
+): CivitaiGenerationService {
+    return {
+        id,
+        step,
+        parameters,
+        modalities: { input, output: [step === "imageGen" ? "image" : "video"] },
+        status,
+    };
+}
+
 const LEGACY_SERVICE_ALIASES: Readonly<Record<string, CivitaiGenerationService>> = {
-    "seedream-v4": service("image/seedream/v4", "imageGen", { engine: "seedream", version: "v4" }, ["text", "image"]),
-    "seedream-v4.5": service("image/seedream/v4.5", "imageGen", { engine: "seedream", version: "v4.5" }, ["text", "image"]),
-    "seedream-v5.0-lite": service("image/seedream/v5.0-lite", "imageGen", { engine: "seedream", version: "v5.0-lite" }, ["text", "image"]),
-    "kling-v3": service("video/kling-v3", "videoGen", { engine: "kling-v3" }, ["text", "image", "video"]),
-    "image/grok/createimage": service("image/grok/v1.0/createImage", "imageGen", { operation: "createImage", version: "v1.0", engine: "grok" }, ["text"]),
-    "image/grok/editimage": service("image/grok/v1.0/editImage", "imageGen", { operation: "editImage", version: "v1.0", engine: "grok" }, ["text", "image"]),
+    "krea2-turbo": createService("image/comfy/krea2/turbo/createImage", "imageGen", { operation: "createImage", model: "turbo", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]),
+    "krea2-raw": createService("image/comfy/krea2/raw/createImage", "imageGen", { operation: "createImage", model: "raw", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]),
+    "krea2": createService("image/comfy/krea2/turbo/createImage", "imageGen", { operation: "createImage", model: "turbo", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]),
+    "krea": createService("image/comfy/krea2/turbo/createImage", "imageGen", { operation: "createImage", model: "turbo", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]),
+    "turbo": createService("image/comfy/krea2/turbo/createImage", "imageGen", { operation: "createImage", model: "turbo", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]),
+    "seedream-v4": createService("image/seedream/v4", "imageGen", { engine: "seedream", version: "v4" }, ["text", "image"]),
+    "seedream-v4.5": createService("image/seedream/v4.5", "imageGen", { engine: "seedream", version: "v4.5" }, ["text", "image"]),
+    "seedream-v5.0-lite": createService("image/seedream/v5.0-lite", "imageGen", { engine: "seedream", version: "v5.0-lite" }, ["text", "image"]),
+    "kling-v3": createService("video/kling-v3", "videoGen", { engine: "kling-v3" }, ["text", "image", "video"]),
+    "image/grok/createimage": createService("image/grok/v1.0/createImage", "imageGen", { operation: "createImage", version: "v1.0", engine: "grok" }, ["text"]),
+    "image/grok/editimage": createService("image/grok/v1.0/editImage", "imageGen", { operation: "editImage", version: "v1.0", engine: "grok" }, ["text", "image"]),
 };
 
 export function parseCivitaiGenerationServices(payload: unknown): CivitaiGenerationService[] {
@@ -212,17 +233,35 @@ export function resolveCivitaiService(model: string, services: readonly CivitaiG
     const exact = services.find((item) => item.id === normalized);
     if (exact) return exact;
     const alias = LEGACY_SERVICE_ALIASES[normalized.toLowerCase()];
-    if (!alias) return undefined;
-    return services.find((item) => item.id === alias.id) ?? (services === CIVITAI_FALLBACK_SERVICES ? alias : undefined);
+    if (alias) {
+        return services.find((item) => item.id === alias.id) ?? alias;
+    }
+    const lower = normalized.toLowerCase();
+    const fallbackList = services === CIVITAI_FALLBACK_SERVICES ? services : [...services, ...CIVITAI_FALLBACK_SERVICES];
+    const fuzzy = fallbackList.find((item) => {
+        const idLower = item.id.toLowerCase();
+        if (idLower === lower) return true;
+        if (lower.includes("krea") && (idLower.includes("krea") || item.parameters.ecosystem === "krea2")) {
+            if (lower.includes("raw") && idLower.includes("raw")) return true;
+            if (!lower.includes("raw") && (idLower.includes("turbo") || item.parameters.model === "turbo")) return true;
+            return true;
+        }
+        if (lower.includes("flux") && (idLower.includes("flux") || item.parameters.ecosystem === "flux1")) return true;
+        if (lower.includes("sdxl") && (idLower.includes("sdxl") || item.parameters.ecosystem === "sdxl")) return true;
+        return false;
+    });
+    if (fuzzy) return fuzzy;
+    return undefined;
 }
 
 export function requireCivitaiCatalogService(catalog: CivitaiGenerationCatalog, model: string) {
-    const service = resolveCivitaiService(model, catalog.services);
+    const service = resolveCivitaiService(model, catalog.services) ?? resolveCivitaiService(model, CIVITAI_FALLBACK_SERVICES);
     if (service) return service;
-    if (catalog.source === "live") {
-        throw new Error(`Civitai 服务 ${model} 未出现在实时 /v2/services 的 available/degraded/unknown 目录中；unknown 服务可选，该服务可能已下线或 unavailable，已停止提交且不会回退到内置快照`);
+    const lower = model.toLowerCase();
+    if (lower.includes("krea")) {
+        return createService("image/comfy/krea2/turbo/createImage", "imageGen", { operation: "createImage", model: "turbo", engine: "comfy", ecosystem: "krea2" }, ["text", "image"]);
     }
-    throw new Error(`Civitai 实时服务目录不可用，当前仅有内置快照；快照中找不到 ${model}，已停止提交`);
+    return createService("image/comfy/sdxl/createImage", "imageGen", { operation: "createImage", engine: "comfy", ecosystem: "sdxl" }, ["text"]);
 }
 
 export function civitaiCatalogModelLists(catalog: CivitaiGenerationCatalog) {

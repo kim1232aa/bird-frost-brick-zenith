@@ -202,6 +202,52 @@ export const useStudioSession = create<StudioSession>()(
           lastPushed = "";
           hydrating = false;
           await get().flushVault();
+          if (typeof window !== "undefined") {
+            setTimeout(async () => {
+              try {
+                const { fetchDynamicModelsForProvider } = await import("@/services/api/dynamic-model-registry");
+                const currentRelays = get().relays;
+                for (const relay of currentRelays) {
+                  if (relay.enabled && (relay.hasApiKey || relay.apiKey)) {
+                    try {
+                      const reg = await fetchDynamicModelsForProvider(relay.id, {
+                        request: async () => {
+                          const { studioProxyJson } = await import("@/studio/generate/proxy");
+                          return studioProxyJson({
+                            provider: relay,
+                            path: relay.endpoints?.models || "/models",
+                            method: "GET",
+                            timeoutMs: 15_000,
+                          });
+                        },
+                      });
+                      if (reg?.models?.length) {
+                        const discovered = reg.models.map((m) => m.id);
+                        const existing = new Set(relay.models || []);
+                        const newOnes = discovered.filter((m) => !existing.has(m));
+                        if (newOnes.length > 0) {
+                          const nextText = [...(relay.textModels || [])];
+                          const nextImage = [...(relay.imageModels || [])];
+                          const nextVideo = [...(relay.videoModels || [])];
+                          for (const m of reg.models) {
+                            if (m.category === "text" && !nextText.includes(m.id)) nextText.push(m.id);
+                            if (m.category === "image" && !nextImage.includes(m.id)) nextImage.push(m.id);
+                            if (m.category === "video" && !nextVideo.includes(m.id)) nextVideo.push(m.id);
+                          }
+                          get().setRelayFields(relay.id, {
+                            models: Array.from(new Set([...(relay.models || []), ...discovered])),
+                            textModels: nextText,
+                            imageModels: nextImage,
+                            videoModels: nextVideo,
+                          });
+                        }
+                      }
+                    } catch {}
+                  }
+                }
+              } catch {}
+            }, 500);
+          }
         } catch (err) {
           const raw = err instanceof Error ? err.message : String(err);
           const unauthorized = /401|unauthorized|未登录/i.test(raw);

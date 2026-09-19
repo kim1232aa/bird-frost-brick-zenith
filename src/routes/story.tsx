@@ -1,7 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
-import StoryDirectorPage from "@/pages/story-director-page";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/story")({
   ssr: false,
-  component: StoryDirectorPage,
+  beforeLoad: () => {
+    throw redirect({
+      to: "/canvas/workspace",
+      search: { entry: "story" },
+    });
+  },
 });

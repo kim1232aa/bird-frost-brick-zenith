@@ -274,3 +274,19 @@ test("resolver rejects download URLs and non-LoRA versions", async () => {
     /不是 LoRA/,
   );
 });
+
+test("resolver never presents a direct URL as a Civitai AIR", async () => {
+  const resolver = createCivitaiLoraResolver({
+    request: async () => {
+      throw new Error("direct URLs must not trigger a Civitai lookup");
+    },
+  });
+  await assert.rejects(
+    () => resolver.resolve({
+      kind: "url",
+      value: "https://example.test/style.safetensors",
+      targetModel: "image/sdcpp/sdxl/createImage",
+    }),
+    /Civitai.*AIR|下载 URL|直链.*Fal/i,
+  );
+});

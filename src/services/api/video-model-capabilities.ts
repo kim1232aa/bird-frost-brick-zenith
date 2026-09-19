@@ -1705,7 +1705,9 @@ export function assertConfiguredVideoCapabilityProfileCompatibility(
     const configuredProfile = configuredVideoProfile(provider?.videoCapabilityProfiles, String(model || "").trim());
     if (!configuredProfile) return;
     const compatibility = videoCapabilityProfileCompatibility(provider, configuredProfile);
-    if (!compatibility.compatible) throw new Error(`${compatibility.reason}；已阻止视频请求，未发送 HTTP 请求`);
+    if (!compatibility.compatible) {
+        console.warn(`${compatibility.reason}；尝试继续以当前配置提交视频请求`);
+    }
 }
 
 export function resolveVideoModelCapability(options: { model: string; provider?: VideoCapabilityProvider }): ResolvedVideoModelCapability {

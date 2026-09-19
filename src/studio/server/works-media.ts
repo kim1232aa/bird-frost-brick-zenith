@@ -77,6 +77,35 @@ export async function uploadStudioWorkMedia(
     .split(";", 1)[0]
     .trim()
     .toLowerCase();
+
+  if (mimeType.includes("application/json")) {
+    const body = (await request.json().catch(() => ({}))) as { remoteUrl?: string; kind?: string; index?: number };
+    const remoteUrl = String(body.remoteUrl || "").trim();
+    if (!remoteUrl || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
+      return jsonResponse(400, { ok: false, error: "无效的 remoteUrl" });
+    }
+    const remoteResp = await fetch(remoteUrl);
+    if (!remoteResp.ok) {
+      return jsonResponse(502, { ok: false, error: `下载远程媒体失败：${remoteResp.status}` });
+    }
+    const remoteMime = remoteResp.headers.get("content-type") || "image/jpeg";
+    const bytes = new Uint8Array(await remoteResp.arrayBuffer());
+    const ext = extensionFor(kind || "image", remoteMime);
+    const idFactory = options.idFactory || randomUUID;
+    const filename = `media-${idFactory()}.${ext}`;
+    const directories = options.storageDirs || worksStorageDirs();
+    for (const dir of directories) {
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, filename), bytes);
+    }
+    return jsonResponse(200, {
+      ok: true,
+      url: `/works/${filename}`,
+      filename,
+      bytes: bytes.byteLength,
+      mimeType: remoteMime,
+    });
+  }
   if (!WORK_KINDS.has(kind) || index === undefined || (!MEDIA_TYPES.test(mimeType) && mimeType !== "application/octet-stream")) {
     return jsonResponse(400, { ok: false, error: "作品媒体类型或序号无效" });
   }

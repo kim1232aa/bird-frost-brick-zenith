@@ -66,6 +66,32 @@ test("Fal keeps already-qualified endpoint ids", () => {
   );
 });
 
+test("Fal LoRA endpoints accept direct weight URLs and serialize the official list shape", () => {
+  const planned = planFalImageRequest({
+    model: "fal-ai/flux-lora",
+    prompt: "p",
+    loras: {
+      "https://example.test/style.safetensors": 0.75,
+      "hf://adapter/style": 1,
+    },
+  });
+  assert.equal(planned.path, "/fal-ai/flux-lora");
+  assert.deepEqual(planned.body.loras, [
+    { path: "https://example.test/style.safetensors", scale: 0.75 },
+    { path: "hf://adapter/style", scale: 1 },
+  ]);
+});
+
+test("Fal LoRA endpoints reject references because the official LoRA contracts are text-to-image only", () => {
+  for (const model of ["flux-lora", "flux-2-lora"] as const) {
+    assert.throws(
+      () => planFalImageRequest({ model, prompt: "p", imageUrl: "https://example.test/reference.png" }),
+      /文生图|image_url|edit/,
+      model,
+    );
+  }
+});
+
 test("Fal refuses image_url on a pure text-to-image endpoint", () => {
   // flux-schnell 上游没有 edit/i2i 端点（其余 flux-2/nano-banana/seedream 的 edit
   // 端点 2026-09-14 经 relay 空 body 实测返回 422 = 存在），带参考图必须拒绝而不是静默丢图。

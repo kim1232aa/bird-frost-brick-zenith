@@ -75,6 +75,7 @@ export type XaiImagineVideoRequest = {
   aspect_ratio?: string;
   resolution?: string;
   generateAudio?: boolean;
+  seed?: number;
   fps?: number;
   negative_prompt?: string;
   watermark?: boolean;
@@ -179,6 +180,8 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
   const extras = Array.from(new Set(listed.filter((url) => url !== first)));
 
   if (profile === "relay") {
+    if (typeof input.seed === "number" && Number.isFinite(input.seed)) body.seed = input.seed;
+    if (input.negative_prompt) body.negative_prompt = input.negative_prompt;
     const urls = Array.from(new Set([first, ...extras, last].filter(Boolean)));
     if (urls.length > 1 || extras.length) {
       body.reference_images = urls.map((url) => ({ url }));

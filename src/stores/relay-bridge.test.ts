@@ -70,6 +70,7 @@ test("bridge merge preserves a pending raw key already in base and never deletes
     const merged = mergeRelayProviderLists(base, incoming);
     assert.equal(merged.length, 2);
     const kept = merged.find((item) => item.id === "preset-a");
+    assert.ok(kept);
     assert.equal(kept.apiKey, "sk-pending-1234567890");
     assert.equal(kept.enabled, true);
     assert.ok(merged.find((item) => item.id === "preset-c"));

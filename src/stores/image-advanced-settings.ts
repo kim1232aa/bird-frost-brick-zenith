@@ -297,7 +297,7 @@ export function writeImageAdvancedSettings(
 export function imageAdvancedSettingsToRequest(
     settings: ImageAdvancedSettings,
     capabilities: ImageAdvancedFieldsCapability,
-    context?: { readonly model?: string },
+    context?: { readonly model?: string; readonly provider?: string },
 ): Pick<
     ImageRequestValidationInput,
     "negativePrompt" | "seed" | "steps" | "cfgScale" | "sampler" | "scheduler" | "sequential" | "loras"
@@ -324,10 +324,20 @@ export function imageAdvancedSettingsToRequest(
     if (capabilities.loras.state === "supported" && capabilities.loras.kind === "number-map") {
         const entries = settings.loras || [];
         const loras: Record<string, number> = {};
+        const directPathMode = context?.provider === "fal";
         for (const [index, entry] of entries.entries()) {
             const identity = entry.resource.trim();
             if (!identity) throw new Error(`第 ${index + 1} 个 LoRA 缺少资源 identity；请填写或移除该行`);
             if (!isFiniteNumber(entry.weight)) throw new Error(`第 ${index + 1} 个 LoRA 权重必须是有限数字`);
+            if (directPathMode) {
+                if (!isDirectLoraPath(identity)) throw new Error(`Fal LoRA 必须是公开 https:// 权重 URL 或 hf:// repo；不会把 Civitai ID 猜成下载地址`);
+                if (Object.prototype.hasOwnProperty.call(loras, identity)) throw new Error(`重复的 Fal LoRA 路径：${identity}`);
+                loras[identity] = entry.weight;
+                continue;
+            }
+            if (entry.resourceKind === "url") {
+                throw new Error(`Civitai 不接受 LoRA 直链；请填写官方 model-version AIR，或改用支持 direct URL 的 Fal LoRA endpoint`);
+            }
             const directAir = entry.resourceKind === "air" ? parseCivitaiLoraAir(identity) : undefined;
             const resolved = directAir || (entry.resolvedAir ? parseCivitaiLoraAir(entry.resolvedAir) : undefined);
             if (!resolved) {
@@ -420,7 +430,7 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function isCivitaiLoraResourceKind(value: unknown): value is CivitaiLoraResourceKind {
-    return value === "air" || value === "model-id" || value === "version-id";
+    return value === "air" || value === "model-id" || value === "version-id" || value === "url";
 }
 
 function isResolutionStatus(value: unknown): value is NonNullable<ImageLoraSetting["resolutionStatus"]> {
@@ -451,6 +461,10 @@ function normalizePositiveIntegerString(value: unknown) {
     } catch {
         return "";
     }
+}
+
+function isDirectLoraPath(value: string) {
+    return /^https?:\/\//i.test(value) || /^hf:\/\//i.test(value);
 }
 
 function optionalString(value: unknown) {

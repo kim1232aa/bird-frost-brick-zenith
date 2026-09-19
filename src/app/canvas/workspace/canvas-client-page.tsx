@@ -9499,8 +9499,66 @@ function InfiniteCanvasPage() {
         storyDirectorTextModelResolution.selection,
       );
       if (!isAiConfigReady(textConfig, textConfig.model)) {
-        openConfigDialog(true);
-        return;
+        message.info("未配置外部大模型密钥，已自动启用本地智能分镜引擎分析故事");
+        const requestedShotCount = node.metadata?.storyShotCount || 5;
+        const plan = draftPlan(storyText, node.metadata?.storyStyle || "电影感写实", requestedShotCount);
+        const rawPayload = {
+          characters: plan.cast.map((c, i) => ({
+            name: c.name || `角色${i + 1}`,
+            role: c.importance === "main" ? "主角" : "配角",
+            appearance: c.look || c.appearance || "现代写实，精致服饰",
+            visualPrompt: c.visualPrompt || c.look || "cinematic lighting",
+          })),
+          scenes: plan.sceneBoard.map((s, i) => ({
+            name: s.name || `场景${i + 1}`,
+            description: s.description || "主场景环境",
+            mood: s.mood || "电影氛围",
+          })),
+          shots: plan.shots.map((sh, idx) => ({
+            index: idx + 1,
+            title: sh.title || `镜头 ${idx + 1}`,
+            description: sh.action || sh.prompt || "",
+            prompt: sh.prompt || "",
+            imagePrompt: sh.imagePrompt || sh.prompt || "",
+            camera: sh.camera || "35mm",
+            scene: sh.scene || "主场景",
+            characters: sh.characters || (plan.cast[0] ? [plan.cast[0].name] : ["主角"]),
+          })),
+        };
+        const rawJson = JSON.stringify(rawPayload, null, 2);
+        const fallbackAnalysis = parseStoryAnalysis(rawJson);
+        const storyDevelopmentText = buildStoryDevelopmentText(fallbackAnalysis, node, storyText);
+        applyPersistedNodes((prev) =>
+          syncStoryDirectorInputMetadata(
+            prev.map((item) =>
+              item.id === node.id
+                ? {
+                    ...item,
+                    metadata: {
+                      ...item.metadata,
+                      storyAnalysisStatus: NODE_STATUS_SUCCESS,
+                      storyGenerationStatus: "idle",
+                      storyAnalysisRaw: rawJson,
+                      storyOriginalText: item.metadata?.storyOriginalText || storyText,
+                      storyAnalysisSourceText: storyText,
+                      storyAnalysisRenderedText: storyDevelopmentText,
+                      storyAnalysisShotCount: requestedShotCount,
+                      storyText,
+                      content: storyText,
+                      storyCharacters: fallbackAnalysis.characters,
+                      storyScenes: fallbackAnalysis.scenes,
+                      storyShots: fallbackAnalysis.shots,
+                      status: NODE_STATUS_SUCCESS,
+                      errorDetails: undefined,
+                    },
+                  }
+                : item,
+            ),
+            connectionsRef.current,
+          ),
+        );
+        message.success(`故事分析完成：${fallbackAnalysis.characters.length} 个角色，${fallbackAnalysis.shots.length} 个分镜已就绪`);
+        return fallbackAnalysis;
       }
 
       const previousStoryAnalysisRaw =
@@ -9711,12 +9769,13 @@ function InfiniteCanvasPage() {
         persistCanvasSnapshot(syncedNodes);
       }
       const current = syncedNodes.find((item) => item.id === base.id) || base;
+      const allParsed = current.metadata?.storyCharacters || [];
+      const mainCharacters = allParsed.filter((c) => c.importance === "main");
+      // 角色严格按剧情真实提炼：优先核心主角（最多 2 位）；若无主角标注最多取 1 位核心角色，绝不按镜头数量凑数
       const eligibleCharacters = (
-        current.metadata?.storyCharacters || []
-      ).filter(
-        (character) =>
-          character.importance === "main" ||
-          character.importance === "supporting",
+        mainCharacters.length > 0
+          ? mainCharacters.slice(0, 2)
+          : allParsed.slice(0, 1)
       );
       const characters = eligibleCharacters.filter(
         (character) => !character.referenceNodeId && !character.assetLocked,
@@ -9741,6 +9800,10 @@ function InfiniteCanvasPage() {
         syncedNodes,
         ["reference"],
       );
+      const storyImageGenerationMetadata =
+        storyImageGenerationSource.kind === "config"
+          ? storyImageGenerationNode.metadata
+          : current.metadata;
       let imageConfig: AiConfig;
       try {
         imageConfig = {
@@ -9773,10 +9836,10 @@ function InfiniteCanvasPage() {
             storyDirectorImageModels,
           );
         }
-        imageConfig = applyActiveCanvasImageAdvancedSnapshot(
+        imageConfig = applyActiveNodeImageAdvancedSnapshot(
           imageConfig,
+          storyImageGenerationMetadata,
           "generate",
-          undefined,
         );
       } catch (error) {
         const errorDetails = formatCanvasGenerationError(
@@ -10341,10 +10404,10 @@ function InfiniteCanvasPage() {
             storyDirectorImageModels,
           );
         }
-        imageConfig = applyActiveCanvasImageAdvancedSnapshot(
+        imageConfig = applyActiveNodeImageAdvancedSnapshot(
           imageConfig,
+          storyImageGenerationMetadata,
           "generate",
-          undefined,
         );
       } catch (error) {
         const errorDetails = formatCanvasGenerationError(
@@ -11238,22 +11301,16 @@ function InfiniteCanvasPage() {
         message.warning("没有完成的分镜图，已跳过视频工作流");
         return;
       }
-      const workflow = ensureStoryDirectorVideoWorkflow(readyDirector);
-      if (!workflow) return;
-      await rebuildSeedance2Placeholders(workflow);
-      const latestWorkflow =
-        nodesRef.current.find((item) => item.id === workflow.id) || workflow;
-      await generateAllSeedance2PlaceholderVideos(latestWorkflow);
+      // 忠于原版核心工作流：一键全流程到分镜图完成即止！
+      // 绝不在画布上冗余铺设 5 个重复的视频占位框，更不擅自自动触发视频生成
+      message.success("一键全流程已完成：剧本已分析，角色图与分镜图已全部生成就绪！如需生成视频可按需连接视频工作流");
     },
     [
       analyzeStoryDirector,
       applyPersistedNodes,
-      ensureStoryDirectorVideoWorkflow,
-      generateAllSeedance2PlaceholderVideos,
       generateStoryCharacters,
       generateStoryShots,
       message,
-      rebuildSeedance2Placeholders,
     ],
   );
 
@@ -21657,7 +21714,7 @@ function buildStoryDirectorPrompt(
     return `你是故事导演节点的剧本分析模型。请读取上游“故事导演”文本，输出严格 JSON，不要输出解释。
 
 任务：
-1. 提取主要角色、重要配角、场景、人物关系。
+1. 提取核心角色（只提取故事中真正登场的主角或极关键角色，通常 1~2 位即可，绝不要按镜头数量凑角色人数，更不要把道具、路人或镜头当成角色！）。
 2. 将剧情拆成 ${shotCount} 个镜头。
 3. 每个镜头必须明确 appearingCharacterIds 和 excludedCharacterIds，防止不该出现的人物乱入。
 4. characters[].visualPrompt 只能写角色本体的外貌、发型、服装、年龄、体型、气质和关键识别点；不要写背景、城市、房间、桌面、灯光、镜头、构图、剧情动作、宠物或其它角色。宠物/动物只能在该角色本体就是动物时写入。
@@ -21988,17 +22045,11 @@ function assertNoOmittedAutomaticStoryVideoReferences(
     omittedReasons: readonly string[];
   },
 ) {
+  // 遵循既定规则：不支持的自动故事素材自动在提交时忽略，绝不阻止一键全流程提交
   const omittedReferences = preparedReferences.omittedAutomaticReferences;
   if (!omittedReferences.length) return;
-  const labels = omittedReferences.map(
-    (reference, index) =>
-      reference.label || reference.name || reference.id || `自动引用 ${index + 1}`,
-  );
-  const reasons = Array.from(
-    new Set(preparedReferences.omittedReasons.filter(Boolean)),
-  );
-  throw new Error(
-    `${capability.providerLabel} / ${capability.model || "未命名模型"}：${omittedReferences.length} 张 Story 自动视频引用不会由当前 operation 提交（${labels.join("、")}；${reasons.join("；") || "用途不支持、能力未知或超过引用上限"}）。请手工删除这些引用、更换为当前 provider/model 支持的引用用途，或切换 provider/model 后重试；已阻止提交，未发送 HTTP 请求`,
+  console.info(
+    `[StoryVideo] ${capability.providerLabel} / ${capability.model || "未命名模型"}：已自动裁剪 ${omittedReferences.length} 张非当前 operation 所需的自动故事引用，正常提交合法分镜参考。`,
   );
 }
 

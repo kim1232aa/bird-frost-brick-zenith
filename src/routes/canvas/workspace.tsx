@@ -14,6 +14,7 @@ export const Route = createFileRoute("/canvas/workspace")({
     prompt?: string;
     title?: string;
     model?: string;
+    entry?: "story";
   } => {
     const id = typeof search.id === "string" && search.id.length > 0 ? search.id : undefined;
     const kind =
@@ -24,7 +25,8 @@ export const Route = createFileRoute("/canvas/workspace")({
     const prompt = typeof search.prompt === "string" && search.prompt.trim() ? search.prompt : undefined;
     const title = typeof search.title === "string" && search.title.trim() ? search.title : undefined;
     const model = typeof search.model === "string" && search.model.trim() ? search.model : undefined;
-    return { id, kind, src, prompt, title, model };
+    const entry = search.entry === "story" ? "story" : undefined;
+    return { id, kind, src, prompt, title, model, entry };
   },
   component: CanvasWorkspaceRoute,
 });

@@ -70,6 +70,18 @@ test("fal flux-dev edit takes exactly one reference (image_url), flux-2 edit tak
   }
 });
 
+test("fal LoRA models expose the documented text-to-image LoRA field and no unverified edit contract", () => {
+  for (const [model, profileId] of [["flux-lora", "fal-flux-lora-generate"], ["flux-2-lora", "fal-flux2-lora-generate"]] as const) {
+    const generate = resolveImageModelCapability({ model, operation: "generate", provider: fal });
+    assert.equal(generate.id, profileId, model);
+    assert.equal(generate.availability.state, "supported", model);
+    assert.equal(generate.advancedFields.loras.state, "supported", model);
+    assert.equal(generate.advancedFields.loras.kind, "number-map", model);
+    const edit = resolveImageModelCapability({ model, operation: "edit", provider: fal });
+    assert.equal(edit.availability.state, "unsupported", model);
+  }
+});
+
 test("fal adapterType is recognized from explicit adapter and fal.run host", async () => {
   const mod = await import("./image-model-capabilities.ts");
   assert.equal(mod.nativeImageAdapterType({ adapterType: "fal" }), "fal");

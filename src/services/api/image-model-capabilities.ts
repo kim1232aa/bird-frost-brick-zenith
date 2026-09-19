@@ -331,8 +331,10 @@ export type ImageCapabilityProfileId =
     | "fal-flux-dev-generate"
     | "fal-flux-dev-edit"
     | "fal-flux-schnell-generate"
+    | "fal-flux-lora-generate"
     | "fal-flux2-generate"
     | "fal-flux2-edit"
+    | "fal-flux2-lora-generate"
     | "fal-banana-generate"
     | "fal-banana-edit"
     | "fal-seedream-generate"
@@ -744,6 +746,16 @@ const OPENAI_EDIT_SERIALIZATION = serialization({
 });
 
 export const FAL_MODEL_DOCS = evidence("official-doc", "https://docs.fal.ai/model-endpoints", `fal model endpoint docs, checked ${VERIFIED_AT}`);
+const FAL_FLUX_LORA_DOCS = evidence(
+    "official-doc",
+    "https://fal.ai/models/fal-ai/flux-lora/llms.txt",
+    "官方 FLUX.1 LoRA endpoint：text-to-image，loras 为 list<LoraWeight>，num_inference_steps 1–50，guidance_scale 0–35",
+);
+const FAL_FLUX2_LORA_DOCS = evidence(
+    "official-doc",
+    "https://fal.ai/models/fal-ai/flux-2/lora/llms.txt",
+    "官方 FLUX.2 LoRA endpoint：text-to-image，loras 最多 3 个，num_inference_steps 4–50，guidance_scale 0–20",
+);
 const FAL_EDIT_PROBE = evidence(
     "live-api",
     "https://fal.run",
@@ -771,6 +783,20 @@ const FAL_FLUX1_ADVANCED: ImageAdvancedFieldsCapability = {
 const FAL_FLUX1_SCHNELL_ADVANCED: ImageAdvancedFieldsCapability = {
     ...FAL_SEED_ONLY,
     steps: { state: "supported", kind: "number", wireName: "num_inference_steps", min: 1, integer: true },
+};
+
+const FAL_FLUX_LORA_ADVANCED: ImageAdvancedFieldsCapability = {
+    ...FAL_SEED_ONLY,
+    steps: { state: "supported", kind: "number", wireName: "num_inference_steps", min: 1, max: 50, integer: true },
+    cfgScale: { state: "supported", kind: "number", wireName: "guidance_scale", min: 0, max: 35 },
+    loras: { state: "supported", kind: "number-map", wireName: "loras", note: "官方 list<LoraWeight>；identity 必须是公开权重 URL 或 provider 支持的路径" },
+};
+
+const FAL_FLUX2_LORA_ADVANCED: ImageAdvancedFieldsCapability = {
+    ...FAL_SEED_ONLY,
+    steps: { state: "supported", kind: "number", wireName: "num_inference_steps", min: 4, max: 50, integer: true },
+    cfgScale: { state: "supported", kind: "number", wireName: "guidance_scale", min: 0, max: 20 },
+    loras: { state: "supported", kind: "number-map", wireName: "loras", max: 3, note: "官方最多 3 个 LoRA；identity 可为 URL、HuggingFace repo 或 local path" },
 };
 
 function falProfile<O extends "generate" | "edit">(
@@ -1275,6 +1301,11 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         label: "Fal FLUX.1 schnell generation",
         advancedFields: FAL_FLUX1_SCHNELL_ADVANCED,
     }),
+    "fal-flux-lora-generate": falProfile("fal-flux-lora-generate", "generate", {
+        label: "Fal FLUX.1 LoRA generation",
+        advancedFields: FAL_FLUX_LORA_ADVANCED,
+        evidenceNote: [FAL_FLUX_LORA_DOCS],
+    }),
     "fal-flux2-generate": falProfile("fal-flux2-generate", "generate", {
         label: "Fal FLUX.2 generation",
         advancedFields: FAL_SEED_ONLY,
@@ -1285,6 +1316,11 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         referenceField: "image_urls[]",
         advancedFields: FAL_SEED_ONLY,
         evidenceNote: [FAL_EDIT_PROBE],
+    }),
+    "fal-flux2-lora-generate": falProfile("fal-flux2-lora-generate", "generate", {
+        label: "Fal FLUX.2 LoRA generation",
+        advancedFields: FAL_FLUX2_LORA_ADVANCED,
+        evidenceNote: [FAL_FLUX2_LORA_DOCS],
     }),
     "fal-banana-generate": falProfile("fal-banana-generate", "generate", {
         label: "Fal nano-banana generation",
@@ -1712,16 +1748,28 @@ function resolveFal(model: string, operation: ImageOperation, provider?: ImageCa
         ? "banana"
         : /seedream/.test(key)
           ? "seedream"
-          : /flux[-/]?2/.test(key)
-            ? "flux2"
-            : /schnell/.test(key)
-              ? "schnell"
-              : /flux[-/](?:dev|pro)\b|^flux-dev$|^flux-pro$/.test(key)
-                ? "flux1"
-                : "";
+          : /flux[-/]?2[-/]?lora/.test(key)
+            ? "flux2-lora"
+            : /flux[-/]lora/.test(key)
+              ? "flux1-lora"
+              : /flux[-/]?2/.test(key)
+                ? "flux2"
+                : /schnell/.test(key)
+                  ? "schnell"
+                  : /flux[-/](?:dev|pro)\b|^flux-dev$|^flux-pro$/.test(key)
+                    ? "flux1"
+                    : "";
     if (!family) return unknownNativeResolved(operation, model, provider, "Fal 图片模型合同未识别");
     if (operation !== "generate" && operation !== "edit") {
         return unsupportedResolved(operation, model, provider, "Fal 图片适配器当前只验证了 generate 与 edit");
+    }
+    if (family === "flux1-lora") {
+        if (operation === "edit") return unsupportedResolved(operation, model, provider, "Fal FLUX.1 LoRA 官方 endpoint 仅发布了 text-to-image；未猜测 image-to-image");
+        return resolvedProfile("fal-flux-lora-generate", model, provider, false, "Fal FLUX.1 LoRA model ID");
+    }
+    if (family === "flux2-lora") {
+        if (operation === "edit") return unsupportedResolved(operation, model, provider, "Fal FLUX.2 LoRA 官方 endpoint 仅发布了 text-to-image；未猜测 image-to-image");
+        return resolvedProfile("fal-flux2-lora-generate", model, provider, false, "Fal FLUX.2 LoRA model ID");
     }
     if (family === "schnell") {
         if (operation === "edit") return unsupportedResolved(operation, model, provider, "fal 没有 flux-schnell 的编辑/图生图端点；flux-dev 起才提供 image-to-image");
@@ -2656,7 +2704,18 @@ function resolvedCivitaiServiceProfile(
 // Single source of truth: engines whose createImage schema also accepts an
 // optional images[] array. Duplicating this list in civitai-orchestration.ts
 // let the two sides drift, so both now read this export.
-export const CIVITAI_OPTIONAL_IMAGE_ENGINES = ["seedream", "google", "flux1-kontext"] as const;
+export const CIVITAI_OPTIONAL_IMAGE_ENGINES = [
+    "seedream",
+    "google",
+    "flux1-kontext",
+    "krea2",
+    "krea",
+    "comfy",
+    "flux1",
+    "flux2",
+    "sdxl",
+    "sd1",
+] as const;
 
 export function civitaiEngineAcceptsOptionalImages(engine: string) {
     const normalized = String(engine || "").trim().toLowerCase();
@@ -2851,7 +2910,7 @@ function validateReferenceCount(
     addWarning: IssueAdder,
 ) {
     if (capability.state === "unsupported") {
-        if (count > 0) addError("references_unsupported", "referenceCount", `${subject}：${capability.reason}；不会忽略已连接图片`);
+        if (count > 0) addWarning("references_unsupported", "referenceCount", `${subject}：${capability.reason}；已将参考意图保留`);
         return;
     }
     if (capability.state === "unknown") {

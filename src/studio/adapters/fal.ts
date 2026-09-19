@@ -10,6 +10,8 @@ const FAL_T2I: Record<string, string> = {
   "flux-2-pro": "fal-ai/flux-2-pro",
   "flux-2-flex": "fal-ai/flux-2-flex",
   "flux-2-flash": "fal-ai/flux-2/flash",
+  "flux-lora": "fal-ai/flux-lora",
+  "flux-2-lora": "fal-ai/flux-2/lora",
   "nano-banana": "fal-ai/nano-banana",
   "nano-banana-pro": "fal-ai/nano-banana-pro",
   "seedream-4.5": "fal-ai/bytedance/seedream/v4.5/text-to-image",
@@ -74,12 +76,15 @@ type FalParamProfile = {
   kind: "flux1" | "flux2" | "banana" | "seedream" | "generic";
   guidance?: boolean;
   steps?: boolean;
+  loras?: boolean;
 };
 
 function falParamProfile(endpoint: string): FalParamProfile {
   if (/nano-banana/i.test(endpoint)) return { kind: "banana" };
+  if (/flux-2\/lora/i.test(endpoint)) return { kind: "flux2", steps: true, guidance: true, loras: true };
   if (/flux-2/i.test(endpoint)) return { kind: "flux2" };
   if (/flux\/schnell/i.test(endpoint)) return { kind: "flux1", steps: true };
+  if (/flux-lora/i.test(endpoint)) return { kind: "flux1", steps: true, guidance: true, loras: true };
   if (/flux/i.test(endpoint)) return { kind: "flux1", steps: true, guidance: true };
   if (/seedream/i.test(endpoint)) return { kind: "seedream" };
   return { kind: "generic" };
@@ -98,7 +103,7 @@ const FAL_BANANA_RESOLUTION_TIERS = new Set(["1k", "2k", "4k"]);
 export function planFalImageRequest(
   input: Pick<
     ImageGenInput,
-    "model" | "prompt" | "n" | "imageUrl" | "imageUrls" | "strength" | "size" | "aspectRatio" | "seed" | "steps" | "guidance"
+    "model" | "prompt" | "n" | "imageUrl" | "imageUrls" | "strength" | "size" | "aspectRatio" | "seed" | "steps" | "guidance" | "loras"
   >,
 ) {
   const refs = collectImageRefs(input);
@@ -122,7 +127,18 @@ export function planFalImageRequest(
     const pixels = falImageSizePixels(input.size, input.aspectRatio);
     if (pixels) body.image_size = pixels;
   }
-  if (typeof input.seed === "number" && Number.isFinite(input.seed)) body.seed = input.seed;
+  if (typeof input.seed === "number" && Number.isFinite(input.seed) && input.seed >= 0) body.seed = input.seed;
+  if (input.loras && typeof input.loras === "object" && Object.keys(input.loras).length > 0) {
+    if (!profile.loras) throw new Error(`Fal 端点 ${endpoint} 未验证 LoRA 参数；请改用 fal-ai/flux-lora 或 fal-ai/flux-2/lora`);
+    const loraEntries = Object.entries(input.loras)
+      .map(([loraPath, scale]) => {
+        const path = String(loraPath).trim();
+        if (!path) throw new Error("Fal LoRA 缺少 path");
+        if (typeof scale !== "number" || !Number.isFinite(scale)) throw new Error(`Fal LoRA ${path} 的 scale 必须是有限数字`);
+        return { path, scale };
+      });
+    body.loras = loraEntries;
+  }
   if (profile.steps && typeof input.steps === "number" && Number.isFinite(input.steps)) {
     body.num_inference_steps = input.steps;
   }
@@ -203,6 +219,7 @@ const FAL_VIDEO_PROFILES: Record<string, FalVideoProfile> = {
     audio: true,
     negativePrompt: true,
     cfgScale: true,
+    seed: true,
   },
   "kling-3-standard": {
     base: "fal-ai/kling-video/v3/standard",
@@ -213,18 +230,21 @@ const FAL_VIDEO_PROFILES: Record<string, FalVideoProfile> = {
     audio: true,
     negativePrompt: true,
     cfgScale: true,
+    seed: true,
   },
   "kling-3-turbo": {
     base: "fal-ai/kling-video/v3/turbo/standard",
     firstFrameField: "image_url",
     durationKind: "kling",
     aspectValues: ["16:9", "9:16", "1:1"],
+    seed: true,
   },
   "kling-3-turbo-pro": {
     base: "fal-ai/kling-video/v3/turbo/pro",
     firstFrameField: "image_url",
     durationKind: "kling",
     aspectValues: ["16:9", "9:16", "1:1"],
+    seed: true,
   },
   "hailuo-2.3": {
     base: "fal-ai/minimax/hailuo-2.3/pro",

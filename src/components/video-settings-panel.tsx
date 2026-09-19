@@ -256,17 +256,30 @@ function VideoParameterEditor({ field, value, settings, theme, onChange }: { fie
     if (field.valueType === "integer" || field.valueType === "number") {
         return (
             <ParameterShell field={field} theme={theme}>
-                <input
-                    type="number"
-                    min={field.minimum}
-                    max={field.maximum}
-                    step={field.valueType === "integer" || field.integer ? 1 : "any"}
-                    className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
-                    style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                    value={typeof value === "number" ? value : ""}
-                    placeholder={field.defaultValue === undefined ? "使用 provider 默认" : String(field.defaultValue)}
-                    onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
-                />
+                <div className="flex items-center gap-1.5">
+                    <input
+                        type="number"
+                        min={field.minimum}
+                        max={field.maximum}
+                        step={field.valueType === "integer" || field.integer ? 1 : "any"}
+                        className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none"
+                        style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                        value={typeof value === "number" ? value : ""}
+                        placeholder={field.defaultValue === undefined ? "使用 provider 默认" : String(field.defaultValue)}
+                        onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
+                    />
+                    {field.name === "seed" ? (
+                        <button
+                            type="button"
+                            title="生成随机 Seed"
+                            className="grid size-9 shrink-0 place-items-center rounded-xl border text-sm hover:opacity-80 active:scale-95 transition-all"
+                            style={{ borderColor: theme.node.stroke, color: theme.node.text }}
+                            onClick={() => onChange(Math.floor(Math.random() * 2147483647))}
+                        >
+                            🎲
+                        </button>
+                    ) : null}
+                </div>
             </ParameterShell>
         );
     }

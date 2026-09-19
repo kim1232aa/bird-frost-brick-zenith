@@ -47,7 +47,10 @@ function normalizeXaiImagineResolution(value: unknown) {
 
 function normalizeXaiImagineQuality(value: unknown) {
   const quality = String(value || "").trim().toLowerCase();
-  return quality === "low" || quality === "medium" ? quality : "";
+  if (["low", "medium", "high", "standard", "quality", "hd"].includes(quality)) {
+    return quality;
+  }
+  return "";
 }
 
 export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, unknown> {
@@ -64,7 +67,7 @@ export function buildXaiImagineImageBody(input: ImageGenInput): Record<string, u
     // quality 仅 grok-imagine-image-2.0 支持。
     const aspectRatio = normalizeXaiImagineAspectRatio(input.aspectRatio);
     const resolution = normalizeXaiImagineResolution(input.size);
-    const quality = isImage2 ? normalizeXaiImagineQuality(input.quality) : "";
+    const quality = normalizeXaiImagineQuality(input.quality);
     if (aspectRatio) body.aspect_ratio = aspectRatio;
     if (resolution) body.resolution = resolution;
     if (quality) body.quality = quality;

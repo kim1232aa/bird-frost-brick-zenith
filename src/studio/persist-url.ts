@@ -38,17 +38,30 @@ function uploadMimeType(blob: Blob, kind: string) {
 }
 
 async function uploadLocalMedia(url: string, options: PersistUrlOptions) {
-  const blob = await fetchBlob(url);
-  const contentType = uploadMimeType(blob, options.kind.trim().toLowerCase());
-  const response = await fetch("/client-api/upload-work-media", {
-    method: "POST",
-    headers: {
-      "Content-Type": contentType,
-      "X-Work-Kind": options.kind,
-      "X-Work-Index": String(options.index),
-    },
-    body: blob,
-  });
+  let response: Response;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    response = await fetch("/client-api/upload-work-media", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Work-Kind": options.kind,
+        "X-Work-Index": String(options.index),
+      },
+      body: JSON.stringify({ remoteUrl: url }),
+    });
+  } else {
+    const blob = await fetchBlob(url);
+    const contentType = uploadMimeType(blob, options.kind.trim().toLowerCase());
+    response = await fetch("/client-api/upload-work-media", {
+      method: "POST",
+      headers: {
+        "Content-Type": contentType,
+        "X-Work-Kind": options.kind,
+        "X-Work-Index": String(options.index),
+      },
+      body: blob,
+    });
+  }
   let payload: { ok?: boolean; url?: string; error?: string } = {};
   try {
     payload = await response.json() as typeof payload;
@@ -64,11 +77,16 @@ async function uploadLocalMedia(url: string, options: PersistUrlOptions) {
 /** Persist generated local media as a served /works URL; remote URLs stay untouched. */
 export async function persistUrl(url: string, options?: PersistUrlOptions) {
   if (!url) return url;
-  if (options && (url.startsWith("blob:") || url.startsWith("data:"))) {
-    return uploadLocalMedia(url, options);
+  if (url.startsWith("/works/") || url.startsWith("/gallery/")) return url;
+  if (options && (url.startsWith("blob:") || url.startsWith("data:") || url.startsWith("http:") || url.startsWith("https:"))) {
+    try {
+      const persisted = await uploadLocalMedia(url, options);
+      if (persisted) return persisted;
+    } catch {
+      // Fallback to original url if download fails
+    }
   }
   if (url.startsWith("data:")) return url;
-  if (url.startsWith("/works/") || url.startsWith("/gallery/")) return url;
   if (url.startsWith("blob:")) return toDataUrl(url);
   return url;
 }

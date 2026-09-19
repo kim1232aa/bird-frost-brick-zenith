@@ -11,7 +11,7 @@ import { useStudioHistory } from "@/studio/history";
 import { filesToDataUrls } from "@/studio/image-refs";
 import { useMediaDraft } from "@/studio/media-draft";
 import { useMembershipStore } from "@/studio/membership";
-import { liveCatalog, liveCard, modelPoints, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
+import { liveCard, modelPoints, selectableCatalog, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
 import { preferredTextKey, preferredVideoKey, StudioModelField } from "@/studio/model-select";
 import { VIDEO_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
@@ -152,9 +152,8 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
     if (next) setSelection(next);
   }, []);
 
-  const models = liveCatalog("video", true);
-  // 选择器显示与逻辑取值必须是同一个：selection 失效（如 URL 带错 key）时纠偏到第一个已接线模型，
-  // 与生图页一致；否则选择器显示 A、生成却按 B 判断接线状态。
+  const models = selectableCatalog("video");
+  // 选择器和生成状态使用同一模型池；没有可运行 provider 时仍展示模板，提交前由 selectedLive 拦截未接线模型。
   useEffect(() => {
     if (!models.length) return;
     if (!models.some((item) => catalogKey(item) === selection)) {

@@ -1,4 +1,5 @@
-import type { StudioAdapter } from "./types";
+import type { ImageGenInput, StudioAdapter } from "./types";
+import { translateLorasForProvider, type UniversalLoraItem } from "@/services/api/universal-lora-adapter";
 import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
 import { imageRefs } from "@/studio/image-refs";
 
@@ -45,6 +46,44 @@ function modelscopeImageSize(size?: string, aspectRatio?: string) {
   return "1664x928";
 }
 
+type ModelScopeImagePlanInput = Pick<
+  ImageGenInput,
+  "model" | "prompt" | "size" | "aspectRatio" | "negativePrompt" | "seed" | "steps" | "guidance" | "n" | "imageUrl" | "imageUrls" | "operation" | "loras"
+>;
+
+export function planModelScopeImageRequest(input: ModelScopeImagePlanInput) {
+  const refs = imageRefs(input);
+  const editing = input.operation === "edit" || /qwen-image-edit/i.test(input.model);
+  if (editing && !refs.length) throw new Error("Qwen-Image-Edit 需要至少一张参考图");
+  const body: Record<string, unknown> = {
+    model: input.model,
+    prompt: input.prompt,
+    n: input.n || 1,
+    size: modelscopeImageSize(input.size, input.aspectRatio),
+    ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+    // API-Inference 参数表支持 seed(0~2^31-1) / steps(1-100) / guidance(1.5-20)
+    ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
+    ...(typeof input.steps === "number" && Number.isFinite(input.steps) ? { steps: input.steps } : {}),
+    ...(typeof input.guidance === "number" && Number.isFinite(input.guidance) ? { guidance: input.guidance } : {}),
+  };
+  if (input.loras && Object.keys(input.loras).length) {
+    const loraItems: UniversalLoraItem[] = Object.entries(input.loras).map(([path, scale]) => ({ id: path, path, scale }));
+    body.loras = translateLorasForProvider(loraItems, "modelscope", { model: input.model });
+  }
+  if (refs.length === 1) {
+    body.image_url = refs[0];
+    body.image = refs[0];
+  } else if (refs.length > 1) {
+    body.image = refs;
+    body.images = refs;
+  }
+  return {
+    path: "/images/generations",
+    extraHeaders: { "X-ModelScope-Async-Mode": "true" },
+    body,
+  };
+}
+
 function taskIdOf(data: Record<string, unknown>) {
   return String(data.task_id || data.taskId || (data.data as { task_id?: string } | undefined)?.task_id || "").trim();
 }
@@ -86,33 +125,13 @@ export const modelscopeAdapter: StudioAdapter = {
   docs: "https://www.modelscope.ai/docs/model-service/API-Inference/intro",
   async generateImage(ctx, input) {
     const baseUrl = modelscopeBase(ctx.provider.baseUrl);
-    const refs = imageRefs(input);
-    const editing = input.operation === "edit" || /qwen-image-edit/i.test(input.model);
-    if (editing && !refs.length) throw new Error("Qwen-Image-Edit 需要至少一张参考图");
-    const body: Record<string, unknown> = {
-      model: input.model,
-      prompt: input.prompt,
-      n: input.n || 1,
-      size: modelscopeImageSize(input.size, input.aspectRatio),
-      ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
-      // API-Inference 参数表支持 seed(0~2^31-1) / steps(1-100) / guidance(1.5-20)
-      ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
-      ...(typeof input.steps === "number" && Number.isFinite(input.steps) ? { steps: input.steps } : {}),
-      ...(typeof input.guidance === "number" && Number.isFinite(input.guidance) ? { guidance: input.guidance } : {}),
-    };
-    if (refs.length === 1) {
-      body.image_url = refs[0];
-      body.image = refs[0];
-    } else if (refs.length > 1) {
-      body.image = refs;
-      body.images = refs;
-    }
+    const planned = planModelScopeImageRequest(input);
     const data = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
       baseUrl,
-      path: "/images/generations",
-      extraHeaders: { "X-ModelScope-Async-Mode": "true" },
-      body,
+      path: planned.path,
+      extraHeaders: planned.extraHeaders,
+      body: planned.body,
       timeoutMs: 60_000,
     });
     const id = taskIdOf(data);

@@ -32,6 +32,7 @@ const FAMILY_IMAGE_OPERATIONS: Record<ImageProviderFamily, readonly CanvasImageO
   sensenova: ["generate"],
   "sensenova-miaohua": ["generate", "edit"],
   civitai: ["generate", "edit", "variation"],
+  fal: ["generate", "edit"],
   custom: ["generate", "edit"],
 };
 

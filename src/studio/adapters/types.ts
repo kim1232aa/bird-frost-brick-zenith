@@ -42,10 +42,21 @@ export type ImageGenInput = {
   steps?: number;
   /** Guidance / CFG for engines that accept it (fal flux-dev 映射为 guidance_scale)。 */
   guidance?: number;
+  /** Provider-published sampler name, when the selected image contract accepts one. */
+  sampler?: string;
+  /** Provider-published scheduler name, when the selected image contract accepts one. */
+  scheduler?: string;
   /** DashScope qwen-image/wanx：水印开关；不传用上游默认。 */
   watermark?: boolean;
   /** DashScope qwen-image/wanx：prompt_extend 智能改写；不传用上游默认。 */
   promptExpansion?: boolean;
+  cfgScale?: number;
+  denoise?: number;
+  engine?: string;
+  comfy?: string;
+  advanced?: Record<string, unknown>;
+  extraParams?: Record<string, unknown>;
+  [key: string]: unknown;
 };
 
 export type ImageGenResult = {

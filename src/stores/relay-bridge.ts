@@ -18,22 +18,27 @@ export type RelayBridgeSource = "session" | "config";
 type RelayBridgeListener = (relays: ApiRelayProvider[], source: RelayBridgeSource) => void;
 
 let pushing = false;
-const listeners = new Set<RelayBridgeListener>();
+let listeners: Set<RelayBridgeListener> | undefined;
+
+function getListeners() {
+    if (!listeners) listeners = new Set<RelayBridgeListener>();
+    return listeners;
+}
 
 export function publishRelayProviders(relays: ApiRelayProvider[], source: RelayBridgeSource) {
     if (pushing) return;
     pushing = true;
     try {
-        for (const listener of listeners) listener(relays, source);
+        for (const listener of getListeners()) listener(relays, source);
     } finally {
         pushing = false;
     }
 }
 
 export function subscribeRelayProviders(listener: RelayBridgeListener) {
-    listeners.add(listener);
+    getListeners().add(listener);
     return () => {
-        listeners.delete(listener);
+        getListeners().delete(listener);
     };
 }
 

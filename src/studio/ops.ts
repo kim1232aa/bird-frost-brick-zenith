@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createId } from "@/lib/create-id";
-import { providerCanRunCapability } from "@/stores/api-relay-config";
+import { modelBelongsToProvider, providerCanRunCapability } from "@/stores/api-relay-config";
 import { catalogKey, cardsFromRelays, STUDIO_CATALOG, type ModelCard } from "./catalog";
 import { useStudioSession } from "./session";
 
@@ -145,7 +145,8 @@ export function liveCard(card: ModelCard): ModelCard {
   const relays = useStudioSession.getState().relays;
   const key = catalogKey(card);
   const relay = relays.find((item) => item.id === card.providerId);
-  const wired = Boolean(relay && providerCanRunCapability(relay, card.kind));
+  const modelListed = Boolean(relay && modelBelongsToProvider(relay, card.kind, card.model));
+  const wired = Boolean(relay && modelListed && providerCanRunCapability(relay, card.kind));
   const points = ops.points[key] ?? defaultPoints(card);
   return {
     ...card,
@@ -158,7 +159,7 @@ export function liveCatalog(kind?: ModelCard["kind"], generate = false) {
   const ops = useOpsStore.getState();
   const relays = useStudioSession.getState().relays;
   const cards = cardsFromRelays(relays);
-  const source = cards.length ? cards : STUDIO_CATALOG;
+  const source = cards.length && (!kind || cards.some((item) => item.kind === kind)) ? cards : STUDIO_CATALOG;
   return source.filter((item) => {
     if (kind && item.kind !== kind) return false;
     if (ops.unlisted[catalogKey(item)]) return false;
@@ -166,6 +167,11 @@ export function liveCatalog(kind?: ModelCard["kind"], generate = false) {
     if (generate && !card.wired) return false;
     return true;
   }).map(liveCard);
+}
+
+export function selectableCatalog(kind: ModelCard["kind"]) {
+  const wired = liveCatalog(kind, true);
+  return wired.length ? wired : liveCatalog(kind, false);
 }
 
 export function modelPoints(value: string) {

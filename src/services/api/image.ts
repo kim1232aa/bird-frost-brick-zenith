@@ -89,6 +89,13 @@ export type ImageAdvancedOptions = {
     outputCompression?: number;
     partialImages?: number;
     responseFormat?: "url" | "b64_json";
+    denoise?: number;
+    engine?: string;
+    comfy?: string;
+    width?: number;
+    height?: number;
+    guidanceScale?: number;
+    [key: string]: unknown;
 };
 
 export type ImageGenerationOptions = ImageAdvancedOptions & {
@@ -649,7 +656,7 @@ function resolveImageAdvancedOptions(
             ...imageAdvancedSettingsToRequest(
               scopedSettings,
               capability.advancedFields,
-              { model: route.model },
+              { model: route.model, provider: capability.provider },
             ),
             ...(capability.outputFormat.state === "supported"
                 && capability.outputFormat.requestable !== false
@@ -1323,7 +1330,14 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
             n: context.providerOutputCount,
             loras: context.advanced.loras,
             negativePrompt: context.advanced.negativePrompt,
-            seed: typeof context.advanced.seed === "number" ? context.advanced.seed : undefined,
+            seed: typeof context.advanced.seed === "number" && Number.isFinite(context.advanced.seed) ? context.advanced.seed : undefined,
+            steps: context.advanced.steps,
+            guidance: context.advanced.cfgScale,
+            sampler: context.advanced.sampler,
+            scheduler: context.advanced.scheduler,
+            strength: context.advanced.strength,
+            checkpointAir: context.advanced.checkpointAir,
+            maskUrl: context.mask?.dataUrl || context.mask?.url,
             workTitle: `画布 · ${context.prompt.slice(0, 32)}`,
         });
         return parseImagePayload({ data: (result.urls.length ? result.urls : [result.url]).map((url) => ({ url })) });

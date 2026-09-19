@@ -36,6 +36,10 @@ type Extra = {
   sampler?: string;
   scheduler?: string;
   usePro?: boolean;
+  cfgScale?: number;
+  denoise?: number;
+  engine?: string;
+  comfy?: string;
 };
 
 export type CivitaiImagePlanInput = ImageGenInput & {
@@ -43,6 +47,12 @@ export type CivitaiImagePlanInput = ImageGenInput & {
   whatif?: boolean;
   quantity?: number;
   allowMatureContent?: boolean;
+  cfgScale?: number;
+  sampler?: string;
+  scheduler?: string;
+  denoise?: number;
+  comfy?: string;
+  engine?: string;
 };
 
 export type CivitaiVideoPlanInput = VideoCreateInput & {
@@ -188,8 +198,18 @@ function flux2Body(model: "klein" | "pro" | "dev", prompt: string, extra?: Extra
  */
 function krea2Body(model: "turbo" | "raw", prompt: string, extra?: Extra) {
   const refs = extraRefs(extra);
+  const commonParams = {
+    ...(typeof extra?.steps === "number" ? { steps: extra.steps } : {}),
+    ...(typeof extra?.cfgScale === "number" ? { cfgScale: extra.cfgScale } : {}),
+    ...(typeof extra?.guidance === "number" ? { cfgScale: extra.guidance } : {}),
+    ...(extra?.sampler ? { sampler: extra.sampler } : {}),
+    ...(extra?.scheduler ? { scheduler: extra.scheduler } : {}),
+    ...(typeof extra?.denoise === "number" ? { denoise: extra.denoise } : {}),
+    ...(extra?.comfy ? { comfy: extra.comfy } : {}),
+  };
   if (refs.length) {
-    const editRefs = extraRefs(extra, 2);
+    if (refs.length > 2) throw new Error(`krea2-${model} 最多支持 2 张参考图`);
+    const editRefs = refs.slice(0, 2);
     return {
       engine: "comfy",
       ecosystem: "krea2",
@@ -202,6 +222,7 @@ function krea2Body(model: "turbo" | "raw", prompt: string, extra?: Extra) {
       ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
       ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
       images: editRefs,
+      ...commonParams,
       ...loraMapPatch(extra),
     };
   }
@@ -217,6 +238,7 @@ function krea2Body(model: "turbo" | "raw", prompt: string, extra?: Extra) {
     ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
     ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
     imageMetadata: JSON.stringify({ app: "boundless-studio", engine: `krea2-${model}` }),
+    ...commonParams,
     ...loraMapPatch(extra),
   };
 }
@@ -869,6 +891,14 @@ function imageExtra(input: CivitaiImagePlanInput): Extra {
     checkpointAir: input.checkpointAir,
     aspectRatio: input.aspectRatio,
     strength: input.strength,
+    steps: input.steps,
+    guidance: input.guidance,
+    cfgScale: input.cfgScale ?? input.guidance,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
+    denoise: input.denoise,
+    engine: input.engine,
+    comfy: input.comfy,
   };
 }
 

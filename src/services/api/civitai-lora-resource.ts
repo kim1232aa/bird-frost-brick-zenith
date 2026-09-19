@@ -1,4 +1,4 @@
-export type CivitaiLoraResourceKind = "air" | "model-id" | "version-id";
+export type CivitaiLoraResourceKind = "air" | "model-id" | "version-id" | "url";
 
 export type CivitaiLoraCompatibilityTarget = {
     readonly label: string;
@@ -241,6 +241,9 @@ export function createCivitaiLoraResolver(options: CivitaiLoraResolverOptions = 
     const resolve = async (input: CivitaiLoraResolveInput): Promise<CivitaiLoraResolution> => {
         const value = String(input.value || "").trim();
         if (!value) throw new Error("请填写 Civitai LoRA AIR、模型 ID 或版本 ID");
+        if (input.kind === "url") {
+            throw new Error("Civitai 官方只接受完整 model-version AIR；直链或 hf:// 不能确定性转换为 AIR，请在支持 direct URL 的 Fal LoRA endpoint 中使用");
+        }
         if (/^https?:\/\//i.test(value)) {
             throw new Error("Civitai 官方没有下载 URL → AIR 的确定性反查合同；请改用 AIR、模型 ID 或版本 ID");
         }

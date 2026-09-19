@@ -28,6 +28,10 @@ export async function generateStudioImage(input: {
   height?: number;
   seed?: number;
   negativePrompt?: string;
+  steps?: number;
+  guidance?: number;
+  sampler?: string;
+  scheduler?: string;
   quantity?: number;
   n?: number;
   operation?: "generate" | "edit";
@@ -38,6 +42,12 @@ export async function generateStudioImage(input: {
   checkpointAir?: string;
   workTitle?: string;
   workKind?: "image" | "story" | "ecommerce";
+  cfgScale?: number;
+  denoise?: number;
+  engine?: string;
+  comfy?: string;
+  advanced?: Record<string, unknown>;
+  extraParams?: Record<string, unknown>;
 }): Promise<StudioImageResult> {
   const prompt = input.prompt.trim();
   if (!prompt) throw new Error("请填写提示词");
@@ -73,6 +83,10 @@ export async function generateStudioImage(input: {
     height: input.height,
     seed: input.seed,
     negativePrompt: input.negativePrompt,
+    steps: input.steps,
+    guidance: input.guidance,
+    sampler: input.sampler,
+    scheduler: input.scheduler,
     quantity: count,
     n: count,
     operation: input.operation,
@@ -81,6 +95,13 @@ export async function generateStudioImage(input: {
     loras: civitai.loras,
     strength: input.strength,
     checkpointAir: civitai.checkpointAir,
+    cfgScale: input.cfgScale ?? (input.advanced?.cfgScale as number | undefined),
+    denoise: input.denoise ?? (input.advanced?.denoise as number | undefined),
+    engine: input.engine ?? (input.advanced?.engine as string | undefined),
+    comfy: input.comfy ?? (input.advanced?.comfy as string | undefined),
+    advanced: input.advanced,
+    extraParams: input.extraParams,
+    ...input.advanced,
   };
   const ticket = useOpsStore.getState().spend("image", model, modelPoints(key) * count);
   try {

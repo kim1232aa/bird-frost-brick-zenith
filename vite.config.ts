@@ -239,6 +239,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "127.0.0.1",
     port: 8081,
     strictPort: true,
+    allowedHosts: ["deeix.alibb123.ccwu.cc"],
   },
   define: {
     "process.env.NEXT_PUBLIC_APP_VERSION": JSON.stringify("1.1.0"),

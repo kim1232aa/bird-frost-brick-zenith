@@ -10,6 +10,7 @@ import { mergeSyncTombstones, type SyncTombstone } from "@/services/sync-record-
 import { hydrateGalleryMedia } from "@/studio/canvas/hydrate-gallery-media";
 import type { CanvasAssistantSession, CanvasConnection, CanvasNodeData, ViewportTransform } from "../types";
 import { getCanvasMergeScopes, mergeCanvasProjectsByScope, type CanvasMergeProject } from "./canvas-project-merge";
+import { listServerCanvases, saveServerCanvas, deleteServerCanvases } from "@/studio/server/canvases";
 
 export type CanvasProject = {
     id: string;
@@ -197,6 +198,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
                 if (!canvasPersistenceUnlocked) pendingUnlockedProjects = [project, ...pendingUnlockedProjects];
+                syncProjectToServer(project);
                 return id;
             },
             importProject: (source) => {
@@ -218,20 +220,29 @@ export const useCanvasStore = create<CanvasStore>()(
                 };
                 set((state) => ({ projects: [project, ...state.projects] }));
                 if (!canvasPersistenceUnlocked) pendingUnlockedProjects = [project, ...pendingUnlockedProjects];
+                syncProjectToServer(project);
                 return project.id;
             },
             openProject: (id) => get().projects.find((item) => item.id === id) || null,
             renameProject: (id, title) =>
-                set((state) => ({
-                    projects: state.projects.map((project) => (project.id === id ? { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() } : project)),
-                })),
-            deleteProjects: (ids) =>
+                set((state) => {
+                    const projects = state.projects.map((project) => {
+                        if (project.id !== id) return project;
+                        const updated = { ...project, title: title.trim() || project.title, updatedAt: new Date().toISOString() };
+                        syncProjectToServer(updated);
+                        return updated;
+                    });
+                    return { projects };
+                }),
+            deleteProjects: (ids) => {
+                void deleteServerCanvases({ data: { ids } }).catch(() => {});
                 set((state) => {
                     const deletedAt = new Date().toISOString();
                     const deleted = state.projects.filter((project) => ids.includes(project.id)).map((project) => ({ id: project.id, deletedAt }));
                     const projects = state.projects.filter((project) => !ids.includes(project.id));
                     return { projects, syncDeleted: mergeSyncTombstones(state.syncDeleted, deleted) };
-                }),
+                });
+            },
             replaceProjects: (projects, syncDeleted) => set((state) => ({ projects, syncDeleted: syncDeleted ?? state.syncDeleted })),
             updateProject: (id, patch) =>
                 set((state) => ({
@@ -246,9 +257,13 @@ export const useCanvasStore = create<CanvasStore>()(
                             !Array.isArray(patch.connections)
                         ) {
                             const { nodes: _ignored, ...rest } = patch;
-                            return { ...project, ...rest, updatedAt: new Date().toISOString() };
+                            const updated = { ...project, ...rest, updatedAt: new Date().toISOString() };
+                            syncProjectToServer(updated);
+                            return updated;
                         }
-                        return { ...project, ...patch, updatedAt: new Date().toISOString() };
+                        const updated = { ...project, ...patch, updatedAt: new Date().toISOString() };
+                        syncProjectToServer(updated);
+                        return updated;
                     }),
                 })),
             retryHydration: async () => {
@@ -293,11 +308,34 @@ export const useCanvasStore = create<CanvasStore>()(
                 });
                 void importLatestStorySeed().finally(() => {
                     useCanvasStore.setState({ hydrated: true, hydrationStatus: "ready" });
+                    void listServerCanvases().then((serverProjects) => {
+                        if (Array.isArray(serverProjects) && serverProjects.length > 0) {
+                            const cur = useCanvasStore.getState();
+                            const map = new Map<string, CanvasProject>();
+                            cur.projects.forEach((p) => map.set(p.id, p));
+                            serverProjects.forEach((sp) => {
+                                const exist = map.get(sp.id);
+                                if (!exist || (sp.updatedAt || "") >= (exist.updatedAt || "")) {
+                                    map.set(sp.id, sp as unknown as CanvasProject);
+                                }
+                            });
+                            useCanvasStore.setState({ projects: Array.from(map.values()) });
+                        }
+                    }).catch(() => {});
                 });
             },
         },
     ),
 );
+
+let serverSyncTimer: any = null;
+function syncProjectToServer(project: CanvasProject) {
+    if (typeof window === "undefined" || !project || !project.id) return;
+    clearTimeout(serverSyncTimer);
+    serverSyncTimer = setTimeout(() => {
+        void saveServerCanvas({ data: project as any }).catch(() => {});
+    }, 600);
+}
 
 let canvasRehydrateTimer: number | null = null;
 let canvasAutoRehydrateAttempts = 0;

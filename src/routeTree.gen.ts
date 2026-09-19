@@ -34,6 +34,7 @@ import { Route as ClientApiHealthRouteImport } from './routes/client-api/health'
 import { Route as ClientApiUploadImageHostRouteImport } from './routes/client-api/upload-image-host'
 import { Route as ClientApiUploadWorkMediaRouteImport } from './routes/client-api/upload-work-media'
 import { Route as LocalRelayProxySplatRouteImport } from './routes/local-relay-proxy/$'
+import { Route as WorksSplatRouteImport } from './routes/works/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -163,6 +164,11 @@ const LocalRelayProxySplatRoute = LocalRelayProxySplatRouteImport.update({
   path: '/local-relay-proxy/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorksSplatRoute = WorksSplatRouteImport.update({
+  id: '/works/$',
+  path: '/works/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
+  '/works/$': typeof WorksSplatRoute
   '/canvas/': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
+  '/works/$': typeof WorksSplatRoute
   '/canvas': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -251,6 +259,7 @@ export interface FileRoutesById {
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
+  '/works/$': typeof WorksSplatRoute
   '/canvas/': typeof CanvasIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
@@ -281,6 +290,7 @@ export interface FileRouteTypes {
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
+    | '/works/$'
     | '/canvas/'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
@@ -309,6 +319,7 @@ export interface FileRouteTypes {
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
+    | '/works/$'
     | '/canvas'
     | '/api/auth/$'
   id:
@@ -337,6 +348,7 @@ export interface FileRouteTypes {
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
     | '/local-relay-proxy/$'
+    | '/works/$'
     | '/canvas/'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
@@ -366,6 +378,7 @@ export interface RootRouteChildren {
   ClientApiUploadImageHostRoute: typeof ClientApiUploadImageHostRoute
   ClientApiUploadWorkMediaRoute: typeof ClientApiUploadWorkMediaRoute
   LocalRelayProxySplatRoute: typeof LocalRelayProxySplatRoute
+  WorksSplatRoute: typeof WorksSplatRoute
   CanvasIndexRoute: typeof CanvasIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
@@ -547,6 +560,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LocalRelayProxySplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/works/$': {
+      id: '/works/$'
+      path: '/works/$'
+      fullPath: '/works/$'
+      preLoaderRoute: typeof WorksSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -582,6 +602,7 @@ const rootRouteChildren: RootRouteChildren = {
   ClientApiUploadImageHostRoute: ClientApiUploadImageHostRoute,
   ClientApiUploadWorkMediaRoute: ClientApiUploadWorkMediaRoute,
   LocalRelayProxySplatRoute: LocalRelayProxySplatRoute,
+  WorksSplatRoute: WorksSplatRoute,
   CanvasIndexRoute: CanvasIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }

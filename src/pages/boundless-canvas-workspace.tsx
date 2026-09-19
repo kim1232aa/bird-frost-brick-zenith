@@ -1,12 +1,13 @@
 "use client";
 
-import { lazy, Suspense, useEffect } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { CanvasProviders } from "@/app/canvas/canvas-providers";
 import { CanvasWorkspaceFallback } from "@/pages/canvas-workspace-fallback";
 import { importLatestStorySeed, useCanvasStore } from "@/app/canvas/stores/use-canvas-store";
 import { mediaPayloadFromWorkspaceSearch } from "@/studio/canvas/media-workspace-project";
 import { pushMediaToCanvasWorkspace } from "@/studio/canvas/push-to-workspace";
+import { buildStoryDirectorEntryProject } from "@/studio/canvas/story-canvas-entry";
 
 const CanvasPage = lazy(() =>
   import("@/app/canvas/workspace/canvas-client-page").catch((error) => {
@@ -18,8 +19,9 @@ const CanvasPage = lazy(() =>
 export function BoundlessCanvasWorkspace() {
   const navigate = useNavigate();
   const search = useSearch({ from: "/canvas/workspace" });
-  const { id } = search;
+  const { id, entry } = search;
   const hydrated = useCanvasStore((state) => state.hydrated);
+  const storyEntryStarted = useRef(false);
 
   useEffect(() => {
     try {
@@ -36,6 +38,13 @@ export function BoundlessCanvasWorkspace() {
       await importLatestStorySeed();
       if (cancelled) return;
       const store = useCanvasStore.getState();
+      if (entry === "story" && !id) {
+        if (storyEntryStarted.current) return;
+        storyEntryStarted.current = true;
+        const projectId = store.importProject(buildStoryDirectorEntryProject());
+        void navigate({ to: "/canvas/workspace", search: { id: projectId } });
+        return;
+      }
       if (id && store.openProject(id)) return;
       const mediaPayload = id ? mediaPayloadFromWorkspaceSearch({ ...search, id }) : null;
       if (id && mediaPayload) {
@@ -66,7 +75,7 @@ export function BoundlessCanvasWorkspace() {
     return () => {
       cancelled = true;
     };
-  }, [hydrated, id, navigate, search]);
+  }, [entry, hydrated, id, navigate, search]);
 
   return (
     <CanvasProviders>

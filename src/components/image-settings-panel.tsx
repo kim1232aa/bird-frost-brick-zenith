@@ -282,23 +282,32 @@ function AdvancedSettings({ settings, capability, disabled, theme, onChange }: {
     const patch = (next: Partial<ImageAdvancedSettings>) => onChange({ ...settings, ...next });
     return (
         <SettingGroup title="高级参数" color={theme.node.muted}>
-            {!supportedCount ? <Hint text={unknownCount ? "此 provider/model/operation 的高级参数尚未验证，不会显示或提交。" : "此合同不支持可配置的高级参数；其它 profile 的已保存值不会被清空。"} /> : null}
+            <Hint text="支持负面词、Seed、步数、CFG 以及直接添加 Civitai / Fal LoRA（支持 AIR、版本 ID、模型 ID、直链 URL）。" />
             {disabled && supportedCount ? <Hint text="请先选择可用的图片 provider 和模型。" danger /> : null}
             {outputFormatSupported ? (
                 <AdvancedField label="输出格式" capability={capability.outputFormat}>
                     <EnumSelect value={settings.outputFormat || ""} values={capability.outputFormat.values} disabled={disabled} theme={theme} onChange={(value) => patch({ outputFormat: value })} />
                 </AdvancedField>
             ) : null}
-            {fields.negativePrompt.state === "supported" && fields.negativePrompt.kind === "string" ? (
-                <AdvancedField label="负面提示词" capability={fields.negativePrompt}>
-                    <textarea value={settings.negativePrompt || ""} maxLength={fields.negativePrompt.maxLength} disabled={disabled} rows={3} className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onChange={(event) => patch({ negativePrompt: event.target.value })} />
-                </AdvancedField>
-            ) : null}
+            <AdvancedField label="负面提示词" capability={fields.negativePrompt}>
+                <textarea value={settings.negativePrompt || ""} maxLength={fields.negativePrompt && fields.negativePrompt.state === "supported" && fields.negativePrompt.kind === "string" ? fields.negativePrompt.maxLength : 2000} disabled={disabled} rows={3} className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} placeholder="负面提示词（不想出现的内容，可空）" onChange={(event) => patch({ negativePrompt: event.target.value })} />
+            </AdvancedField>
             <div className="grid grid-cols-2 gap-2.5">
-                {fields.seed.state === "supported" && fields.seed.kind === "int64" ? <AdvancedField label="Seed" capability={fields.seed}><TextInput value={settings.seed || ""} disabled={disabled} inputMode="numeric" placeholder="provider 默认" theme={theme} onChange={(value) => patch({ seed: value })} /></AdvancedField> : null}
-                {fields.steps.state === "supported" && fields.steps.kind === "number" ? <AdvancedField label="Steps" capability={fields.steps}><NumberInput value={settings.steps} capability={fields.steps} disabled={disabled} theme={theme} onChange={(value) => patch({ steps: value })} /></AdvancedField> : null}
-                {fields.cfgScale.state === "supported" && fields.cfgScale.kind === "number" ? <AdvancedField label="CFG / Guidance" capability={fields.cfgScale}><NumberInput value={settings.cfgScale} capability={fields.cfgScale} disabled={disabled} theme={theme} onChange={(value) => patch({ cfgScale: value })} /></AdvancedField> : null}
-                {fields.clipSkip.state === "supported" && fields.clipSkip.kind === "number" ? <AdvancedField label="CLIP Skip" capability={fields.clipSkip}><NumberInput value={settings.clipSkip} capability={fields.clipSkip} disabled={disabled} theme={theme} onChange={(value) => patch({ clipSkip: value })} /></AdvancedField> : null}
+                <AdvancedField label="Seed" capability={fields.seed}>
+                    <div className="flex items-center gap-1.5">
+                        <TextInput value={settings.seed || ""} disabled={disabled} inputMode="numeric" placeholder="默认 (-1 随机)" theme={theme} onChange={(value) => patch({ seed: value })} />
+                        <button type="button" disabled={disabled} title="随机种子" className="grid size-9 shrink-0 place-items-center rounded-xl border text-sm hover:opacity-80 active:scale-95 transition-all" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onClick={() => patch({ seed: String(Math.floor(Math.random() * 2147483647)) })}>🎲</button>
+                    </div>
+                </AdvancedField>
+                <AdvancedField label="Steps (步数)" capability={fields.steps}>
+                    <TextInput value={settings.steps !== undefined ? String(settings.steps) : ""} disabled={disabled} inputMode="numeric" placeholder="步数 (如 25)" theme={theme} onChange={(value) => patch({ steps: value ? Number(value) : undefined })} />
+                </AdvancedField>
+                <AdvancedField label="CFG / Guidance" capability={fields.cfgScale}>
+                    <TextInput value={settings.cfgScale !== undefined ? String(settings.cfgScale) : ""} disabled={disabled} inputMode="text" placeholder="引导系数 (如 7)" theme={theme} onChange={(value) => patch({ cfgScale: value ? Number(value) : undefined })} />
+                </AdvancedField>
+                <AdvancedField label="CLIP Skip" capability={fields.clipSkip}>
+                    <TextInput value={settings.clipSkip !== undefined ? String(settings.clipSkip) : ""} disabled={disabled} inputMode="numeric" placeholder="跳过层数 (如 1 或 2)" theme={theme} onChange={(value) => patch({ clipSkip: value ? Number(value) : undefined })} />
+                </AdvancedField>
             </div>
             {fields.sampler.state === "supported" && fields.sampler.kind === "enum" ? <AdvancedField label="Sampler" capability={fields.sampler}><EnumSelect value={settings.sampler || ""} values={fields.sampler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ sampler: value })} /></AdvancedField> : null}
             {fields.scheduler.state === "supported" && fields.scheduler.kind === "enum" ? <AdvancedField label="Scheduler" capability={fields.scheduler}><EnumSelect value={settings.scheduler || ""} values={fields.scheduler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ scheduler: value })} /></AdvancedField> : null}
@@ -310,26 +319,49 @@ function AdvancedSettings({ settings, capability, disabled, theme, onChange }: {
                     </label>
                 </AdvancedField>
             ) : null}
-            {fields.loras.state === "supported" && fields.loras.kind === "number-map" ? <LoraEditor settings={settings} capability={fields.loras} targetModel={capability.model} disabled={disabled} theme={theme} onChange={(loras) => patch({ loras })} /> : null}
-            {supportedCount ? <Hint text="只会提交当前 capability 标记为完整支持的字段；其它 profile 值保留但不会串入本次请求。" /> : null}
+            <LoraEditor
+                settings={settings}
+                capability={
+                    fields.loras.state === "supported" && fields.loras.kind === "number-map"
+                        ? fields.loras
+                        : {
+                            state: "supported",
+                            kind: "number-map",
+                            wireName: "loras",
+                            min: 0,
+                            max: 2,
+                            note: "Civitai / Fal LoRA",
+                        }
+                }
+                provider={capability.provider}
+                targetModel={capability.model}
+                disabled={disabled}
+                theme={theme}
+                onChange={(loras) => patch({ loras })}
+            />
+            <Hint text="已设置的高级参数与 LoRA 将在生成时自动提交给模型引擎。" />
         </SettingGroup>
     );
 }
 
-function AdvancedField({ label, capability, children }: { label: string; capability: { readonly note?: string }; children: ReactNode }) {
-    return <label className="block space-y-1.5"><span className="text-[11px] font-medium opacity-65">{label}</span>{children}{capability.note ? <Hint text={capability.note} /> : null}</label>;
+function AdvancedField({ label, capability, children }: { label: string; capability?: { readonly note?: string } | any; children: ReactNode }) {
+    const note = capability && typeof capability === "object" && "note" in capability ? (capability as any).note : undefined;
+    return <label className="block space-y-1.5"><span className="text-[11px] font-medium opacity-65">{label}</span>{children}{note ? <Hint text={note} /> : null}</label>;
 }
 
-function LoraEditor({ settings, capability, targetModel, disabled, theme, onChange }: { settings: ImageAdvancedSettings; capability: Extract<ImageAdvancedFieldCapability, { state: "supported"; kind: "number-map" }>; targetModel: string; disabled: boolean; theme: CanvasTheme; onChange: (loras: NonNullable<ImageAdvancedSettings["loras"]>) => void }) {
+function LoraEditor({ settings, capability, provider, targetModel, disabled, theme, onChange }: { settings: ImageAdvancedSettings; capability: Extract<ImageAdvancedFieldCapability, { state: "supported"; kind: "number-map" }>; provider: string; targetModel: string; disabled: boolean; theme: CanvasTheme; onChange: (loras: NonNullable<ImageAdvancedSettings["loras"]>) => void }) {
     const loras = settings.loras || [];
+    const directPathMode = provider === "fal";
     const [resolvingIndex, setResolvingIndex] = useState<number | null>(null);
     const update = (index: number, patch: Partial<(typeof loras)[number]>) => onChange(loras.map((entry, entryIndex) => entryIndex === index ? { ...entry, ...patch } : entry));
     const updateIdentity = (index: number, identity: { resource?: string; resourceKind?: CivitaiLoraResourceKind }) => {
         const entry = loras[index];
         if (!entry) return;
-        onChange(loras.map((candidate, entryIndex) => entryIndex === index ? resetImageLoraResolution(entry, identity) : candidate));
+        const nextIdentity = directPathMode ? { ...identity, resourceKind: "url" as const } : identity;
+        onChange(loras.map((candidate, entryIndex) => entryIndex === index ? resetImageLoraResolution(entry, nextIdentity) : candidate));
     };
     const resolveEntry = async (index: number, selectedVersionId?: string) => {
+        if (directPathMode) return;
         const entry = loras[index];
         if (!entry || resolvingIndex !== null) return;
         setResolvingIndex(index);
@@ -349,29 +381,39 @@ function LoraEditor({ settings, capability, targetModel, disabled, theme, onChan
     };
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-between"><span className="text-[11px] font-medium opacity-65">LoRA（AIR / 模型 ID / 版本 ID）</span><button type="button" disabled={disabled} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={() => onChange([...loras, { resource: "", resourceKind: "air", weight: 1, resolutionStatus: "unresolved" }])}><Plus className="size-3" />添加</button></div>
+            <div className="flex items-center justify-between"><span className="text-[11px] font-medium opacity-65">{directPathMode ? "LoRA（公开权重 path）" : "LoRA（AIR / 模型 ID / 版本 ID）"}</span><button type="button" disabled={disabled} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={() => onChange([...loras, { resource: "", resourceKind: directPathMode ? "url" : "air", weight: 1, resolutionStatus: "unresolved" }])}><Plus className="size-3" />添加</button></div>
             {loras.map((entry, index) => (
                 <div key={index} className="space-y-1.5 rounded-xl border p-2" style={{ borderColor: theme.node.stroke }}>
                     <div className="grid grid-cols-[92px_minmax(0,1fr)_68px_30px] gap-2">
-                        <select aria-label={`LoRA ${index + 1} 资源类型`} value={entry.resourceKind} disabled={disabled || resolvingIndex === index} className="h-9 min-w-0 rounded-xl border bg-transparent px-2 text-xs outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.toolbar.panel }} onChange={(event) => updateIdentity(index, { resourceKind: event.target.value as CivitaiLoraResourceKind })}>
-                            <option value="air">AIR</option>
-                            <option value="version-id">版本 ID</option>
-                            <option value="model-id">模型 ID</option>
-                        </select>
-                        <TextInput value={entry.resource} disabled={disabled || resolvingIndex === index} placeholder={loraResourcePlaceholder(entry.resourceKind)} theme={theme} onChange={(resource) => updateIdentity(index, { resource })} />
+                        {directPathMode ? (
+                            <div className="grid h-9 min-w-0 place-items-center rounded-xl border px-2 text-xs" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>公开 path</div>
+                        ) : (
+                            <select aria-label={`LoRA ${index + 1} 资源类型`} value={entry.resourceKind} disabled={disabled || resolvingIndex === index} className="h-9 min-w-0 rounded-xl border bg-transparent px-2 text-xs outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, background: theme.toolbar.panel }} onChange={(event) => updateIdentity(index, { resourceKind: event.target.value as CivitaiLoraResourceKind })}>
+                                <option value="air">AIR</option>
+                                <option value="version-id">版本 ID</option>
+                                <option value="model-id">模型 ID</option>
+                                {entry.resourceKind === "url" ? <option value="url" disabled>直链（不支持）</option> : null}
+                            </select>
+                        )}
+                        <TextInput value={entry.resource} disabled={disabled || resolvingIndex === index} placeholder={directPathMode ? loraResourcePlaceholder("url") : loraResourcePlaceholder(entry.resourceKind)} theme={theme} onChange={(resource) => updateIdentity(index, { resource })} />
                         <input aria-label={`LoRA ${index + 1} 权重`} type="number" value={Number.isFinite(entry.weight) ? entry.weight : ""} min={capability.min} max={capability.max} step="any" disabled={disabled} className="h-9 min-w-0 rounded-xl border bg-transparent px-2 text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onChange={(event) => update(index, { weight: Number(event.target.value) })} />
                         <button type="button" disabled={disabled || resolvingIndex === index} aria-label={`移除 LoRA ${index + 1}`} className="grid size-9 place-items-center rounded-xl border disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={() => onChange(loras.filter((_, entryIndex) => entryIndex !== index))}><X className="size-3.5" /></button>
                     </div>
                     <div className="flex items-start justify-between gap-2">
-                        <LoraResolutionState entry={entry} theme={theme} onSelectVersion={(versionId) => void resolveEntry(index, versionId)} disabled={disabled || resolvingIndex === index} />
-                        <button type="button" disabled={disabled || resolvingIndex !== null || !entry.resource.trim()} className="shrink-0 rounded-lg border px-2 py-1 text-[11px] disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={() => void resolveEntry(index)}>{resolvingIndex === index ? "解析中…" : entry.resolutionStatus === "resolved" ? "重新解析" : "解析"}</button>
+                        {directPathMode ? <DirectLoraResolutionState entry={entry} theme={theme} /> : <LoraResolutionState entry={entry} theme={theme} onSelectVersion={(versionId) => void resolveEntry(index, versionId)} disabled={disabled || resolvingIndex === index} />}
+                        {!directPathMode ? <button type="button" disabled={disabled || resolvingIndex !== null || !entry.resource.trim()} className="shrink-0 rounded-lg border px-2 py-1 text-[11px] disabled:opacity-45" style={{ borderColor: theme.node.stroke }} onClick={() => void resolveEntry(index)}>{resolvingIndex === index ? "解析中…" : entry.resolutionStatus === "resolved" ? "重新解析" : "解析"}</button> : null}
                     </div>
                 </div>
             ))}
-            {!loras.length ? <Hint text="未添加 LoRA。ID 会通过 Civitai 官方只读接口解析为精确 model-version AIR；下载 URL 不支持反查；不会猜测缺失权重。" /> : null}
+            {!loras.length ? <Hint text={directPathMode ? "未添加 LoRA。填写公开 https:// 权重 URL 或 hf:// repo/path；不会调用 Civitai 解析。" : "未添加 LoRA。ID 会通过 Civitai 官方只读接口解析为精确 model-version AIR；下载 URL 不支持反查；不会猜测缺失权重。"} /> : null}
             {capability.note ? <Hint text={capability.note} /> : null}
         </div>
     );
+}
+
+function DirectLoraResolutionState({ entry, theme }: { entry: NonNullable<ImageAdvancedSettings["loras"]>[number]; theme: CanvasTheme }) {
+    const resource = entry.resource.trim();
+    return <div className="min-w-0 text-[10px] leading-4" style={{ color: theme.node.muted }}>{resource ? "直接发送公开权重 path；不会调用 Civitai 解析。" : "填写 https:// 权重 URL 或 hf:// repo/path。"}</div>;
 }
 
 function LoraResolutionState({ entry, theme, onSelectVersion, disabled }: { entry: NonNullable<ImageAdvancedSettings["loras"]>[number]; theme: CanvasTheme; onSelectVersion: (versionId: string) => void; disabled: boolean }) {
@@ -396,6 +438,7 @@ function LoraResolutionState({ entry, theme, onSelectVersion, disabled }: { entr
 function loraResourcePlaceholder(kind: CivitaiLoraResourceKind) {
     if (kind === "model-id") return "Civitai 模型 ID";
     if (kind === "version-id") return "Civitai 版本 ID";
+    if (kind === "url") return "https://...safetensors 或 hf://...";
     return "urn:air:…:lora:civitai:…@…";
 }
 

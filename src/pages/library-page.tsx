@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { GALLERY_SEED } from "@/studio/gallery-seed";
+import { listStudioWorks } from "@/studio/server/works";
 import {
   isFailedStudioHistoryItem,
   isSavedStudioHistoryItem,
@@ -153,8 +154,13 @@ export function LibraryPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const [serverWorks, setServerWorks] = useState<any[]>([]);
+
   useEffect(() => {
     void hydrate();
+    listStudioWorks().then((res: any) => {
+      if (Array.isArray(res)) setServerWorks(res);
+    }).catch(() => {});
   }, [hydrate]);
 
   useEffect(() => {
@@ -163,7 +169,28 @@ export function LibraryPage() {
     return () => window.clearTimeout(timer);
   }, [note]);
 
-  const saved = local.filter((item) => item.createdAt && item.urls[0] && isSavedStudioHistoryItem(item));
+  const mergedItems = useMemo(() => {
+    const map = new Map<string, any>();
+    local.forEach((item) => map.set(item.id, item));
+    serverWorks.forEach((sw) => {
+      if (!map.has(sw.id)) {
+        map.set(sw.id, {
+          id: sw.id,
+          kind: sw.kind || "image",
+          title: sw.title || "作品",
+          prompt: sw.prompt || "",
+          model: sw.model || "",
+          providerId: sw.providerId,
+          urls: [sw.url].filter(Boolean),
+          createdAt: sw.createdAt || new Date().toISOString(),
+          persistStatus: "saved",
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [local, serverWorks]);
+
+  const saved = mergedItems.filter((item) => item.createdAt && item.urls[0] && isSavedStudioHistoryItem(item));
   const pending = local.filter((item) => item.createdAt && item.urls[0] && studioHistoryPersistStatus(item) === "pending");
   const failed = local.filter((item) => item.createdAt && item.urls[0] && isFailedStudioHistoryItem(item));
   const hasLocalItems = saved.length > 0 || pending.length > 0 || failed.length > 0;

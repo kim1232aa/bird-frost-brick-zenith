@@ -19,7 +19,9 @@ export function ModelMenu({
   label?: string;
   wiredOnly?: boolean;
 }) {
-  const cards = liveCatalog(kind, wiredOnly);
+  const wired = liveCatalog(kind, true);
+  const all = liveCatalog(kind, false);
+  const cards = wiredOnly ? (wired.length ? wired : all) : all;
   useStudioSession((state) => state.relays);
   useOpsStore((state) => state.unlisted);
   const groups = useMemo(() => {
@@ -34,6 +36,8 @@ export function ModelMenu({
   const current = cards.find((card) => catalogKey(card) === value) || cards[0];
   const safeValue = current ? catalogKey(current) : "";
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [expandedProviders, setExpandedProviders] = useState<Record<string, boolean>>({});
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ top: 0, left: 0, width: 320 });
@@ -104,34 +108,66 @@ export function ModelMenu({
       {open && typeof document !== "undefined"
         ? createPortal(
             <div ref={menuRef} className="model-menu-pop" style={{ top: box.top, left: box.left, width: box.width }} role="listbox">
+              <div className="model-menu-search p-2 border-b border-stone-200 dark:border-stone-800 sticky top-0 bg-inherit z-10">
+                <input
+                  type="text"
+                  className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-900 outline-none focus:border-stone-400"
+                  placeholder="🔍 快速搜索模型..."
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
               {groups.length === 0 ? <p className="model-menu-empty">暂无可用模型</p> : null}
-              {groups.map(([provider, list]) => (
-                <div key={provider} className="model-menu-group">
-                  <p>{provider}</p>
-                  {list.map((card) => {
-                    const key = catalogKey(card);
-                    return (
+              {groups.map(([provider, list]) => {
+                const filtered = filter.trim()
+                  ? list.filter((c) => c.model.toLowerCase().includes(filter.toLowerCase()) || c.provider.toLowerCase().includes(filter.toLowerCase()))
+                  : list;
+                if (filtered.length === 0) return null;
+                const isExpanded = Boolean(expandedProviders[provider]);
+                const displayed = list.length > 5 && !filter.trim() && !isExpanded ? filtered.slice(0, 5) : filtered;
+
+                return (
+                  <div key={provider} className="model-menu-group">
+                    <p>{provider}</p>
+                    {displayed.map((card) => {
+                      const key = catalogKey(card);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className={key === safeValue ? "is-on" : undefined}
+                          title={`${card.provider} · ${card.model}`}
+                          onClick={() => {
+                            onChange(key);
+                            setOpen(false);
+                          }}
+                        >
+                          <span className="model-menu-row-name">{card.model}</span>
+                          <span className="model-menu-row-meta">
+                            {card.wired ? "已接线" : "待接线"}
+                            {card.nsfw ? " · NSFW" : ""}
+                            {card.verified ? " · 已实测" : " · 未实测"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                    {list.length > 5 && !filter.trim() ? (
                       <button
-                        key={key}
                         type="button"
-                        className={key === safeValue ? "is-on" : undefined}
-                        title={`${card.provider} · ${card.model}`}
-                        onClick={() => {
-                          onChange(key);
-                          setOpen(false);
+                        className="model-menu-expand-btn text-[11px] text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 py-1.5 px-3 w-full text-left font-medium flex items-center justify-between"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedProviders((prev) => ({ ...prev, [provider]: !prev[provider] }));
                         }}
                       >
-                        <span className="model-menu-row-name">{card.model}</span>
-                        <span className="model-menu-row-meta">
-                          {card.wired ? "已接线" : "待接线"}
-                          {card.nsfw ? " · NSFW" : ""}
-                          {card.verified ? " · 已实测" : " · 未实测"}
-                        </span>
+                        <span>{isExpanded ? "▲ 收起" : `▼ 展开更多 (${list.length} 个模型)`}</span>
+                        <span className="text-[10px] opacity-60">{isExpanded ? "收起折叠" : `+${list.length - 5}`}</span>
                       </button>
-                    );
-                  })}
-                </div>
-              ))}
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>,
             document.body,
           )

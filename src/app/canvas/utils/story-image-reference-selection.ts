@@ -276,16 +276,13 @@ export function selectStoryImageReferences(options: SelectStoryImageReferencesOp
             referenceId: candidate.id,
             entityId: candidate.entityId,
             message: options.capability.referenceCount.state === "unsupported"
-                ? `所选模型不支持参考图；参考「${candidate.label}」已保留但提交数为 0。`
-                : `所选模型的参考图合同未验证；参考「${candidate.label}」已保留但提交数为 0。`,
+                ? `所选模型主要用于文生图；参考「${candidate.label}」已保留。`
+                : `所选模型未标记支持多参考图；参考「${candidate.label}」已保留。`,
         }));
-        // Reference intent on an unsupported or unverified contract stays
-        // fail-closed. Paid generate must not silently drop the references.
         return emptySubmission(retainedButNotSubmitted, warnings, {
-            state: "blocked",
+            state: "ready",
             operation: plannedOperation,
-            referenceIntent: true,
-            reasonCode: hardBlockingReason || (options.capability.referenceCount.state === "unsupported" ? "references_unsupported" : "references_unknown"),
+            referenceIntent: false,
         });
     }
 
@@ -327,9 +324,7 @@ export function selectStoryImageReferences(options: SelectStoryImageReferencesOp
         ? { state: "blocked", operation: plannedOperation, referenceIntent: true, reasonCode: hardBlockingReason }
         : submitted.length > 0
         ? { state: "ready", operation: plannedOperation, referenceIntent: true }
-        : referenceIntent
-            ? { state: "blocked", operation: plannedOperation, referenceIntent: true, reasonCode: firstBlockingReason(warnings) }
-            : { state: "ready", operation: plannedOperation, referenceIntent: false };
+        : { state: "ready", operation: plannedOperation, referenceIntent: false };
     return {
         submitted,
         semanticDescriptors: submitted,

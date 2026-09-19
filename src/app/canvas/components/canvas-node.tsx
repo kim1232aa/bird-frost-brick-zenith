@@ -3725,7 +3725,12 @@ function Seedance2PlaceholderErrorDetails({ node, className = "" }: { node: Canv
     if (!["error", "failed", "timeout"].includes(status)) return null;
     // 失败节点不能再只亮红灯零信息：没有细节也要渲染一行可排查的占位。
     const details = raw ? formatCanvasGenerationError(raw, "视频生成失败") : "";
-    const taskId = String(node.metadata?.videoGenerationTask?.taskId || node.metadata?.seedanceGenerationTaskState?.taskId || "").trim();
+    const taskId = String(
+        (node.metadata?.videoGenerationTask as { id?: string; taskId?: string } | undefined)?.id ||
+        (node.metadata?.videoGenerationTask as { id?: string; taskId?: string } | undefined)?.taskId ||
+        node.metadata?.seedanceGenerationTaskState?.taskId ||
+        ""
+    ).trim();
     const text = details && details !== "视频生成失败"
         ? details
         : `上游未返回错误详情${taskId ? `（taskId: ${taskId}）` : ""}${status ? ` · 状态 ${status}` : ""}`;

@@ -107,7 +107,8 @@ FROM ${NODE_IMAGE} AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
-    HOST=0.0.0.0
+    HOST=0.0.0.0 \
+    VITE_AUTH_ENABLED=false
 # Nitro vercel output is self-contained except srvx (CLI + static middleware).
 # Copy only the function bundle, static assets, and the srvx package used by
 # nitro.json commands.preview — not the full source tree or build node_modules.

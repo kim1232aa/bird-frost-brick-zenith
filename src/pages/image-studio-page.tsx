@@ -12,7 +12,7 @@ import { useStudioHistory } from "@/studio/history";
 import { useMediaDraft } from "@/studio/media-draft";
 import { filesToDataUrls, mergeImageRefs } from "@/studio/image-refs";
 import { useMembershipStore } from "@/studio/membership";
-import { liveCatalog, liveCard, modelPoints, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
+import { liveCard, modelPoints, selectableCatalog, studioGenerateCreditGate, useOpsStore } from "@/studio/ops";
 import { preferredImageKey, preferredTextKey, StudioModelField } from "@/studio/model-select";
 import { IMAGE_TEMPLATES } from "@/studio/prompt-bank";
 import { useStudioSession } from "@/studio/session";
@@ -70,12 +70,12 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const succeedJob = useStudioJobs((state) => state.succeed);
   const failJob = useStudioJobs((state) => state.fail);
   const access = useGenerateAccess();
-  const allModels = liveCatalog("image", true);
+  const allModels = selectableCatalog("image");
   const [prompt, setPrompt] = useState("");
   const [negative, setNegative] = useState("");
   const [selection, setSelection] = useState(() => {
     if (initialMode !== "edit") return preferredImageKey();
-    const editKeys = liveCatalog("image", true)
+    const editKeys = allModels
       .filter((card) => isEditModel(card.model, cardRelay(relays, card)))
       .map(catalogKey);
     return defaultEditKey(editKeys) || preferredImageKey();
@@ -91,6 +91,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const setReferences = useMediaDraft((state) => state.setReferences);
   const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
   const [checkpointAir, setCheckpointAir] = useState("");
+  const [dynamicParams, setDynamicParams] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [polishBusy, setPolishBusy] = useState(false);
@@ -231,6 +232,7 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       dims,
       adapterType: selectedRelay?.adapterType,
       provider: selectedRelay,
+      dynamicParams,
     });
     if (payload.error) {
       setError(payload.error);

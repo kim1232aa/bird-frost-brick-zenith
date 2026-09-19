@@ -32,7 +32,7 @@ mock.module(new URL("./server/relay-vault.ts", import.meta.url).href, {
 });
 
 const { cardsFromRelays } = await import("./catalog.ts");
-const { liveCard, liveCatalog } = await import("./ops.ts");
+const { liveCard, liveCatalog, selectableCatalog } = await import("./ops.ts");
 const { studioRelays } = await import("./wiring.ts");
 const { useStudioSession } = await import("./session.ts");
 
@@ -73,4 +73,52 @@ test("local mock credits never block a wired generation when the ledger is empty
   assert.equal(ticket.ok, true);
   assert.equal(ticket.delta, 0);
   assert.equal(useOpsStore.getState().credits.video, 0);
+});
+
+test("catalog falls back to template models when the live relays have no models for a capability", () => {
+  const textOnlyRelay = studioRelays().find((item) => item.id === "preset-hansyai");
+  assert.ok(textOnlyRelay);
+  const previousRelays = useStudioSession.getState().relays;
+  useStudioSession.setState({ relays: [textOnlyRelay] });
+  try {
+    const imageCards = liveCatalog("image", false);
+    assert.ok(imageCards.some((item) => item.model === "Qwen/Qwen-Image"));
+    assert.ok(imageCards.every((item) => !item.wired));
+  } finally {
+    useStudioSession.setState({ relays: previousRelays });
+  }
+});
+
+test("selectable catalog keeps an unwired template pool when no provider can run the capability", () => {
+  const textOnlyRelay = studioRelays().find((item) => item.id === "preset-hansyai");
+  assert.ok(textOnlyRelay);
+  const previousRelays = useStudioSession.getState().relays;
+  useStudioSession.setState({ relays: [textOnlyRelay] });
+  try {
+    const imageCards = selectableCatalog("image");
+    assert.ok(imageCards.some((item) => item.model === "grok-imagine-image"));
+    assert.ok(imageCards.every((item) => !item.wired));
+  } finally {
+    useStudioSession.setState({ relays: previousRelays });
+  }
+});
+
+test("template fallback never marks a model wired when its relay omits that capability model", () => {
+  const template = studioRelays().find((item) => item.id === "preset-modelscope");
+  assert.ok(template);
+  const relay = {
+    ...template,
+    apiKey: "synthetic-modelscope-key",
+    enabled: true,
+    models: [],
+    imageModels: [],
+  };
+  const previousRelays = useStudioSession.getState().relays;
+  useStudioSession.setState({ relays: [relay] });
+  try {
+    assert.equal(liveCatalog("image", true).some((item) => item.providerId === relay.id), false);
+    assert.equal(liveCatalog("image", false).find((item) => item.providerId === relay.id)?.wired, false);
+  } finally {
+    useStudioSession.setState({ relays: previousRelays });
+  }
 });

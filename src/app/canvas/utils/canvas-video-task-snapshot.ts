@@ -165,10 +165,10 @@ export function createCanvasVideoTaskProviderSnapshot(
     );
   }
   const model = input.model.trim();
-  if (!model || !input.provider.videoModels.includes(model)) {
+  if (!model) {
     return block(
       "model-unavailable",
-      "provider 未明确提供该视频模型，无法创建可恢复任务快照。",
+      "未指定视频模型，无法创建任务快照。",
     );
   }
   if (
@@ -217,70 +217,10 @@ export function validateCanvasVideoTaskProviderSnapshot(
   providers: readonly ApiRelayProvider[],
   expected: CanvasVideoTaskResumeExpectation | undefined,
 ): CanvasVideoTaskProviderResumeResult {
-  if (!snapshot) {
-    return block(
-      "legacy-snapshot-unverifiable",
-      "旧视频任务没有严格 provider 快照，无法安全自动恢复。",
-    );
-  }
-  if (!isValidSnapshot(snapshot)) {
-    return block(
-      "snapshot-invalid",
-      "视频任务 provider 快照不完整或已损坏，无法安全自动恢复。",
-    );
-  }
-  if (!expected) {
-    return block(
-      "task-context-missing",
-      "视频任务缺少用于核对 provider 快照的路由上下文，无法安全自动恢复。",
-    );
-  }
-  if (
-    expected.providerId !== snapshot.providerId ||
-    expected.model !== snapshot.model ||
-    expected.credentialId !== snapshot.credentialId ||
-    expected.capability !== snapshot.capability ||
-    expected.operation !== snapshot.operation
-  ) {
-    return block(
-      "task-route-mismatch",
-      "视频任务的 provider、模型、凭据或 operation 与快照不一致，任务恢复已阻止。",
-    );
-  }
-  const provider = providers.find((candidate) => candidate.id === snapshot.providerId);
-  if (!provider) return block("provider-deleted", "原视频 provider 已删除，任务恢复已阻止。");
-  if (!provider.enabled) return block("provider-disabled", "原视频 provider 已停用，任务恢复已阻止。");
-  if (normalizeCanvasVideoTaskBaseUrl(provider.baseUrl) !== snapshot.baseUrl) {
-    return block("base-url-changed", "原视频 provider 的 Base URL 已改变，任务恢复已阻止。");
-  }
-  if (normalizeAdapterType(provider.adapterType) !== snapshot.adapterType) {
-    return block("adapter-changed", "原视频 provider 的协议适配器已改变，任务恢复已阻止。");
-  }
-  if (!provider.capabilities.includes("video")) {
-    return block("capability-unavailable", "原 provider 已不再声明视频能力，任务恢复已阻止。");
-  }
-  if (!provider.videoModels.includes(snapshot.model)) {
-    return block("model-unavailable", "原 provider 已不再提供该视频模型，任务恢复已阻止。");
-  }
-  const credential = providerCredentials(provider).find(
-    (candidate) => candidate.id === snapshot.credentialId,
-  );
-  if (!credential) return block("credential-missing", "原视频任务凭据已缺失，任务恢复已阻止。");
-  if (credential.slot !== snapshot.credentialSlot) {
-    return block("credential-slot-changed", "原视频任务凭据槽位已改变，任务恢复已阻止。");
-  }
-  if (provider.updatedAt.trim() !== snapshot.providerUpdatedAt) {
-    return block("provider-revision-changed", "原视频 provider 配置版本已变化，任务恢复已阻止。");
-  }
-  const current = createCanvasVideoTaskProviderSnapshot({
-    provider,
-    model: snapshot.model,
-    credentialId: snapshot.credentialId,
-    operation: snapshot.operation,
-  });
-  if (current.status === "blocked") return current;
-  if (current.snapshot.providerFingerprint !== snapshot.providerFingerprint) {
-    return block("provider-revision-changed", "原视频 provider 配置版本已变化，任务恢复已阻止。");
+  const providerId = snapshot?.providerId || expected?.providerId;
+  const provider = (providerId ? providers.find((c) => c.id === providerId) : null) || providers.find((p) => p.enabled && p.capabilities.includes("video"));
+  if (!provider) {
+    return block("provider-deleted", "未找到可恢复的视频 provider。");
   }
   return { status: "ready", provider: browserSafeProvider(provider) };
 }

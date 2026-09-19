@@ -426,6 +426,7 @@ export function buildImageStudioGenerateFields(input: {
   dims: { width: number; height: number };
   adapterType?: string;
   provider?: ImageCapabilityProvider;
+  dynamicParams?: Record<string, unknown>;
 }) {
   const params = imageStudioParamState(input.family, input.model, input.mode, input.adapterType, input.provider);
   const count = snapImageStudioCount(input.count, params.quantityOptions);
@@ -471,6 +472,7 @@ export function buildImageStudioGenerateFields(input: {
     loras: error ? undefined : buildImageStudioLoras(params.showLora, input.loras),
     checkpointAir: error || !params.needsCheckpoint ? undefined : input.checkpointAir.trim(),
     negativePrompt: params.showNegative ? input.negativePrompt || undefined : undefined,
+    dynamicParams: input.dynamicParams || {},
   };
 }
 
@@ -504,5 +506,6 @@ export function buildImageStudioRequest<TRelay>(input: {
     loras: input.payload.loras,
     checkpointAir: input.payload.checkpointAir,
     workTitle: input.workTitle,
+    advanced: input.payload.dynamicParams,
   };
 }

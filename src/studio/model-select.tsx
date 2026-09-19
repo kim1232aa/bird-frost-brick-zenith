@@ -81,7 +81,9 @@ export function StudioModelField({
 }) {
   useStudioSession((state) => state.relays);
   useOpsStore((state) => state.unlisted);
-  const cards = incoming?.length ? incoming : liveCatalog(kind, true);
+  const wiredCards = liveCatalog(kind, true);
+  const allCards = liveCatalog(kind, false);
+  const cards = incoming?.length ? incoming : (wiredCards.length ? wiredCards : allCards);
   const groups = useMemo(() => {
     const map = new Map<string, ModelCard[]>();
     for (const card of cards) {
