@@ -1789,10 +1789,11 @@ function resolveFal(model: string, operation: ImageOperation, provider?: ImageCa
 
 function resolveArk(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
     const key = normalizeModelKey(model);
-    if (!key.includes("seedream")) return unknownNativeResolved(operation, model, provider, "Ark 图片模型合同未识别");
-    if (operation === "generate") return resolvedProfile("ark-seedream-generate", model, provider, false, "Ark Seedream model ID");
-    if (operation === "edit") return resolvedProfile("ark-seedream-edit", model, provider, false, "Ark Seedream model ID");
-    return unsupportedResolved(operation, model, provider, "Ark Seedream 当前只验证了生成和参考图编辑");
+    const isImageModel = key.includes("seedream") || key.startsWith("ark-") || key.includes("doubao");
+    if (!isImageModel) return unknownNativeResolved(operation, model, provider, "Ark 图片模型合同未识别");
+    if (operation === "generate") return resolvedProfile("ark-seedream-generate", model, provider, false, "Ark Seedream / Endpoint ID");
+    if (operation === "edit") return resolvedProfile("ark-seedream-edit", model, provider, false, "Ark Seedream / Endpoint ID");
+    return resolvedProfile("ark-seedream-generate", model, provider, false, "Ark Seedream / Endpoint ID");
 }
 
 function resolveSenseNova(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {

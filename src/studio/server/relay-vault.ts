@@ -485,17 +485,24 @@ export function envSeededRelays(): EnvSeededRelay[] {
   if (volcengineKey && volcengineBaseUrl) {
     const arkTextEp = ["ark", "8c2c51f6", "b302-48fc-8f26-207f83bd8129-b50b0"].join("-");
     const arkImageEp = ["ark", "7dba6482", "ede8-4905-b858-cc9a558ce1d0-45616"].join("-");
+    const arkSeedream5LiteEp = ["ark", "8965f7dc", "a069-4b32-a536-605c1cf8ff4c-de941"].join("-");
     seeded.push({
       id: "preset-volcengine-plan",
       apiKey: volcengineKey,
       baseUrl: volcengineBaseUrl,
       models: [
+        arkSeedream5LiteEp,
+        "doubao-seedream-5.0-lite",
+        "doubao-seedream-5.0",
         arkTextEp,
         arkImageEp,
         "doubao-seedream-5-0-260128",
         "doubao-seedance-2-0-260128",
       ],
       imageModels: [
+        arkSeedream5LiteEp,
+        "doubao-seedream-5.0-lite",
+        "doubao-seedream-5.0",
         arkTextEp,
         arkImageEp,
         "doubao-seedream-5-0-260128",

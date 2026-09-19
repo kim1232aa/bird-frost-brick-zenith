@@ -4,6 +4,7 @@ import { CIVITAI_IMAGE_SERVICE_IDS, CIVITAI_VIDEO_SERVICE_IDS } from "../service
 export const TOKEN_PLAN_PRESET_ID = "preset-aliyun-tokenplan";
 const ARK_TEXT_EP = ["ark", "8c2c51f6", "b302-48fc-8f26-207f83bd8129-b50b0"].join("-");
 const ARK_IMAGE_EP = ["ark", "7dba6482", "ede8-4905-b858-cc9a558ce1d0-45616"].join("-");
+const ARK_SEEDREAM_5_LITE_EP = ["ark", "8965f7dc", "a069-4b32-a536-605c1cf8ff4c-de941"].join("-");
 
 type TokenPlanRelayShape = {
     id?: string;
@@ -87,6 +88,9 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
         models: [
             ARK_TEXT_EP,
             ARK_IMAGE_EP,
+            ARK_SEEDREAM_5_LITE_EP,
+            "doubao-seedream-5.0-lite",
+            "doubao-seedream-5.0",
             "doubao-seedream-5-0-lite-260128",
             "doubao-seedream-5-0-260128",
             "doubao-seedream-4-5-251128",
@@ -97,7 +101,17 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
             "doubao-seedance-1-5-pro-251215",
         ],
         textModels: [ARK_TEXT_EP, ARK_IMAGE_EP],
-        imageModels: [ARK_TEXT_EP, ARK_IMAGE_EP, "doubao-seedream-5-0-lite-260128", "doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-250828"],
+        imageModels: [
+            ARK_SEEDREAM_5_LITE_EP,
+            "doubao-seedream-5.0-lite",
+            "doubao-seedream-5.0",
+            ARK_TEXT_EP,
+            ARK_IMAGE_EP,
+            "doubao-seedream-5-0-lite-260128",
+            "doubao-seedream-5-0-260128",
+            "doubao-seedream-4-5-251128",
+            "doubao-seedream-4-0-250828",
+        ],
         videoModels: [ARK_IMAGE_EP, "doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128", "doubao-seedance-2-0-mini-260615", "doubao-seedance-1-5-pro-251215"],
         videoCapabilityProfiles: {
             [ARK_IMAGE_EP]: "ark-seedance-2",
@@ -105,6 +119,35 @@ export const PRESET_RELAY_ENDPOINTS: Array<Partial<ApiRelayProvider>> = [
             "doubao-seedance-2-0-fast-260128": "ark-seedance-2-fast",
             "doubao-seedance-2-0-mini-260615": "ark-seedance-2-mini",
             "doubao-seedance-1-5-pro-251215": "ark-seedance-legacy",
+        },
+        audioModels: [],
+    },
+    {
+        id: "preset-volcengine-official",
+        name: "火山方舟官方 (Agent Plan)",
+        baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3",
+        apiKey: "",
+        adapterType: "ark",
+        enabled: true,
+        capabilities: ["text", "image", "video"],
+        remark: "火山方舟官方 Agent Plan 端点直连 (/images/generations)",
+        models: [
+            "doubao-seedream-5.0-lite",
+            "doubao-seedream-5.0",
+            ARK_SEEDREAM_5_LITE_EP,
+            ARK_TEXT_EP,
+            ARK_IMAGE_EP,
+        ],
+        textModels: [ARK_TEXT_EP],
+        imageModels: [
+            "doubao-seedream-5.0-lite",
+            "doubao-seedream-5.0",
+            ARK_SEEDREAM_5_LITE_EP,
+            ARK_IMAGE_EP,
+        ],
+        videoModels: [ARK_IMAGE_EP],
+        videoCapabilityProfiles: {
+            [ARK_IMAGE_EP]: "ark-seedance-2",
         },
         audioModels: [],
     },
