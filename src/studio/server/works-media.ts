@@ -84,9 +84,21 @@ export async function uploadStudioWorkMedia(
     if (!remoteUrl || (!remoteUrl.startsWith("http://") && !remoteUrl.startsWith("https://"))) {
       return jsonResponse(400, { ok: false, error: "无效的 remoteUrl" });
     }
-    const remoteResp = await fetch(remoteUrl);
-    if (!remoteResp.ok) {
-      return jsonResponse(502, { ok: false, error: `下载远程媒体失败：${remoteResp.status}` });
+    const remoteResp = await fetch(remoteUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "image/*,video/*,*/*",
+      },
+    }).catch((err) => {
+      console.warn("下载远程媒体网络异常：", err);
+      return null;
+    });
+    if (!remoteResp || !remoteResp.ok) {
+      return jsonResponse(200, {
+        ok: true,
+        url: remoteUrl,
+        warning: `远程媒体未能落盘 (${remoteResp?.status || "网络异常"})，已保留原直链`,
+      });
     }
     const remoteMime = remoteResp.headers.get("content-type") || "image/jpeg";
     const bytes = new Uint8Array(await remoteResp.arrayBuffer());

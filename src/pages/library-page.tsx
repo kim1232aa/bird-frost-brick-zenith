@@ -45,15 +45,34 @@ function WorkCard({
   onRemove?: (id: string) => void;
 }) {
   const navigate = useNavigate();
+  const rawUrl = item.urls[0] || "";
+  const [useProxy, setUseProxy] = useState(false);
   const [broken, setBroken] = useState(false);
   const status = studioHistoryPersistStatus(item);
+
+  const displayUrl = useMemo(() => {
+    if (!rawUrl) return "";
+    if (useProxy && (rawUrl.startsWith("http://") || rawUrl.startsWith("https://"))) {
+      return `/client-api/fetch-url?url=${encodeURIComponent(rawUrl)}`;
+    }
+    return rawUrl;
+  }, [rawUrl, useProxy]);
+
+  const handleMediaError = () => {
+    if (!useProxy && (rawUrl.startsWith("http://") || rawUrl.startsWith("https://"))) {
+      setUseProxy(true);
+    } else {
+      setBroken(true);
+    }
+  };
+
   return (
     <article className="library-card" data-persist-status={status}>
       <div className="library-card-media">
-        {item.urls[0] && !broken ? (
+        {displayUrl && !broken ? (
           item.kind === "video" ? (
             <video
-              src={item.urls[0]}
+              src={displayUrl}
               controls
               muted
               playsInline
@@ -61,22 +80,34 @@ function WorkCard({
               width={640}
               height={360}
               aria-label={`${item.title} 视频`}
-              onError={() => setBroken(true)}
+              onError={handleMediaError}
             />
           ) : (
             <img
-              src={item.urls[0]}
+              src={displayUrl}
               alt={item.title}
               width={640}
               height={480}
               loading={sample ? "lazy" : "eager"}
               referrerPolicy="no-referrer"
-              onError={() => setBroken(true)}
+              onError={handleMediaError}
             />
           )
         ) : (
-          <div className="shot-empty" role="img" aria-label={`${item.title} 媒体不可用`}>
-            {broken ? "原图丢失" : item.kind}
+          <div className="shot-empty flex flex-col items-center justify-center gap-1.5 p-2 text-center" role="img" aria-label={`${item.title} 媒体不可用`}>
+            <span className="text-xs opacity-75">{broken ? "原图加载失败" : item.kind}</span>
+            {broken && rawUrl ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setBroken(false);
+                  setUseProxy(true);
+                }}
+                className="text-[11px] text-blue-600 hover:underline px-2 py-0.5 rounded bg-white/80 shadow-sm"
+              >
+                代理重试
+              </button>
+            ) : null}
           </div>
         )}
       </div>
