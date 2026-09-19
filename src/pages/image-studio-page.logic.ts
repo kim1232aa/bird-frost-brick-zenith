@@ -32,6 +32,21 @@ export type ImageStudioParamState = {
   referenceMin: number;
   referenceMax: number | null;
   referenceNote?: string;
+  showSteps: boolean;
+  defaultSteps?: number;
+  showCfgScale: boolean;
+  defaultCfgScale?: number;
+  showOutputFormat: boolean;
+  defaultOutputFormat?: "jpeg" | "png" | "webp";
+  outputFormatOptions?: Array<"jpeg" | "png" | "webp">;
+  showSampler: boolean;
+  samplerOptions?: string[];
+  defaultSampler?: string;
+  showScheduler: boolean;
+  schedulerOptions?: string[];
+  defaultScheduler?: string;
+  showDenoise: boolean;
+  defaultDenoise?: number;
 };
 
 function studioOperation(mode: ImageStudioMode): ImageOperation {
@@ -351,6 +366,19 @@ export function imageStudioParamState(
     showAspect: capability.size.state === "supported",
     showQuality: qualityOptions.length > 0,
     qualityOptions,
+    showSteps: civitai || capability.advancedFields.steps.state === "supported",
+    defaultSteps: model.includes("krea") ? 9 : model.includes("turbo") ? 8 : 25,
+    showCfgScale: civitai || capability.advancedFields.cfgScale.state === "supported",
+    defaultCfgScale: model.includes("krea") ? 1.0 : 7.0,
+    showOutputFormat: civitai || capability.outputFormat.state === "supported",
+    defaultOutputFormat: "jpeg",
+    outputFormatOptions: ["jpeg", "png", "webp"],
+    showSampler: civitai && !model.includes("krea"),
+    samplerOptions: ["Euler", "Euler a", "DPM++ 2M Karras", "DPM++ SDE Karras", "DDIM"],
+    showScheduler: civitai && !model.includes("krea"),
+    schedulerOptions: ["Karras", "sgm_uniform", "Normal", "Exponential"],
+    showDenoise: mode !== "t2i",
+    defaultDenoise: 0.75,
     ...references,
   };
 }
@@ -427,6 +455,12 @@ export function buildImageStudioGenerateFields(input: {
   adapterType?: string;
   provider?: ImageCapabilityProvider;
   dynamicParams?: Record<string, unknown>;
+  steps?: number;
+  cfgScale?: number;
+  outputFormat?: "jpeg" | "png" | "webp";
+  sampler?: string;
+  scheduler?: string;
+  denoise?: number;
 }) {
   const params = imageStudioParamState(input.family, input.model, input.mode, input.adapterType, input.provider);
   const count = snapImageStudioCount(input.count, params.quantityOptions);
@@ -441,6 +475,12 @@ export function buildImageStudioGenerateFields(input: {
     error: error || undefined,
     params,
     count,
+    steps: typeof input.steps === "number" ? input.steps : params.defaultSteps,
+    cfgScale: typeof input.cfgScale === "number" ? input.cfgScale : params.defaultCfgScale,
+    outputFormat: input.outputFormat || params.defaultOutputFormat,
+    sampler: input.sampler || params.defaultSampler,
+    scheduler: input.scheduler || params.defaultScheduler,
+    denoise: typeof input.denoise === "number" ? input.denoise : params.defaultDenoise,
     size:
       input.family === "ark"
         ? input.size
@@ -505,6 +545,12 @@ export function buildImageStudioRequest<TRelay>(input: {
     operation: input.mode === "t2i" ? "generate" as const : "edit" as const,
     loras: input.payload.loras,
     checkpointAir: input.payload.checkpointAir,
+    steps: input.payload.steps,
+    cfgScale: input.payload.cfgScale,
+    outputFormat: input.payload.outputFormat,
+    sampler: input.payload.sampler,
+    scheduler: input.payload.scheduler,
+    denoise: input.payload.denoise,
     workTitle: input.workTitle,
     advanced: input.payload.dynamicParams,
   };

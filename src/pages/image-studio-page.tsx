@@ -91,6 +91,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const setReferences = useMediaDraft((state) => state.setReferences);
   const [loras, setLoras] = useState<Array<{ resource: string; weight: number }>>([{ resource: "", weight: 1 }]);
   const [checkpointAir, setCheckpointAir] = useState("");
+  const [steps, setSteps] = useState<number | undefined>(undefined);
+  const [cfgScale, setCfgScale] = useState<number | undefined>(undefined);
+  const [outputFormat, setOutputFormat] = useState<"jpeg" | "png" | "webp">("jpeg");
   const [dynamicParams, setDynamicParams] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -131,7 +134,27 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const seeds = useMemo(() => GALLERY_SEED.filter((item) => item.kind === "image"), []);
   const studioModel = card?.model || selectedModel || "";
   const civitaiModel = family === "civitai" ? studioModel : "";
-  const { showLora, loraShape, needsCheckpoint, quantityMax, quantityOptions, showNegative, showAspect, showQuality, qualityOptions, showSeed, referenceMin, referenceMax, referencesSupported } = imageStudioParamState(
+  const {
+    showLora,
+    loraShape,
+    needsCheckpoint,
+    quantityMax,
+    quantityOptions,
+    showNegative,
+    showAspect,
+    showQuality,
+    qualityOptions,
+    showSeed,
+    referenceMin,
+    referenceMax,
+    referencesSupported,
+    showSteps,
+    defaultSteps,
+    showCfgScale,
+    defaultCfgScale,
+    showOutputFormat,
+    outputFormatOptions,
+  } = imageStudioParamState(
     family,
     studioModel,
     mode,
@@ -233,6 +256,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       adapterType: selectedRelay?.adapterType,
       provider: selectedRelay,
       dynamicParams,
+      steps,
+      cfgScale,
+      outputFormat,
     });
     if (payload.error) {
       setError(payload.error);
@@ -488,6 +514,56 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
               种子
               <input value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="可空" />
             </label>
+          ) : null}
+          {showSteps || showCfgScale || showOutputFormat ? (
+            <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-black/5">
+              {showSteps ? (
+                <label className="text-xs">
+                  <span className="block opacity-70 mb-1">迭代步数 (Steps)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={steps ?? defaultSteps ?? 20}
+                    onChange={(e) => setSteps(parseInt(e.target.value) || undefined)}
+                    className="w-full rounded border px-2 py-1 text-xs outline-none"
+                    placeholder={`默认 ${defaultSteps || 20}`}
+                  />
+                </label>
+              ) : null}
+              {showCfgScale ? (
+                <label className="text-xs">
+                  <span className="block opacity-70 mb-1">CFG 引导系数</span>
+                  <input
+                    type="number"
+                    min={0.1}
+                    max={30}
+                    step={0.5}
+                    value={cfgScale ?? defaultCfgScale ?? 7}
+                    onChange={(e) => setCfgScale(parseFloat(e.target.value) || undefined)}
+                    className="w-full rounded border px-2 py-1 text-xs outline-none"
+                    placeholder={`默认 ${defaultCfgScale || 7}`}
+                  />
+                </label>
+              ) : null}
+              {showOutputFormat ? (
+                <label className="text-xs col-span-2">
+                  <span className="block opacity-70 mb-1">输出格式</span>
+                  <div className="studio-seg !mt-0">
+                    {(outputFormatOptions || ["jpeg", "png", "webp"]).map((fmt: string) => (
+                      <button
+                        key={fmt}
+                        type="button"
+                        className={outputFormat === fmt ? "is-active" : undefined}
+                        onClick={() => setOutputFormat(fmt as any)}
+                      >
+                        {fmt.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+              ) : null}
+            </div>
           ) : null}
           {needsCheckpoint ? (
             <label>
