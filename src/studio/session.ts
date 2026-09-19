@@ -207,8 +207,9 @@ export const useStudioSession = create<StudioSession>()(
               try {
                 const { fetchDynamicModelsForProvider } = await import("@/services/api/dynamic-model-registry");
                 const currentRelays = get().relays;
-                for (const relay of currentRelays) {
-                  if (relay.enabled && (relay.hasApiKey || relay.apiKey)) {
+                const activeRelays = currentRelays.filter((relay) => relay.enabled && (relay.hasApiKey || relay.apiKey));
+                await Promise.allSettled(
+                  activeRelays.map(async (relay) => {
                     try {
                       const reg = await fetchDynamicModelsForProvider(relay.id, {
                         request: async () => {
@@ -217,7 +218,7 @@ export const useStudioSession = create<StudioSession>()(
                             provider: relay,
                             path: relay.endpoints?.models || "/models",
                             method: "GET",
-                            timeoutMs: 15_000,
+                            timeoutMs: 2500,
                           });
                         },
                       });
@@ -243,10 +244,10 @@ export const useStudioSession = create<StudioSession>()(
                         }
                       }
                     } catch {}
-                  }
-                }
+                  })
+                );
               } catch {}
-            }, 500);
+            }, 3000);
           }
         } catch (err) {
           const raw = err instanceof Error ? err.message : String(err);

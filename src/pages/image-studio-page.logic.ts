@@ -345,8 +345,16 @@ export function imageStudioParamState(
   provider?: ImageCapabilityProvider,
 ): ImageStudioParamState {
   const civitai = family === "civitai";
+  const isKrea = /krea/i.test(model);
+  const isGrok = /grok/i.test(model);
+  const isCivitaiOrDiffusion =
+    (civitai || isKrea || /sdxl|flux|comfy|diffusion|turbo/i.test(model)) &&
+    !isGrok &&
+    family !== "ark" &&
+    family !== "grok" &&
+    family !== "gpt";
   const capability = studioImageCapability({ family, model, mode, adapterType, provider });
-  const loraShape: CivitaiLoraShape | undefined = civitai ? civitaiImageLoraShape(model) : undefined;
+  const loraShape: CivitaiLoraShape | undefined = (civitai || isCivitaiOrDiffusion) ? civitaiImageLoraShape(model) : undefined;
   const quantityMax = capabilityQuantityMax(family, model, mode, adapterType, provider);
   const references = capabilityReferenceState(family, model, mode, adapterType, provider);
   const qualityOptions = qualityOptionsForCapability(family, capability);
@@ -366,16 +374,16 @@ export function imageStudioParamState(
     showAspect: capability.size.state === "supported",
     showQuality: qualityOptions.length > 0,
     qualityOptions,
-    showSteps: civitai || capability.advancedFields.steps.state === "supported",
-    defaultSteps: model.includes("krea") ? 9 : model.includes("turbo") ? 8 : 25,
-    showCfgScale: civitai || capability.advancedFields.cfgScale.state === "supported",
-    defaultCfgScale: model.includes("krea") ? 1.0 : 7.0,
-    showOutputFormat: civitai || capability.outputFormat.state === "supported",
+    showSteps: (civitai && model !== "civitai-grok") || (capability.advancedFields.steps.state === "supported" && family !== "sensenova"),
+    defaultSteps: isKrea ? 9 : model.includes("turbo") ? 8 : 25,
+    showCfgScale: (civitai && model !== "civitai-grok") || capability.advancedFields.cfgScale.state === "supported",
+    defaultCfgScale: isKrea ? 1.0 : 7.0,
+    showOutputFormat: (civitai && model !== "civitai-grok") || (capability.outputFormat.state === "supported" && capability.outputFormat.requestable !== false),
     defaultOutputFormat: "jpeg",
     outputFormatOptions: ["jpeg", "png", "webp"],
-    showSampler: civitai && !model.includes("krea"),
+    showSampler: (civitai && !isKrea && model !== "civitai-grok"),
     samplerOptions: ["Euler", "Euler a", "DPM++ 2M Karras", "DPM++ SDE Karras", "DDIM"],
-    showScheduler: civitai && !model.includes("krea"),
+    showScheduler: isCivitaiOrDiffusion && !isKrea,
     schedulerOptions: ["Karras", "sgm_uniform", "Normal", "Exponential"],
     showDenoise: mode !== "t2i",
     defaultDenoise: 0.75,
