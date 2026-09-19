@@ -10585,10 +10585,10 @@ function InfiniteCanvasPage() {
                 ),
               );
               if (!storyPromptPlan.transportAllowed) {
-                throw new Error(`分镜参考图无法提交：${storyImageReferenceWarningText(referencePlan.selection) || storyPromptPlan.submissionBlockReason || "参考图合同未验证"}`);
+                console.warn(`分镜参考图未就绪或未验证，降级为纯文本提示词提交出图：${storyImageReferenceWarningText(referencePlan.selection) || storyPromptPlan.submissionBlockReason || "参考图未就绪"}`);
               }
               const prompt = storyPromptPlan.prompt;
-              const references = storyReferenceDelivery.references;
+              const references = storyPromptPlan.transportAllowed ? storyReferenceDelivery.references : [];
               const operation: ImageRequestOperation = storyPromptPlan.operation;
               const requestImageConfig = applyActiveNodeImageAdvancedSnapshot(
                 imageConfig,
@@ -10866,10 +10866,10 @@ function InfiniteCanvasPage() {
               ),
             );
             if (!storyPromptPlan.transportAllowed) {
-              throw new Error(`分镜参考图无法提交：${storyImageReferenceWarningText(referencePlan.selection) || storyPromptPlan.submissionBlockReason || "参考图合同未验证"}`);
+              console.warn(`分镜参考图未就绪或未验证，降级为纯文本提示词提交出图：${storyImageReferenceWarningText(referencePlan.selection) || storyPromptPlan.submissionBlockReason || "参考图未就绪"}`);
             }
             const prompt = storyPromptPlan.prompt;
-            const references = storyReferenceDelivery.references;
+            const references = storyPromptPlan.transportAllowed ? storyReferenceDelivery.references : [];
             const operation: ImageRequestOperation = storyPromptPlan.operation;
             const requestImageConfig = applyActiveNodeImageAdvancedSnapshot(
               imageConfig,
