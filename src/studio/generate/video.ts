@@ -30,9 +30,15 @@ function cropStudioVideoReferences(input: {
   const refsSupported = policy?.supported === true;
   const firstLast = Boolean(capability.supportsFirstLastFrame || capability.requiresFirstLastFrame);
   const first = Boolean(capability.supportsFirstFrame || firstLast);
-  let imageUrl = first ? input.imageUrl : undefined;
-  let lastFrameUrl = firstLast ? input.lastFrameUrl : undefined;
+  let imageUrl = input.imageUrl;
+  let lastFrameUrl = input.lastFrameUrl;
   let imageUrls = input.imageUrls;
+
+  // 提升首帧容错：传入了单个 imageUrl 但未传 imageUrls 时自动包装
+  if (imageUrl && (!imageUrls || imageUrls.length === 0)) {
+    imageUrls = [imageUrl];
+  }
+
   if (refsSupported) {
     const max = policy.max;
     if (typeof max === "number" && imageUrls) imageUrls = imageUrls.slice(0, Math.max(0, max));
@@ -41,10 +47,9 @@ function cropStudioVideoReferences(input: {
   } else if (first) {
     imageUrls = imageUrl ? [imageUrl] : undefined;
     lastFrameUrl = undefined;
-  } else {
-    imageUrl = undefined;
-    lastFrameUrl = undefined;
-    imageUrls = undefined;
+  } else if (imageUrl || lastFrameUrl || (imageUrls && imageUrls.length > 0)) {
+    // 若用户上传了参考图但当前模型明确为纯文本模型，抛出友好错误提示，绝不静默吞掉参考图
+    throw new Error(`当前模型「${input.model}」未开启图生视频能力（不支持首帧/参考图）。请切换为图生视频模型或移除参考图后再试。`);
   }
   return { imageUrl, lastFrameUrl, imageUrls };
 }

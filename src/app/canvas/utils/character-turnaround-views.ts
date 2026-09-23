@@ -135,6 +135,7 @@ function orderedCharacterDerivedViews(views: readonly CharacterDerivedView[]) {
 function loadImage(sourceUrl: string) {
     return new Promise<HTMLImageElement>((resolve, reject) => {
         const image = new Image();
+        image.crossOrigin = "anonymous";
         image.onload = () => resolve(image);
         image.onerror = () => reject(new Error("无法读取角色 turnaround 图。"));
         image.src = sourceUrl;

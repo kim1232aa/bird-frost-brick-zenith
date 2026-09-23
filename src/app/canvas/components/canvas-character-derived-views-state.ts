@@ -33,7 +33,11 @@ export function characterDerivedViewsUiState(
   nodeId: string,
 ): CharacterDerivedViewsUiState {
   if (metadata?.storyCharacterAssetKind !== "turnaround_sheet") return "hidden";
-  if (metadata.characterDerivedViewsStatus === "error") return "error";
+  if (
+    metadata.characterDerivedViewsStatus === "error" ||
+    metadata.characterDerivedViewsStatus === "failed"
+  )
+    return "error";
   if (!metadata.storageKey) return "hidden";
   return hasCompleteCharacterDerivedViews(
     metadata.characterDerivedViews,

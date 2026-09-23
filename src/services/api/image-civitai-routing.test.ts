@@ -343,4 +343,10 @@ test("static GPT Studio edit forwards operation, settings, count, and every refe
   assert.equal(input.n, 3);
   assert.equal(input.imageUrl, references[0].dataUrl);
   assert.deepEqual(input.imageUrls, references.map((reference) => reference.dataUrl));
+
+  const emptyImages = await requestEdit(config, "text-only fallback", []);
+  assert.equal(emptyImages.length, 3);
+  const emptyInput = studioCalls.at(-1) as { operation?: string; imageUrls?: string[] };
+  assert.equal(emptyInput.operation, "generate");
+  assert.deepEqual(emptyInput.imageUrls, []);
 });

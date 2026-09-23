@@ -118,8 +118,11 @@ function storyPromptOperation(input: Pick<
   StoryImagePromptPlanInput<readonly unknown[], unknown>,
   "references" | "referenceIntent" | "requestedOperation"
 >): CanvasImageOperation {
+  if (input.references.length === 0 && (input.requestedOperation === "edit" || input.referenceIntent === true)) {
+    return "generate";
+  }
   if (input.requestedOperation) return input.requestedOperation;
-  return input.referenceIntent === true || input.references.length > 0 ? "edit" as const : "generate" as const;
+  return input.references.length > 0 ? "edit" as const : "generate" as const;
 }
 
 export function buildLegacyStoryReferenceLines(input: {
@@ -225,42 +228,51 @@ function buildSingleShotPrompt<TReferences extends readonly unknown[], TRouting>
   const names = appearingNames(shot, input.characters);
   const referenceAppendix = positiveReferenceAppendix(input.referenceAppendix, input.references);
   if (constraintStyle === "positive-only") {
+    const scene = sceneDescription(shot, input.scenes);
+    const visualLines = positiveShotVisualLines(shot);
+    const detailLines = [
+      `当前镜头：第 ${shot.index} 镜${shot.title ? `，${shot.title}` : ""}`,
+      scene ? `场景：${scene}` : "",
+      nonBlank(shot.action) ? `动作：${shot.action}` : "",
+      nonBlank(shot.camera) ? `景别：${shot.camera}` : "",
+      nonBlank(shot.emotion) ? `情绪：${shot.emotion}` : "",
+      visualLines,
+      nonBlank(shot.continuityNote) ? `连续性：${shot.continuityNote}` : "",
+    ].filter(Boolean).join("\n");
     return `故事分镜图片。画面比例：${input.aspectRatio}。画面风格：${input.style}。
 
 主体数量与身份：
 ${positiveCastContract(names)}
 ${positiveIdentityWardrobeContract(names)}
 
-当前镜头：第 ${shot.index} 镜，${shot.title || "故事镜头"}
-场景：${sceneDescription(shot, input.scenes)}
-动作：${shot.action || "符合剧情的明确动作"}
-景别：${shot.camera || "电影感中景"}
-情绪：${shot.emotion || "符合剧情"}
-${positiveShotVisualLines(shot)}
-连续性：${shot.continuityNote || "保持故事、角色、服装与场景连贯"}${referenceAppendix}`;
+${detailLines}${referenceAppendix}`;
   }
 
   const excluded = excludedNames(shot, input.characters);
   const legacyReferenceLines = nonBlank(input.legacyReferenceLines)
     ? `参考图片编号：\n${input.legacyReferenceLines}\n`
     : "";
+  const visualContentLine = nonBlank(shot.visualContent)
+    ? `画面内容：${shot.visualContent}`
+    : (nonBlank(shot.imagePrompt) ? `画面内容：${shot.imagePrompt}` : "");
+  const shotLines = [
+    `当前镜头：第 ${shot.index} 镜${shot.title ? `，${shot.title}` : ""}`,
+    nonBlank(shot.action) ? `动作：${shot.action}` : "",
+    nonBlank(shot.camera) ? `景别：${shot.camera}` : "",
+    nonBlank(shot.emotion) ? `情绪：${shot.emotion}` : "",
+    visualContentLine,
+    nonBlank(shot.continuityNote) ? `连续性：${shot.continuityNote}` : "",
+  ].filter(Boolean).join("\n");
+  const promptBody = nonBlank(shot.imagePrompt) ? `\n\n${shot.imagePrompt}` : "";
   return `画面比例 ${input.aspectRatio}，${input.style}。
 
 最高优先级人物数量规则：
 ${legacySingleInstanceRule(names)}
 参考图只是身份卡和服装卡，只提取脸型、发型、服装、配色和气质；不要复制参考图里的构图、人数、多视角、多姿态或多个站位。
 
-当前镜头：第 ${shot.index} 镜，${shot.title || ""}
-动作：${shot.action || ""}
-景别：${shot.camera || "电影感中景"}
-情绪：${shot.emotion || "符合剧情"}
-画面内容：${shot.visualContent || shot.imagePrompt}
-连续性：${shot.continuityNote || "保持故事连贯"}
+${shotLines}${promptBody}
 
-${shot.imagePrompt}
-
-${legacyReferenceLines}
-本镜头只出现：${names.length ? names.join("、") : "镜头描述中指定的人物"}。
+${legacyReferenceLines}本镜头只出现：${names.length ? names.join("、") : "镜头描述中指定的人物"}。
 不要出现：${excluded.length ? excluded.join("、") : "未在本镜头出现的其他主要角色"}。
 不要把同一角色画成多个分身、复制人、镜像人物、远近两个版本、背景人物、群众、画像、雕像、屏幕画面、投影或倒影。不要让角色串脸，不要加入无关人物，不要文字、水印、logo。`;
 }
@@ -273,15 +285,20 @@ function buildGrid9Prompt<TReferences extends readonly unknown[], TRouting>(
   if (constraintStyle === "positive-only") {
     const cells = input.shots.map((shot, index) => {
       const names = appearingNames(shot, input.characters);
-      return `格${index + 1} / 第${shot.index}镜《${shot.title || "故事镜头"}》
-${positiveCastContract(names)}
-${positiveIdentityWardrobeContract(names)}
-场景：${sceneDescription(shot, input.scenes)}
-动作：${shot.action || "符合剧情的明确动作"}
-景别：${shot.camera || "电影感中景"}
-情绪：${shot.emotion || "符合剧情"}
-${positiveShotVisualLines(shot)}
-连续性：${shot.continuityNote || "承接相邻镜头的角色、服装与场景状态"}`;
+      const scene = sceneDescription(shot, input.scenes);
+      const visualLines = positiveShotVisualLines(shot);
+      const cellDetails = [
+        `格${index + 1} / 第${shot.index}镜${shot.title ? `《${shot.title}》` : ""}`,
+        positiveCastContract(names),
+        positiveIdentityWardrobeContract(names),
+        scene ? `场景：${scene}` : "",
+        nonBlank(shot.action) ? `动作：${shot.action}` : "",
+        nonBlank(shot.camera) ? `景别：${shot.camera}` : "",
+        nonBlank(shot.emotion) ? `情绪：${shot.emotion}` : "",
+        visualLines,
+        nonBlank(shot.continuityNote) ? `连续性：${shot.continuityNote}` : "",
+      ].filter(Boolean).join("\n");
+      return cellDetails;
     }).join("\n\n");
     return `生成一张 3x3 九宫格连续分镜图。整体画面比例：${input.aspectRatio}。画面风格：${input.style}。
 
@@ -293,15 +310,21 @@ ${cells}`;
   const cells = input.shots.map((shot, index) => {
     const names = appearingNames(shot, input.characters);
     const excluded = excludedNames(shot, input.characters);
-    return `格${index + 1} / 第${shot.index}镜《${shot.title || ""}》
-动作：${shot.action || ""}
-景别：${shot.camera || "电影感中景"}
-情绪：${shot.emotion || "符合剧情"}
-画面内容：${shot.visualContent || shot.imagePrompt}
-画面：${shot.imagePrompt}
-只出现：${names.join("、") || "镜头描述中指定的人物"}
-${legacySingleInstanceRule(names)}
-不要出现：${excluded.join("、") || "未在本镜头出现的其他主要角色"}`;
+    const visualContentLine = nonBlank(shot.visualContent)
+      ? `画面内容：${shot.visualContent}`
+      : (nonBlank(shot.imagePrompt) ? `画面内容：${shot.imagePrompt}` : "");
+    const cellLines = [
+      `格${index + 1} / 第${shot.index}镜${shot.title ? `《${shot.title}》` : ""}`,
+      nonBlank(shot.action) ? `动作：${shot.action}` : "",
+      nonBlank(shot.camera) ? `景别：${shot.camera}` : "",
+      nonBlank(shot.emotion) ? `情绪：${shot.emotion}` : "",
+      visualContentLine,
+      nonBlank(shot.imagePrompt) ? `画面：${shot.imagePrompt}` : "",
+      `只出现：${names.join("、") || "镜头描述中指定的人物"}`,
+      legacySingleInstanceRule(names),
+      `不要出现：${excluded.join("、") || "未在本镜头出现的其他主要角色"}`,
+    ].filter(Boolean).join("\n");
+    return cellLines;
   }).join("\n\n");
   const legacyReferenceLines = nonBlank(input.legacyReferenceLines)
     ? `参考图片编号：\n${input.legacyReferenceLines}\n`
@@ -350,7 +373,7 @@ function sceneDescription(
   scenes: readonly StoryImagePromptScene[] | undefined,
 ) {
   const scene = scenes?.find((candidate) => candidate.id === shot.sceneId);
-  if (!scene) return shot.sceneId || "遵循当前镜头的场景设定";
+  if (!scene) return shot.sceneId || "";
   return nonBlank(scene.description) ? `${scene.name}：${scene.description}` : scene.name;
 }
 
@@ -372,8 +395,8 @@ function positiveShotVisualLines(shot: StoryImagePromptShot) {
     if (imagePrompt.includes(visualContent)) return `生成描述：${imagePrompt}`;
     return `画面内容：${visualContent}\n生成描述：${imagePrompt}`;
   }
-  const content = visualContent || imagePrompt || "符合镜头剧情的视觉内容";
-  return `画面内容：${content}`;
+  const content = visualContent || imagePrompt;
+  return content ? `画面内容：${content}` : "";
 }
 
 function positiveReferenceAppendix(value: string | undefined, references: readonly unknown[]) {

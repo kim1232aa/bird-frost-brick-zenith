@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import test from "node:test";
-import {
+
+const aliasLoader = `
+const SRC = new URL("file://" + process.cwd() + "/src/").href;
+const SUFFIXES = [".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.tsx"];
+export async function resolve(specifier, context, nextResolve) {
+  let target = specifier;
+  if (specifier.startsWith("@/")) target = SRC + specifier.slice(2);
+  else if (specifier.startsWith("./") || specifier.startsWith("../")) target = new URL(specifier, context.parentURL).href;
+  try {
+    return await nextResolve(target, context);
+  } catch (error) {
+    if (!target.startsWith("file:")) throw error;
+    for (const suffix of SUFFIXES) {
+      try {
+        return await nextResolve(target + suffix, context);
+      } catch {}
+    }
+    throw error;
+  }
+}
+`;
+register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.url);
+
+const {
   assertRefCount,
   attachOfficialOpenAiVideoContent,
   buildArkImageGenerationBody,
@@ -29,9 +53,9 @@ import {
   studioEndpoint,
   toStudioVideoWire,
   videoPollPath,
-} from "./contracts.ts";
-import { PROTOCOL_PRESETS } from "../protocols.ts";
-import { clampManagedTokenPlanRelay } from "../../stores/api-relay-presets.ts";
+} = await import("./contracts.ts");
+const { PROTOCOL_PRESETS } = await import("../protocols.ts");
+const { clampManagedTokenPlanRelay } = await import("../../stores/api-relay-presets.ts");
 
 test("Ark video preserves generateAudio=false", () => {
   assert.equal(buildArkVideoBody({ model: "seedance", prompt: "p", generateAudio: false }).generate_audio, false);
@@ -559,6 +583,37 @@ test("xAI relay R2V sends only reference_images and never mixes image or last_fr
   assert.equal("image" in body, false);
   assert.equal("last_frame_image" in body, false);
   assert.equal("image_urls" in body, false);
+});
+
+test("xAI relay forwards seed and negative_prompt while official rejects them", () => {
+  const relay = buildXaiImagineVideoBody({
+    model: "grok-imagine-video",
+    prompt: "p",
+    profile: "relay",
+    seed: 9,
+    negative_prompt: "blur",
+  });
+  assert.equal(relay.seed, 9);
+  assert.equal(relay.negative_prompt, "blur");
+  assert.throws(
+    () =>
+      buildXaiImagineVideoBody({
+        model: "grok-imagine-video-1.5",
+        prompt: "p",
+        negative_prompt: "blur",
+      }),
+    /xAI 官方视频不支持 negative_prompt|该模型不支持此参数/,
+  );
+  assert.throws(
+    () =>
+      buildXaiImagineVideoBody({
+        model: "grok-imagine-video",
+        prompt: "p",
+        profile: "relay",
+        steps: 20,
+      }),
+    /xAI 兼容 relay视频不支持 steps|该模型不支持此参数/,
+  );
 });
 
 test("xAI relay normalizes numeric resolution 720 to 720p", () => {
@@ -1368,4 +1423,69 @@ test("Civitai customer poll plans GetBlob for a nested completed workflow", () =
     }),
     { method: "GET", path: "/blobs/blob_1?workflowId=wf%201" },
   );
+});
+
+test("Ark image generation body does not force 2K or watermark=false and forwards seed/negative_prompt/quality", () => {
+  const body = buildArkImageGenerationBody({
+    model: "doubao-seedream",
+    prompt: "p",
+    seed: 42,
+    negative_prompt: "blur",
+    quality: "standard",
+  });
+  assert.equal("size" in body, false);
+  assert.equal("watermark" in body, false);
+  assert.equal(body.seed, 42);
+  assert.equal(body.negative_prompt, "blur");
+  assert.equal(body.quality, "standard");
+
+  const withExplicit = buildArkImageGenerationBody({
+    model: "doubao-seedream",
+    prompt: "p",
+    size: "1024x1024",
+    watermark: true,
+  });
+  assert.equal(withExplicit.size, "1024x1024");
+  assert.equal(withExplicit.watermark, true);
+});
+
+test("DashScope legacy i2i does not force prompt_extend=true when promptExpansion is unconfigured", () => {
+  const request = buildDashscopeImageRequest({
+    model: "wan2.5-i2i-preview",
+    prompt: "p",
+    imageUrls: ["https://example.test/ref.png"],
+  });
+  const params = request.body.parameters as Record<string, unknown>;
+  assert.equal("prompt_extend" in params, false);
+
+  const withExplicit = buildDashscopeImageRequest({
+    model: "wan2.5-i2i-preview",
+    prompt: "p",
+    imageUrls: ["https://example.test/ref.png"],
+    promptExpansion: true,
+  });
+  const explicitParams = withExplicit.body.parameters as Record<string, unknown>;
+  assert.equal(explicitParams.prompt_extend, true);
+});
+
+test("DashScope wanx does not force ref_strength:0.7/ref_mode:repaint unless specified", () => {
+  const request = buildDashscopeImageRequest({
+    model: "wanx-v1",
+    prompt: "p",
+    imageUrls: ["https://example.test/ref.png"],
+  });
+  const params = request.body.parameters as Record<string, unknown>;
+  assert.equal("ref_strength" in params, false);
+  assert.equal("ref_mode" in params, false);
+
+  const withExplicit = buildDashscopeImageRequest({
+    model: "wanx-v1",
+    prompt: "p",
+    imageUrls: ["https://example.test/ref.png"],
+    refStrength: 0.5,
+    refMode: "repaint",
+  });
+  const explicitParams = withExplicit.body.parameters as Record<string, unknown>;
+  assert.equal(explicitParams.ref_strength, 0.5);
+  assert.equal(explicitParams.ref_mode, "repaint");
 });

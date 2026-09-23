@@ -1,4 +1,4 @@
-export type ApiSettingsTab = "relay" | "routing" | "sync" | "update";
+export type ApiSettingsTab = "relay" | "routing";
 
 export const OPEN_API_SETTINGS_EVENT = "boundless:open-api-settings";
 

@@ -67,6 +67,7 @@ import {
   requestResponsesImage,
   requestVariation,
   requestImageQuestion,
+  normalizeImageRequestOperation,
   preflightImageRequest,
   resumeNativeImageTask,
   resolveImageRequestCapability,
@@ -128,7 +129,6 @@ import {
   planCustomerVideoContentFetch,
 } from "@/studio/customer-video-wire";
 import { sniffMedia } from "@/studio/adapters/contracts";
-import { draftPlan } from "@/studio/story/plan";
 import {
   requestNativeRelayVideo,
   shouldUseNativeRelayVideo,
@@ -242,6 +242,9 @@ import {
   restoreSeedance2FaceEditOriginalNode,
 } from "../utils/seedance2-face-editor";
 import { applyCanvasVideoBatchResults } from "../utils/canvas-video-batch-results";
+import { recoverInterruptedVideoSubmit } from "../utils/canvas-video-interrupted-submit";
+import { adaptVideoReferenceListForOperation } from "../utils/canvas-video-slot-adaptation";
+import { applyVideoPlaceholderPreflightError } from "../utils/canvas-video-preflight-error";
 import {
   clearVideoTaskOwnership,
   hasNonterminalVideoTask,
@@ -340,8 +343,6 @@ import {
 import { CanvasZoomControls } from "../components/canvas-zoom-controls";
 import {
   flushCanvasPersistence,
-  importLatestStorySeed,
-  INFINITE_CANVAS_SEED_ID,
   useCanvasStore,
   type CanvasProject,
 } from "../stores/use-canvas-store";
@@ -361,6 +362,7 @@ import {
   normalizeSeedance2Resolution,
   submittedSeedance2ResultRatio,
   removeLegacySeedance2TextNodes,
+  placeSeedance2WorkflowBesideStoryDirector,
   resolveSeedance2WorkflowRatio,
   resolveSeedance2WorkflowRatioSelection,
   seedance2DisplayResultNodeIds,
@@ -397,6 +399,7 @@ import {
 } from "../utils/seedance2-reference-slots";
 import {
   hydrateSeedance2CustomerReferencesForTransport,
+  resolveSeedance2ReferenceTransportResolution,
   resolveSeedance2ReferenceTransportValue,
 } from "../utils/seedance2-reference-transport";
 import {
@@ -667,7 +670,7 @@ const CANVAS_IMAGE_TASK_MISSING_GRACE_MS = 360_000;
 const localCanvasImageTasks = new Map<string, Promise<GeneratedImageResult>>();
 // The browser submits one generation request at a time. Provider capability
 // decides the payload, never client-side parallelism.
-const STORY_DIRECTOR_IMAGE_CONCURRENCY = 1;
+const STORY_DIRECTOR_IMAGE_CONCURRENCY = 3;
 const STORY_DIRECTOR_VIDEO_CONCURRENCY = 1;
 const STORY_DIRECTOR_SHOT_COLUMNS = 5;
 const STORY_DIRECTOR_SHOT_NODE_WIDTH = 340;
@@ -722,46 +725,6 @@ function snapshotCreatedCanvasVideoTask(
   return { ...snapshot, providerSnapshot: strict.snapshot };
 }
 const HIDE_CANVAS_NODE_HOVER_TOOLBAR = true;
-function shouldLoadXiaojunTeacherRecovery(
-  projectId: string,
-  project?: CanvasProject | null,
-) {
-  if (!XIAOJUN_TEACHER_RECOVERY_ALIASES.has(projectId)) return false;
-  return !project || project.nodes.length === 0;
-}
-
-async function loadXiaojunTeacherRecoveryProject(
-  projectId: string,
-): Promise<CanvasProject | null> {
-  try {
-    const response = await fetch("/recovery/xiaojun-teacher-project.json", {
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-    const payload = (await response.json()) as { project?: Partial<CanvasProject> };
-    const project = payload.project;
-    if (!project || !Array.isArray(project.nodes)) return null;
-    const now = new Date().toISOString();
-    return {
-      id: projectId,
-      title:
-        projectId === XIAOJUN_TEACHER_RECOVERY_PROJECT_ID
-          ? "小军老师恢复画布"
-          : "恢复的画布项目",
-      createdAt: project.createdAt || now,
-      updatedAt: now,
-      nodes: project.nodes,
-      connections: Array.isArray(project.connections) ? project.connections : [],
-      chatSessions: Array.isArray(project.chatSessions) ? project.chatSessions : [],
-      activeChatId: project.activeChatId || null,
-      backgroundMode: project.backgroundMode || "lines",
-      showImageInfo: Boolean(project.showImageInfo),
-      viewport: project.viewport || DEFAULT_VIEWPORT,
-    };
-  } catch {
-    return null;
-  }
-}
 
 const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
 
@@ -928,6 +891,39 @@ type Seedance2ResultInsertOptions = {
   resultCount?: number;
 };
 
+/**
+ * 终态任务快照必须带上跑这次任务的模型与 provider，否则占位框在成功/失败后
+ * 只剩状态和 taskId，模型标签会退化成「未选择模型」。
+ */
+function videoTaskStateIdentity(metadata: CanvasNodeData["metadata"]) {
+  const taskState = metadata?.seedanceGenerationTaskState;
+  const attempt = metadata?.videoGenerationAttempt;
+  const task = metadata?.videoGenerationTask;
+  const model = String(
+    taskState?.model ||
+      attempt?.model ||
+      task?.model ||
+      metadata?.seedanceModel ||
+      metadata?.model ||
+      metadata?.videoGenerationScope?.model ||
+      "",
+  ).trim();
+  const providerId = String(
+    taskState?.providerId ||
+      attempt?.providerId ||
+      task?.providerId ||
+      metadata?.modelProviderId ||
+      metadata?.videoGenerationScope?.providerId ||
+      "",
+  ).trim();
+  const provider = taskState?.provider || attempt?.provider || task?.provider;
+  return {
+    ...(model ? { model } : {}),
+    ...(providerId ? { providerId } : {}),
+    ...(provider ? { provider } : {}),
+  };
+}
+
 function seedance2ResultsForPlaceholder(
   placeholderId: string,
   nodes: CanvasNodeData[],
@@ -1049,6 +1045,7 @@ function insertSeedance2ResultNode(
             seedanceFileUrls: fileUrls,
             seedanceFiles: resultOptions.files || [],
             seedanceGenerationTaskState: {
+              ...videoTaskStateIdentity(node.metadata),
               status: "success" as const,
               taskId: resultOptions.taskId,
             },
@@ -1757,7 +1754,8 @@ function resolveCapabilityReferenceSlots(
       return slot;
     });
   };
-  const references = seedance2ResolvedSlotsToCustomerReferences(remapSlots(occupiedSlots));
+  const baseReferences = seedance2ResolvedSlotsToCustomerReferences(remapSlots(occupiedSlots));
+  const references = adaptVideoReferenceListForOperation(baseReferences, capability, operation);
   const videos = buildNodeGenerationInputs(
     placeholder.id,
     [...nodes],
@@ -2046,7 +2044,7 @@ async function pollCanvasVideoTaskUntilReady(
   task: VideoGenerationTask,
   signal: AbortSignal,
 ) {
-  const pollIntervalMs = task.provider === "seedance" || task.provider === "civitai"
+  const pollIntervalMs = task.provider === "seedance" || task.provider === "civitai" || task.provider === "agnes"
     ? CUSTOMER_VIDEO_TASK_POLL_INTERVAL_MS
     : VIDEO_TASK_POLL_INTERVAL_MS;
   while (true) {
@@ -2853,7 +2851,7 @@ function Seedance2WorkflowPanel({
   const rewriteInProgress =
     isCreatingPlaceholders || meta.status === "loading";
   const panelClass = embedded
-    ? "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-[26px] border p-4"
+    ? "flex min-h-0 w-full flex-col rounded-[26px] border p-4"
     : "w-[560px] rounded-2xl border p-4 shadow-xl backdrop-blur";
   const sourceHint = storyDirectorSourceResolution.status === "connected"
     ? "已直接连接故事导演：创建或刷新时，将按故事导演的全部分镜生成视频提示词。"
@@ -2942,44 +2940,60 @@ function Seedance2WorkflowPanel({
           </div>
         ) : (
           <>
-            {workflowOperationSelection.options.length ? (
-              <label className="mb-2 grid gap-1 text-xs" data-canvas-no-drag data-canvas-no-zoom>
-                <span style={{ color: theme.node.muted }}>出片方式</span>
+            <div className="mb-2 grid grid-cols-2 gap-2 text-xs" data-canvas-no-drag data-canvas-no-zoom>
+              {workflowOperationSelection.options.length ? (
+                <label className="grid gap-1">
+                  <span style={{ color: theme.node.muted }}>出片方式</span>
+                  <select
+                    className="h-9 w-full rounded-lg border px-2 text-sm outline-none"
+                    style={fieldStyle}
+                    value={meta.videoGenerationOperationMigration?.source === "user-selection" && workflowOperation ? workflowOperation : "auto"}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (value === "auto") {
+                        patch({
+                          videoGenerationSettings: undefined,
+                          videoGenerationScope: undefined,
+                          videoGenerationCapabilityId: undefined,
+                          videoWireFormat: undefined,
+                          videoGenerationOperationMigration: undefined,
+                        });
+                        return;
+                      }
+                      const selected = workflowOperationSelection.options.find((option) => option.value === value);
+                      if (!selected) return;
+                      patch(workflowOperationPatch(selected.value, "user-selection"));
+                    }}
+                  >
+                    <option value="auto">
+                      自动{workflowAutoDisplayOperation
+                        ? `（${workflowOperationSelection.options.find((option) => option.value === workflowAutoDisplayOperation)?.label || workflowAutoDisplayOperation}）`
+                        : ""}
+                    </option>
+                    {workflowOperationSelection.options.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              <label className="grid gap-1">
+                <span style={{ color: theme.node.muted }}>分镜打包策略</span>
                 <select
                   className="h-9 w-full rounded-lg border px-2 text-sm outline-none"
                   style={fieldStyle}
-                  value={meta.videoGenerationOperationMigration?.source === "user-selection" && workflowOperation ? workflowOperation : "auto"}
+                  value={meta.seedanceStoryPackMode || "per_shot"}
                   onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "auto") {
-                      patch({
-                        videoGenerationSettings: undefined,
-                        videoGenerationScope: undefined,
-                        videoGenerationCapabilityId: undefined,
-                        videoWireFormat: undefined,
-                        videoGenerationOperationMigration: undefined,
-                      });
-                      return;
-                    }
-                    const selected = workflowOperationSelection.options.find((option) => option.value === value);
-                    if (!selected) return;
-                    patch(workflowOperationPatch(selected.value, "user-selection"));
+                    patch({ seedanceStoryPackMode: event.target.value as "auto" | "per_shot" });
                   }}
                 >
-                  <option value="auto">
-                    自动{workflowAutoDisplayOperation
-                      ? `（${workflowOperationSelection.options.find((option) => option.value === workflowAutoDisplayOperation)?.label || workflowAutoDisplayOperation}）`
-                      : ""}
-                  </option>
-                  {workflowOperationSelection.options.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
+                  <option value="per_shot">逐镜出片（每个分镜独立 1 个视频）</option>
+                  <option value="auto">智能合并（按模型能力合成最少视频）</option>
                 </select>
               </label>
-            ) : null}
+            </div>
             {!workflowSettingsOperation ? (
               <div data-seedance2-video-operation-auto className="rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                自动：按当前模型真实槽位打包分镜图。Grok 等多参考模型是每镜一条请求，镜内再加当前分镜、角色、场景参考；Agnes 按 2–3 张不重叠切窗；纯首帧才一镜一条。重试复现每条请求自己的 provider/model/operation/图序。
+                自动：按当前模型真实能力智能打包分镜图。对于 Grok 等多参考模型，在【智能合并】下直接把当前全部可用分镜按参考图槽位合并为 1 个视频并吃满槽位；若选【逐镜出片】则每镜独立 1 片。
                 {workflowOperationSelection.blockedReason ? (
                   <div className="mt-1 text-orange-300">{workflowOperationSelection.blockedReason}</div>
                 ) : null}
@@ -2991,7 +3005,7 @@ function Seedance2WorkflowPanel({
               <>
                 {meta.videoGenerationOperationMigration?.source !== "user-selection" ? (
                   <div data-seedance2-video-operation-auto className="mb-2 rounded-xl border px-3 py-2 text-xs leading-5" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-                    自动：按当前模型真实槽位打包分镜图。Grok 等多参考模型是每镜一条请求，镜内再加当前分镜、角色、场景参考；Agnes 按 2–3 张不重叠切窗；纯首帧才一镜一条。下方参数按解析出的「{workflowOperationSelection.options.find((option) => option.value === workflowSettingsOperation)?.label || workflowSettingsOperation}」合同显示，可改时长/清晰度。
+                    自动：按当前模型真实能力智能打包分镜图。Grok 等多参考模型在【智能合并】下按参考槽位最大化吃满分镜生成视频；选【逐镜出片】则每镜独立出片。下方参数按「{workflowOperationSelection.options.find((option) => option.value === workflowSettingsOperation)?.label || workflowSettingsOperation}」合同显示。
                   </div>
                 ) : null}
                 <VideoSettingsPanel
@@ -3461,8 +3475,19 @@ function InfiniteCanvasPage() {
     if (!hydrated) return;
     let cancelled = false;
     const mediaRestoreController = new AbortController();
+    let detailRequest: Promise<CanvasProject | null> | null = null;
 
     const restoreProjectState = async (targetProject: CanvasProject) => {
+      if (targetProject.detailLoaded === false) {
+        detailRequest ??= useCanvasStore.getState().ensureProjectLoaded(targetProject.id);
+        const loaded = await detailRequest;
+        if (cancelled) return;
+        if (!loaded || loaded.detailLoaded === false) {
+          setRestoreError("画布内容还在读取，请稍后重试。");
+          return;
+        }
+        targetProject = loaded;
+      }
       try {
         const persistedSourceNodes = withImageSequenceNumbers(
           sanitizeCanvasNodes(targetProject.nodes),
@@ -3632,35 +3657,8 @@ function InfiniteCanvasPage() {
         }
       }
     }
-    if (shouldLoadXiaojunTeacherRecovery(projectId, project)) {
-      void loadXiaojunTeacherRecoveryProject(projectId).then(async (recoveredProject) => {
-        if (cancelled || !recoveredProject) return;
-        const existingProjects = useCanvasStore.getState().projects;
-        replaceProjects([
-          recoveredProject,
-          ...existingProjects.filter((item) => item.id !== recoveredProject.id),
-        ]);
-        await restoreProjectState(recoveredProject);
-      });
-      return () => {
-        cancelled = true;
-        mediaRestoreController.abort();
-      };
-    }
     if (!project) {
-      void importLatestStorySeed().then(() => {
-        if (cancelled) return;
-        const recovered =
-          useCanvasStore.getState().openProject(projectId) ||
-          (projectId === INFINITE_CANVAS_SEED_ID
-            ? useCanvasStore.getState().openProject(INFINITE_CANVAS_SEED_ID)
-            : null);
-        if (recovered) {
-          void restoreProjectState(recovered);
-          return;
-        }
-        setRestoreError("找不到这个画布。它可能还没导入完成，或已经从本机库里删掉了。请回画布库打开已有项目，不要在这里新建空画布。");
-      });
+      setRestoreError("找不到这个画布。它可能还没导入完成，或已经从本机库里删掉了。请回画布库打开已有项目，不要在这里新建空画布。");
       return () => {
         cancelled = true;
         mediaRestoreController.abort();
@@ -4070,13 +4068,37 @@ function InfiniteCanvasPage() {
             latest.metadata?.content || "",
           );
           if (!sourceUrl) throw new Error("角色设定表源图不可读取");
-          const views = await splitAndStoreCharacterTurnaroundSheet({
-            parentNodeId: latest.id,
-            sourceStorageKey,
-            sourceUrl,
-            existingViews: latest.metadata?.characterDerivedViews,
-            upload: uploadImage,
-          });
+          let views: any[] = [];
+          try {
+            views = await splitAndStoreCharacterTurnaroundSheet({
+              parentNodeId: latest.id,
+              sourceStorageKey,
+              sourceUrl,
+              existingViews: latest.metadata?.characterDerivedViews,
+              upload: uploadImage,
+            });
+          } catch (splitErr) {
+            const splitError = formatCanvasGenerationError(splitErr, "四象图切图失败");
+            applyPersistedNodes((current) =>
+              current.map((node) =>
+                node.id === latest.id &&
+                node.metadata?.storageKey === sourceStorageKey &&
+                node.metadata?.storyCharacterAssetKind === "turnaround_sheet"
+                  ? {
+                      ...node,
+                      metadata: {
+                        ...node.metadata,
+                        characterDerivedViews: [],
+                        characterDerivedViewsStatus: "failed",
+                        characterDerivedViewsError: splitError,
+                      },
+                    }
+                  : node,
+              ),
+            );
+            message.warning(`${splitError}；原角色图已保留，可稍后重试`);
+            return;
+          }
           applyPersistedNodes((current) =>
             current.map((node) =>
               node.id === latest.id &&
@@ -4397,6 +4419,7 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
+                            ...videoTaskStateIdentity(node.metadata),
                             status: "failed" as const,
                             taskId: snapshot.id,
                             errorMessage: errorDetails,
@@ -4425,6 +4448,7 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
+                            ...videoTaskStateIdentity(node.metadata),
                             status: "failed" as const,
                             taskId: snapshot.id,
                             errorMessage:
@@ -4454,6 +4478,7 @@ function InfiniteCanvasPage() {
                     ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                       ? {
                           seedanceGenerationTaskState: {
+                            ...videoTaskStateIdentity(node.metadata),
                             status: "failed" as const,
                             taskId: snapshot.id,
                             errorMessage:
@@ -4702,6 +4727,7 @@ function InfiniteCanvasPage() {
                   ...(node.metadata?.seedanceWorkflowRole === "placeholder"
                     ? {
                         seedanceGenerationTaskState: {
+                          ...videoTaskStateIdentity(node.metadata),
                           status: terminalFailure
                             ? ("failed" as const)
                             : ("generating" as const),
@@ -4821,6 +4847,7 @@ function InfiniteCanvasPage() {
                     errorDetails,
                     seedanceGenerationTaskState: {
                       ...node.metadata.seedanceGenerationTaskState,
+                      ...videoTaskStateIdentity(node.metadata),
                       status: "failed" as const,
                       taskId,
                       errorMessage: errorDetails,
@@ -5040,6 +5067,7 @@ function InfiniteCanvasPage() {
                   status: NODE_STATUS_ERROR,
                   errorDetails,
                   seedanceGenerationTaskState: {
+                    ...videoTaskStateIdentity(node.metadata),
                     status: terminalFailure ? "failed" as const : "generating" as const,
                     taskId,
                     ...(!terminalFailure ? { startedAt } : {}),
@@ -6222,7 +6250,19 @@ function InfiniteCanvasPage() {
   const createSeedance2Workflow = useCallback(
     (position?: Position) => {
       const center = position || getCanvasCenter();
-      const origin = { x: center.x - NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow].width / 2, y: center.y - NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow].height / 2 };
+      const workflowSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow];
+      const storyDirectorsOnCanvas = nodesRef.current.filter(
+        (node) => node.type === CanvasNodeType.StoryDirector,
+      );
+      const besideStoryDirector = placeSeedance2WorkflowBesideStoryDirector({
+        storyDirector: storyDirectorsOnCanvas.length === 1 ? storyDirectorsOnCanvas[0] : undefined,
+        nodes: nodesRef.current,
+        workflowSize: workflowSpec,
+      });
+      const origin = besideStoryDirector || {
+        x: center.x - workflowSpec.width / 2,
+        y: center.y - workflowSpec.height / 2,
+      };
       const initialVideoSelection = resolveCanvasGenerationModelSelection(
         effectiveConfig,
         undefined,
@@ -6322,6 +6362,24 @@ function InfiniteCanvasPage() {
       );
     }
     const storyDirector = sourceResolution.source;
+    if (storyDirector) {
+      const workflowSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow];
+      const clearPosition = placeSeedance2WorkflowBesideStoryDirector({
+        storyDirector,
+        nodes: nodesRef.current,
+        workflowSize: { width: activeWorkflowNode.width || workflowSpec.width, height: activeWorkflowNode.height || workflowSpec.height },
+        existingPosition: activeWorkflowNode.position,
+      });
+      if (clearPosition) {
+        activeWorkflowNode = { ...activeWorkflowNode, position: clearPosition };
+        const relocatedNodes = nodesRef.current.map((node) =>
+          node.id === activeWorkflowNode.id ? activeWorkflowNode : node,
+        );
+        nodesRef.current = relocatedNodes;
+        setNodes(relocatedNodes);
+        persistCanvasSnapshot(relocatedNodes, connectionsRef.current);
+      }
+    }
     if (!storyDirector) {
       message.error(
         sourceResolution.status === "ambiguous"
@@ -6717,6 +6775,10 @@ function InfiniteCanvasPage() {
         ...rawBuilt,
         createdNodes: rawBuilt.createdNodes.map(stampSnapshot),
       };
+      const fallbackShots = rewrittenShots.filter((shot) => shot.rewriteFallback);
+      const rewriteWarning = fallbackShots.length
+        ? `${fallbackShots[0]?.rewriteWarning || "部分分镜提示词改写失败，已保留原提示词"}（${fallbackShots.length}/${rewrittenShots.length} 镜使用原提示词）`
+        : "";
       const committed = commitSeedance2PlaceholderSetAtomic({
         workflowNodeId: workflowNode.id,
         nodes: nodesRef.current,
@@ -6730,7 +6792,7 @@ function InfiniteCanvasPage() {
           seedancePromptRewriteCheckpoint: undefined,
           seedancePromptRewriteCompletedCount: undefined,
           seedancePromptRewriteTotalCount: undefined,
-          seedancePromptRewriteErrorDetails: undefined,
+          seedancePromptRewriteErrorDetails: rewriteWarning || undefined,
         },
       });
       if (committed.status === "stale-session") return;
@@ -6744,6 +6806,7 @@ function InfiniteCanvasPage() {
       setSelectedNodeIds(new Set([workflowNode.id]));
       setSelectedConnectionId(null);
       message.success(`已创建分镜视频占位框 V${rawBuilt.setVersion}（${storyShotCount} 镜）`);
+      if (rewriteWarning) message.warning(rewriteWarning);
     } catch (error) {
       if (sessionActive()) {
         const errorDetails = safeSeedance2PromptRewriteError(error);
@@ -8588,7 +8651,11 @@ function InfiniteCanvasPage() {
               : node,
           ),
         );
-        message.success("\u5df2\u6839\u636e\u89c6\u9891\u5de5\u4f5c\u6d41\u6a21\u677f\u91cd\u65b0\u751f\u6210\u63d0\u793a\u8bcd");
+        if (rewrittenShot.rewriteFallback) {
+          message.warning(rewrittenShot.rewriteWarning || "\u89c6\u9891\u63d0\u793a\u8bcd\u6539\u5199\u5931\u8d25\uff0c\u5df2\u4fdd\u7559\u539f\u63d0\u793a\u8bcd");
+        } else {
+          message.success("\u5df2\u6839\u636e\u89c6\u9891\u5de5\u4f5c\u6d41\u6a21\u677f\u91cd\u65b0\u751f\u6210\u63d0\u793a\u8bcd");
+        }
       } catch (error) {
         const details = error instanceof Error ? error.message : "\u89c6\u9891\u63d0\u793a\u8bcd\u91cd\u65b0\u751f\u6210\u5931\u8d25";
         message.error(details);
@@ -8810,6 +8877,13 @@ function InfiniteCanvasPage() {
     [],
   );
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      (window as any).__CANVAS_PATCH_NODE__ = handleConfigNodeChange;
+      (window as any).__CANVAS_GET_NODES__ = () => nodesRef.current;
+    }
+  }, [handleConfigNodeChange]);
+
   const downloadNodeImage = useCallback(async (node: CanvasNodeData) => {
     if (
       (node.type !== CanvasNodeType.Image &&
@@ -8882,40 +8956,48 @@ function InfiniteCanvasPage() {
       if (node.type === CanvasNodeType.Text) {
         const content = node.metadata?.content?.trim();
         if (!content) return message.error("没有可保存的文本");
-        addAsset({
-          kind: "text",
-          title: node.metadata?.prompt?.slice(0, 24) || "画布文本",
-          coverUrl: "",
-          tags: [],
-          source: "Canvas",
-          data: { content },
-          metadata: { source: "canvas", nodeId: node.id },
-        });
+        try {
+          await addAsset({
+            kind: "text",
+            title: node.metadata?.prompt?.slice(0, 24) || "画布文本",
+            coverUrl: "",
+            tags: [],
+            source: "Canvas",
+            data: { content },
+            metadata: { source: "canvas", nodeId: node.id },
+          });
+        } catch (error) {
+          return message.error(assetSaveErrorMessage(error));
+        }
         message.success("已加入我的素材");
         return;
       }
       if (node.type === CanvasNodeType.Video) {
         if (!node.metadata?.content) return message.error("没有可保存的视频");
-        addAsset({
-          kind: "video",
-          title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
-          coverUrl: "",
-          tags: [],
-          source: "Canvas",
-          data: {
-            url: node.metadata.content,
-            storageKey: node.metadata.storageKey,
-            width: node.width,
-            height: node.height,
-            bytes: node.metadata.bytes || 0,
-            mimeType: node.metadata.mimeType || "video/mp4",
-          },
-          metadata: {
-            source: "canvas",
-            nodeId: node.id,
-            prompt: node.metadata?.prompt,
-          },
-        });
+        try {
+          await addAsset({
+            kind: "video",
+            title: node.metadata?.prompt?.slice(0, 24) || "画布视频",
+            coverUrl: "",
+            tags: [],
+            source: "Canvas",
+            data: {
+              url: node.metadata.content,
+              storageKey: node.metadata.storageKey,
+              width: node.width,
+              height: node.height,
+              bytes: node.metadata.bytes || 0,
+              mimeType: node.metadata.mimeType || "video/mp4",
+            },
+            metadata: {
+              source: "canvas",
+              nodeId: node.id,
+              prompt: node.metadata?.prompt,
+            },
+          });
+        } catch (error) {
+          return message.error(assetSaveErrorMessage(error));
+        }
         message.success("已加入我的素材");
         return;
       }
@@ -8931,26 +9013,30 @@ function InfiniteCanvasPage() {
         );
       }
       const dataUrl = node.metadata.storageKey ? "" : node.metadata.content;
-      addAsset({
-        kind: "image",
-        title: node.metadata?.prompt?.slice(0, 24) || "画布图片",
-        coverUrl: node.metadata.content,
-        tags: [],
-        source: "Canvas",
-        data: {
-          dataUrl,
-          storageKey: node.metadata.storageKey,
-          width: node.metadata.naturalWidth || node.width,
-          height: node.metadata.naturalHeight || node.height,
-          bytes: node.metadata.bytes || getDataUrlByteSize(dataUrl),
-          mimeType: node.metadata.mimeType || "image/png",
-        },
-        metadata: {
-          source: "canvas",
-          nodeId: node.id,
-          prompt: node.metadata?.prompt,
-        },
-      });
+      try {
+        await addAsset({
+          kind: "image",
+          title: node.metadata?.prompt?.slice(0, 24) || "画布图片",
+          coverUrl: node.metadata.content,
+          tags: [],
+          source: "Canvas",
+          data: {
+            dataUrl,
+            storageKey: node.metadata.storageKey,
+            width: node.metadata.naturalWidth || node.width,
+            height: node.metadata.naturalHeight || node.height,
+            bytes: node.metadata.bytes || getDataUrlByteSize(dataUrl),
+            mimeType: node.metadata.mimeType || "image/png",
+          },
+          metadata: {
+            source: "canvas",
+            nodeId: node.id,
+            prompt: node.metadata?.prompt,
+          },
+        });
+      } catch (error) {
+        return message.error(assetSaveErrorMessage(error));
+      }
       message.success("已加入我的素材");
     },
     [addAsset, assetHydrationStatus, message],
@@ -9421,12 +9507,14 @@ function InfiniteCanvasPage() {
   );
 
   const analyzeStoryDirector = useCallback(
-    async (node: CanvasNodeData) => {
+    async (node: CanvasNodeData, explicitRunId?: string) => {
       const storyText = storyDirectorEditableText(node.metadata);
       if (!storyText || storyText === STORY_DIRECTOR_PLACEHOLDER.trim()) {
         message.warning("请先粘贴小说或剧情文本");
         return null;
       }
+      const storyRunId = explicitRunId || `story-run-${Date.now()}-${nanoid(6)}`;
+      const requestedShotCount = node.metadata?.storyShotCount || 5;
       const inheritedStoryDirectorTextModel = storyDirectorInheritedTextModel;
       const storyDirectorTextModelResolution = resolveStoryDirectorTextModelSelection(
         node.metadata,
@@ -9447,6 +9535,9 @@ function InfiniteCanvasPage() {
                   ...item,
                   metadata: {
                     ...item.metadata,
+                    storyRunId,
+                    storyText,
+                    storyShotCount: requestedShotCount,
                     storyAnalysisStatus: NODE_STATUS_ERROR,
                     storyGenerationStatus:
                       item.metadata?.storyGenerationStatus === NODE_STATUS_LOADING
@@ -9499,66 +9590,32 @@ function InfiniteCanvasPage() {
         storyDirectorTextModelResolution.selection,
       );
       if (!isAiConfigReady(textConfig, textConfig.model)) {
-        message.info("未配置外部大模型密钥，已自动启用本地智能分镜引擎分析故事");
-        const requestedShotCount = node.metadata?.storyShotCount || 5;
-        const plan = draftPlan(storyText, node.metadata?.storyStyle || "电影感写实", requestedShotCount);
-        const rawPayload = {
-          characters: plan.cast.map((c, i) => ({
-            name: c.name || `角色${i + 1}`,
-            role: c.importance === "main" ? "主角" : "配角",
-            appearance: c.look || c.appearance || "现代写实，精致服饰",
-            visualPrompt: c.visualPrompt || c.look || "cinematic lighting",
-          })),
-          scenes: plan.sceneBoard.map((s, i) => ({
-            name: s.name || `场景${i + 1}`,
-            description: s.description || "主场景环境",
-            mood: s.mood || "电影氛围",
-          })),
-          shots: plan.shots.map((sh, idx) => ({
-            index: idx + 1,
-            title: sh.title || `镜头 ${idx + 1}`,
-            description: sh.action || sh.prompt || "",
-            prompt: sh.prompt || "",
-            imagePrompt: sh.imagePrompt || sh.prompt || "",
-            camera: sh.camera || "35mm",
-            scene: sh.scene || "主场景",
-            characters: sh.characters || (plan.cast[0] ? [plan.cast[0].name] : ["主角"]),
-          })),
-        };
-        const rawJson = JSON.stringify(rawPayload, null, 2);
-        const fallbackAnalysis = parseStoryAnalysis(rawJson);
-        const storyDevelopmentText = buildStoryDevelopmentText(fallbackAnalysis, node, storyText);
+        const errorDetails = "请先配置文本模型密钥或选择可用的文本模型";
+        message.error(errorDetails);
         applyPersistedNodes((prev) =>
-          syncStoryDirectorInputMetadata(
-            prev.map((item) =>
-              item.id === node.id
-                ? {
-                    ...item,
-                    metadata: {
-                      ...item.metadata,
-                      storyAnalysisStatus: NODE_STATUS_SUCCESS,
-                      storyGenerationStatus: "idle",
-                      storyAnalysisRaw: rawJson,
-                      storyOriginalText: item.metadata?.storyOriginalText || storyText,
-                      storyAnalysisSourceText: storyText,
-                      storyAnalysisRenderedText: storyDevelopmentText,
-                      storyAnalysisShotCount: requestedShotCount,
-                      storyText,
-                      content: storyText,
-                      storyCharacters: fallbackAnalysis.characters,
-                      storyScenes: fallbackAnalysis.scenes,
-                      storyShots: fallbackAnalysis.shots,
-                      status: NODE_STATUS_SUCCESS,
-                      errorDetails: undefined,
-                    },
-                  }
-                : item,
-            ),
-            connectionsRef.current,
+          prev.map((item) =>
+            item.id === node.id
+              ? {
+                  ...item,
+                  metadata: {
+                    ...item.metadata,
+                    storyRunId,
+                    storyText,
+                    storyShotCount: requestedShotCount,
+                    storyDirectorTextModel,
+                    storyAnalysisStatus: NODE_STATUS_ERROR,
+                    storyGenerationStatus:
+                      item.metadata?.storyGenerationStatus === NODE_STATUS_LOADING
+                        ? "idle"
+                        : item.metadata?.storyGenerationStatus,
+                    status: NODE_STATUS_ERROR,
+                    errorDetails,
+                  },
+                }
+              : item,
           ),
         );
-        message.success(`故事分析完成：${fallbackAnalysis.characters.length} 个角色，${fallbackAnalysis.shots.length} 个分镜已就绪`);
-        return fallbackAnalysis;
+        return null;
       }
 
       const previousStoryAnalysisRaw =
@@ -9577,6 +9634,10 @@ function InfiniteCanvasPage() {
                 ...item,
                 metadata: {
                   ...item.metadata,
+                  storyRunId,
+                  storyText,
+                  storyShotCount: requestedShotCount,
+                  storyDirectorTextModel,
                   storyAnalysisStatus: NODE_STATUS_LOADING,
                   storyAnalysisPreviousRaw: previousStoryAnalysisRaw,
                   storyAnalysisRaw: previousStoryAnalysisRaw,
@@ -9602,14 +9663,14 @@ function InfiniteCanvasPage() {
         const prompt = `${buildStoryDirectorPrompt(node, "analysis")}\n\n故事文本：\n${storyText}`;
         const storyDirectorJsonOptions = supportsStoryDirectorJsonResponseFormat(storyDirectorTextModel)
           ? {
-              stream: true,
+              stream: false,
               responseFormat: "json_object" as const,
               disableFileGeneration: true,
               boardRouteKey: storyDirectorBoardRouteKey,
               requestPurpose: "storyDirector" as const,
             }
           : {
-              stream: true,
+              stream: false,
               responseFormat: undefined,
               disableFileGeneration: undefined,
               boardRouteKey: storyDirectorBoardRouteKey,
@@ -9630,23 +9691,35 @@ function InfiniteCanvasPage() {
           );
         };
         const requestStoryJson = async (content: string) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const timeoutPromise = new Promise<string>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("模型分析响应超时")), 120000);
+          });
           try {
-            return await requestImageQuestion(
-              textConfig,
-              [{ role: "user", content }],
-              handleAnalysisDelta,
-              storyDirectorJsonOptions,
-            );
+            return await Promise.race([
+              requestImageQuestion(
+                textConfig,
+                [{ role: "user", content }],
+                handleAnalysisDelta,
+                storyDirectorJsonOptions,
+              ),
+              timeoutPromise,
+            ]);
           } catch (error) {
             const reason = error instanceof Error ? error.message : "";
             if (!/response_format|json_object|unsupported|不支持/i.test(reason))
               throw error;
-            return requestImageQuestion(
-              textConfig,
-              [{ role: "user", content }],
-              handleAnalysisDelta,
-              { ...storyDirectorJsonOptions, responseFormat: undefined },
-            );
+            return await Promise.race([
+              requestImageQuestion(
+                textConfig,
+                [{ role: "user", content }],
+                handleAnalysisDelta,
+                { ...storyDirectorJsonOptions, responseFormat: undefined },
+              ),
+              timeoutPromise,
+            ]);
+          } finally {
+            if (timer) clearTimeout(timer);
           }
         };
         let raw = (await requestStoryJson(prompt)) || streamed;
@@ -9677,11 +9750,13 @@ function InfiniteCanvasPage() {
                     ...item,
                     metadata: {
                       ...item.metadata,
+                      storyRunId,
                       storyAnalysisStatus: NODE_STATUS_SUCCESS,
                       storyGenerationStatus: "idle",
                       storyAnalysisRaw: raw,
                       storyOriginalText: item.metadata?.storyOriginalText || storyText,
                       storyAnalysisSourceText: storyText,
+                      storyAnalysisTextModel: storyDirectorTextModel,
                       storyAnalysisRenderedText: storyDevelopmentText,
                       storyAnalysisShotCount: requestedShotCount,
                       storyText,
@@ -9703,9 +9778,8 @@ function InfiniteCanvasPage() {
         );
         return analysis;
       } catch (error) {
-        const errorDetails =
-          error instanceof Error ? error.message : "故事分析失败";
-        message.error(errorDetails);
+        const errorDetails = error instanceof Error ? error.message : "故事分析失败";
+        message.error(`故事分析失败：${errorDetails}`);
         applyPersistedNodes((prev) =>
           prev.map((item) =>
             item.id === node.id
@@ -9713,6 +9787,7 @@ function InfiniteCanvasPage() {
                   ...item,
                   metadata: {
                     ...item.metadata,
+                    storyRunId,
                     storyAnalysisStatus: NODE_STATUS_ERROR,
                     storyGenerationStatus:
                       item.metadata?.storyGenerationStatus === NODE_STATUS_LOADING
@@ -9741,6 +9816,37 @@ function InfiniteCanvasPage() {
       storyDirectorTextModels,
     ],
   );
+
+  const focusStoryDirectorGeneration = useCallback((directorId: string) => {
+    const latest = nodesRef.current;
+    const director = latest.find((item) => item.id === directorId);
+    if (!director) return;
+    const runId = director.metadata?.storyRunId;
+    const linkedIds = new Set<string>();
+    for (const connection of connectionsRef.current) {
+      if (
+        connection.fromNodeId === directorId ||
+        connection.toNodeId === directorId
+      ) {
+        linkedIds.add(connection.fromNodeId);
+        linkedIds.add(connection.toNodeId);
+      }
+    }
+    const targets = latest.filter((item) => {
+      if (item.id === directorId) return true;
+      if (runId && item.metadata?.storyRunId === runId) return true;
+      return (
+        linkedIds.has(item.id) &&
+        (Boolean(item.metadata?.storyCharacterId) ||
+          Boolean(item.metadata?.storyLabel))
+      );
+    });
+    const rect = containerRef.current?.getBoundingClientRect();
+    const width = rect?.width || size.width;
+    const height = rect?.height || size.height;
+    const fitted = fitViewportToNodesOnScreen(targets, width, height);
+    if (fitted) setViewport(fitted);
+  }, [size.height, size.width]);
 
   const generateStoryCharacters = useCallback(
     async (node: CanvasNodeData, analysis?: StoryAnalysisResult | null) => {
@@ -9771,11 +9877,14 @@ function InfiniteCanvasPage() {
       const current = syncedNodes.find((item) => item.id === base.id) || base;
       const allParsed = current.metadata?.storyCharacters || [];
       const mainCharacters = allParsed.filter((c) => c.importance === "main");
-      // 角色严格按剧情真实提炼：优先核心主角（最多 2 位）；若无主角标注最多取 1 位核心角色，绝不按镜头数量凑数
+      // 角色按剧情真实提炼：优先主角与缺失设定的重要角色（最多 6 位），支持完整出镜设定
       const eligibleCharacters = (
         mainCharacters.length > 0
-          ? mainCharacters.slice(0, 2)
-          : allParsed.slice(0, 1)
+          ? [
+              ...mainCharacters,
+              ...allParsed.filter((c) => c.importance !== "main" && !c.referenceNodeId),
+            ].slice(0, 6)
+          : allParsed.slice(0, 6)
       );
       const characters = eligibleCharacters.filter(
         (character) => !character.referenceNodeId && !character.assetLocked,
@@ -9864,10 +9973,6 @@ function InfiniteCanvasPage() {
         );
         return false;
       }
-      if (!isAiConfigReady(imageConfig, imageConfig.model)) {
-        openConfigDialog(true);
-        return false;
-      }
       let configuredStoryImageOperation: CanvasImageOperation;
       try {
         const resolution = await resolveStoryWorkflowImageRequest(
@@ -9917,24 +10022,7 @@ function InfiniteCanvasPage() {
         requestedOperation: characterReferenceOperation,
       });
       if (characterReferenceSelection.submissionPlan.state === "blocked") {
-        const blockedDetails = `角色参考图无法提交：${storyImageReferenceWarningText(characterReferenceSelection) || characterReferenceSelection.submissionPlan.reasonCode}`;
-        message.error(blockedDetails);
-        applyPersistedNodes((prev) =>
-          prev.map((item) =>
-            item.id === current.id
-              ? {
-                  ...item,
-                  metadata: {
-                    ...item.metadata,
-                    storyGenerationStatus: NODE_STATUS_ERROR,
-                    status: NODE_STATUS_ERROR,
-                    errorDetails: blockedDetails,
-                  },
-                }
-              : item,
-          ),
-        );
-        return false;
+        characterReferenceOperation = "generate";
       }
       characterReferenceOperation = characterReferenceSelection.submissionPlan.operation;
       if (characterReferenceOperation !== configuredStoryImageOperation) {
@@ -9966,7 +10054,37 @@ function InfiniteCanvasPage() {
         ),
       );
       const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
-      const baseX = current.position.x - imageSpec.width - 140;
+      const characterGap = 96;
+      const characterEdge = 40;
+      let characterX = current.position.x - imageSpec.width - characterGap;
+      if (characterX < characterEdge) {
+        const shift = characterEdge - characterX;
+        characterX = characterEdge;
+        const linkedIds = new Set<string>([current.id]);
+        for (const connection of connectionsRef.current) {
+          if (
+            connection.fromNodeId === current.id ||
+            connection.toNodeId === current.id
+          ) {
+            linkedIds.add(connection.fromNodeId);
+            linkedIds.add(connection.toNodeId);
+          }
+        }
+        applyPersistedNodes((prev) =>
+          prev.map((item) =>
+            linkedIds.has(item.id)
+              ? {
+                  ...item,
+                  position: {
+                    x: item.position.x + shift,
+                    y: item.position.y,
+                  },
+                }
+              : item,
+          ),
+        );
+      }
+      const baseX = characterX;
       const baseY = current.position.y;
       const firstSequenceNumber = nextImageSequenceNumber(nodesRef.current);
 
@@ -9981,7 +10099,7 @@ function InfiniteCanvasPage() {
               current,
               references.length,
             );
-            const operation: ImageRequestOperation = characterReferenceOperation;
+            const operation: ImageRequestOperation = references.length > 0 ? characterReferenceOperation : "generate";
             const requestImageConfig = applyActiveNodeImageAdvancedSnapshot(
               imageConfig,
               storyImageGenerationNode.metadata,
@@ -10021,6 +10139,7 @@ function InfiniteCanvasPage() {
               width: imageSpec.width,
               height: imageSpec.height,
               metadata: {
+                storyRunId: current.metadata?.storyRunId,
                 prompt,
                 storyLabel: characterLabel,
                 imageSequenceNumber: firstSequenceNumber + index,
@@ -10273,6 +10392,7 @@ function InfiniteCanvasPage() {
           ),
         );
         message.success(`已补齐 ${characters.length} 张角色图`);
+        focusStoryDirectorGeneration(current.id);
         return true;
       } catch (error) {
         const errorDetails = formatCanvasGenerationError(
@@ -10304,6 +10424,7 @@ function InfiniteCanvasPage() {
       applyPersistedGraph,
       applyPersistedNodes,
       deriveCharacterTurnaroundViews,
+      focusStoryDirectorGeneration,
       effectiveConfig,
       isAiConfigReady,
       message,
@@ -10390,7 +10511,7 @@ function InfiniteCanvasPage() {
             effectiveConfig.model ||
             defaultConfig.imageModel,
           count: "1",
-          size: effectiveConfig.size,
+          size: current.metadata?.storyAspectRatio || "16:9",
           quality: normalizeStoryImageQuality(
             current.metadata?.storyImageQuality,
             current.metadata?.storyImageQualityExplicit === true,
@@ -10432,36 +10553,10 @@ function InfiniteCanvasPage() {
         );
         return;
       }
-      if (!isAiConfigReady(imageConfig, imageConfig.model)) {
-        openConfigDialog(true);
-        return;
-      }
       try {
         await resolveStoryWorkflowImageRequest(imageConfig, false);
       } catch (error) {
-        const errorDetails = formatCanvasGenerationError(
-          error,
-          "无法解析分镜图片 operation",
-        );
-        message.error(
-          errorDetails,
-        );
-        applyPersistedNodes((prev) =>
-          prev.map((item) =>
-            item.id === current.id
-              ? {
-                  ...item,
-                  metadata: {
-                    ...item.metadata,
-                    storyGenerationStatus: NODE_STATUS_ERROR,
-                    status: NODE_STATUS_ERROR,
-                    errorDetails,
-                  },
-                }
-              : item,
-          ),
-        );
-        return;
+        console.warn("无法解析分镜图片 operation，回退普通生成:", error);
       }
       setRunningNodeId(current.id);
       applyPersistedNodes((prev) =>
@@ -10486,8 +10581,10 @@ function InfiniteCanvasPage() {
           character,
         ]),
       );
-      const baseX = current.position.x + current.width + 560;
-      const baseY = current.position.y;
+      const shotAnchor =
+        nodesRef.current.find((item) => item.id === current.id) || current;
+      const baseX = shotAnchor.position.x + shotAnchor.width + 96;
+      const baseY = shotAnchor.position.y;
       const shotNodeSize = storyDirectorShotNodeSize(imageConfig.size);
       const firstSequenceNumber = nextImageSequenceNumber(nodesRef.current);
       const shownReferenceWarnings = new Set<string>();
@@ -10589,7 +10686,7 @@ function InfiniteCanvasPage() {
               }
               const prompt = storyPromptPlan.prompt;
               const references = storyPromptPlan.transportAllowed ? storyReferenceDelivery.references : [];
-              const operation: ImageRequestOperation = storyPromptPlan.operation;
+              const operation: ImageRequestOperation = references.length > 0 ? storyPromptPlan.operation : "generate";
               const requestImageConfig = applyActiveNodeImageAdvancedSnapshot(
                 imageConfig,
                 storyImageGenerationNode.metadata,
@@ -10634,6 +10731,7 @@ function InfiniteCanvasPage() {
                 width: shotNodeSize.width,
                 height: shotNodeSize.height,
                 metadata: {
+                  storyRunId: current.metadata?.storyRunId,
                   prompt,
                   storyLabel:
                     shotStart === shotEnd
@@ -10781,6 +10879,7 @@ function InfiniteCanvasPage() {
             ),
           );
           message.success(`已补齐 ${gridGroups.length} 张九宫格分镜图`);
+          focusStoryDirectorGeneration(current.id);
           return;
         }
 
@@ -10870,7 +10969,7 @@ function InfiniteCanvasPage() {
             }
             const prompt = storyPromptPlan.prompt;
             const references = storyPromptPlan.transportAllowed ? storyReferenceDelivery.references : [];
-            const operation: ImageRequestOperation = storyPromptPlan.operation;
+            const operation: ImageRequestOperation = references.length > 0 ? storyPromptPlan.operation : "generate";
             const requestImageConfig = applyActiveNodeImageAdvancedSnapshot(
               imageConfig,
               storyImageGenerationNode.metadata,
@@ -10911,6 +11010,7 @@ function InfiniteCanvasPage() {
               width: shotNodeSize.width,
               height: shotNodeSize.height,
               metadata: {
+                storyRunId: current.metadata?.storyRunId,
                 prompt,
                 storyLabel: `第${shot.index}镜`,
                 imageSequenceNumber: firstSequenceNumber + workIndex,
@@ -11139,6 +11239,7 @@ function InfiniteCanvasPage() {
           ),
         );
         message.success(`已补齐 ${pendingShots.length} 张分镜图`);
+        focusStoryDirectorGeneration(current.id);
       } catch (error) {
         const errorDetails = formatCanvasGenerationError(
           error,
@@ -11168,6 +11269,7 @@ function InfiniteCanvasPage() {
       applyPersistedGraph,
       applyPersistedNodes,
       effectiveConfig,
+      focusStoryDirectorGeneration,
       isAiConfigReady,
       message,
       openConfigDialog,
@@ -11264,12 +11366,12 @@ function InfiniteCanvasPage() {
     async (node: CanvasNodeData) => {
       const current =
         nodesRef.current.find((item) => item.id === node.id) || node;
-      const analysis = await analyzeStoryDirector(current);
+      const storyRunId = `story-run-${Date.now()}-${nanoid(6)}`;
+      const analysis = await analyzeStoryDirector(current, storyRunId);
       if (!analysis) return;
       const latest =
         nodesRef.current.find((item) => item.id === node.id) || node;
-      const charactersReady = await generateStoryCharacters(latest, analysis);
-      if (!charactersReady) return;
+      await generateStoryCharacters(latest, analysis).catch(() => false);
       const afterCharacters =
         nodesRef.current.find((item) => item.id === node.id) || latest;
       await generateStoryShots(afterCharacters);
@@ -11281,10 +11383,6 @@ function InfiniteCanvasPage() {
           shot.status !== "done" && !(shot.resultNodeIds || []).length,
       );
       if (pendingShots.length) {
-        message.warning(
-          `还有 ${pendingShots.length} 个分镜未完成，正在等待后自动补齐`,
-        );
-        await sleep(12_000);
         const retryNode =
           nodesRef.current.find((item) => item.id === afterShots.id) ||
           afterShots;
@@ -11304,10 +11402,12 @@ function InfiniteCanvasPage() {
       // 忠于原版核心工作流：一键全流程到分镜图完成即止！
       // 绝不在画布上冗余铺设 5 个重复的视频占位框，更不擅自自动触发视频生成
       message.success("一键全流程已完成：剧本已分析，角色图与分镜图已全部生成就绪！如需生成视频可按需连接视频工作流");
+      focusStoryDirectorGeneration(readyDirector.id);
     },
     [
       analyzeStoryDirector,
       applyPersistedNodes,
+      focusStoryDirectorGeneration,
       generateStoryCharacters,
       generateStoryShots,
       message,
@@ -13575,7 +13675,23 @@ function InfiniteCanvasPage() {
       };
       if (authorityError || !videoApiConfig || !operation) {
         releaseEntryLock();
-        message.error(formatCanvasGenerationError(authorityError, "视频生成配置校验失败"));
+        const errorDetails = formatCanvasGenerationError(
+          authorityError,
+          "视频生成配置校验失败",
+        );
+        message.error(errorDetails);
+        const { nodes: errorNodes, modified } =
+          applyVideoPlaceholderPreflightError(
+            nodesRef.current,
+            latest.id,
+            errorDetails,
+          );
+        if (modified) {
+          nodesRef.current = errorNodes;
+          setNodes(errorNodes);
+          persistCanvasSnapshot(errorNodes);
+          void flushCanvasPersistence().catch(() => undefined);
+        }
         return;
       }
 
@@ -13598,21 +13714,33 @@ function InfiniteCanvasPage() {
       let customerLocalCredential: CustomerVideoLocalCredential | undefined;
       let nativeGenerationConfig: AiConfig | undefined;
       const nativeLedgerReferences: VideoReferenceImage[] = unresolvedReferences.map(
-        (reference, index) => ({
-          id:
-            reference.referenceId ||
-            reference.id ||
-            reference.nodeId ||
-            `seedance-ref-${index}`,
-          name: reference.label,
-          label: reference.label,
-          nodeId: reference.nodeId,
-          type: "image/png",
-          dataUrl: reference.value,
-          role: reference.role,
-          useAs: reference.useAs,
-          referenceOrigin: reference.referenceOrigin,
-        }),
+        (reference, index) => {
+          const sourceNode = reference.nodeId
+            ? nodesRef.current.find((node) => node.id === reference.nodeId)
+            : undefined;
+          const directSource = [
+            sourceNode?.metadata?.backendUrl,
+            sourceNode?.metadata?.content,
+            sourceNode?.metadata?.backendRel,
+          ].find((val) => typeof val === "string" && (val.startsWith("/works/") || val.startsWith("works/") || /^https?:\/\//i.test(val)));
+          const resolvedValue = directSource || reference.value;
+          return {
+            id:
+              reference.referenceId ||
+              reference.id ||
+              reference.nodeId ||
+              `seedance-ref-${index}`,
+            name: reference.label,
+            label: reference.label,
+            nodeId: reference.nodeId,
+            type: "image/png",
+            url: directSource,
+            dataUrl: resolvedValue,
+            role: reference.role,
+            useAs: reference.useAs,
+            referenceOrigin: reference.referenceOrigin,
+          };
+        },
       );
       try {
         const customerGuard = canvasCustomerVideoSubmitGuard({
@@ -13644,9 +13772,14 @@ function InfiniteCanvasPage() {
               ? videoApiConfig.route.provider
               : undefined,
           );
+          const adaptedReferenceImages = adaptVideoReferenceListForOperation(
+            unresolvedReferenceImages,
+            capability,
+            operation,
+          );
           const preparedReferences = prepareStoryVideoReferencesForSubmission(
             capability,
-            unresolvedReferenceImages,
+            adaptedReferenceImages,
             {
               operation,
               videos: referenceVideos,
@@ -13659,7 +13792,7 @@ function InfiniteCanvasPage() {
             referenceVideos,
             operation,
             latest.metadata?.videoGenerationSettings || {},
-            unresolvedReferenceImages,
+            adaptedReferenceImages,
           );
           videoGenerationSettingsToRequest(
             parameterSnapshot.settings,
@@ -13674,14 +13807,35 @@ function InfiniteCanvasPage() {
 
           const selectedReferences: VideoReferenceImage[] = [];
           for (const reference of preparedReferences.references) {
-            const dataUrl = await resolveSeedance2ReferenceTransportValue(
-              reference.dataUrl,
+            let directUrl = reference.url;
+            if (!directUrl && reference.nodeId) {
+              const node = nodesRef.current.find((n) => n.id === reference.nodeId);
+              const nodeUrl = node?.metadata?.backendUrl || node?.metadata?.content;
+              if (nodeUrl && (nodeUrl.startsWith("/works/") || /^https?:\/\//i.test(nodeUrl))) {
+                directUrl = nodeUrl;
+              }
+            }
+            // Probe the address that is about to be submitted. A `/works/` path the
+            // browser cannot load is also unreadable for the provider, so it must
+            // fail here with the slot name instead of spending a paid request.
+            const referenceLabel = reference.label || reference.name || reference.id;
+            const resolution = await resolveSeedance2ReferenceTransportResolution(
+              directUrl || reference.dataUrl,
               imageToDataUrl,
             );
-            if (!dataUrl) {
-              throw new Error(`参考图“${reference.label || reference.name}”读取失败`);
+            if (resolution.state === "unresolved") {
+              throw new Error(
+                `参考图“${referenceLabel}”无法提交：${resolution.reason}（${resolution.value}）。请重新上传或重新生成该参考图后再试。`,
+              );
             }
-            selectedReferences.push({ ...reference, dataUrl });
+            let dataUrl = directUrl || (resolution.state === "ready" ? resolution.value : "");
+            if (!dataUrl && reference.dataUrl) {
+              dataUrl = reference.dataUrl;
+            }
+            if (!dataUrl) {
+              throw new Error(`参考图“${referenceLabel}”读取失败`);
+            }
+            selectedReferences.push({ ...reference, url: directUrl || (dataUrl.startsWith("/works/") ? dataUrl : undefined), dataUrl });
           }
           nativePreflight = {
             generationConfig,
@@ -13710,9 +13864,23 @@ function InfiniteCanvasPage() {
           videoGenerationEntryLocksRef.current.get(latest.id) === entryAttemptId
         )
           videoGenerationEntryLocksRef.current.delete(latest.id);
-        message.error(
-          formatCanvasGenerationError(error, "视频生成配置校验失败"),
+        const errorDetails = formatCanvasGenerationError(
+          error,
+          "视频生成配置校验失败",
         );
+        message.error(errorDetails);
+        const { nodes: errorNodes, modified } =
+          applyVideoPlaceholderPreflightError(
+            nodesRef.current,
+            latest.id,
+            errorDetails,
+          );
+        if (modified) {
+          nodesRef.current = errorNodes;
+          setNodes(errorNodes);
+          persistCanvasSnapshot(errorNodes);
+          void flushCanvasPersistence().catch(() => undefined);
+        }
         return;
       }
 
@@ -13966,33 +14134,49 @@ function InfiniteCanvasPage() {
         );
         return;
       } catch (error) {
-        const errorDetails = error instanceof Error ? error.message : "视频生成失败";
+        console.error("[GenerateVideoErrorStack]", error);
+        // The stack belongs in the console; the node badge and the toast have to
+        // carry a reason the user can act on.
+        const errorDetails = formatCanvasGenerationError(error, "视频生成失败");
         generationErrorStatus = currentTaskId && !(error instanceof CanvasVideoTerminalError) ? "generating" : "failed";
-        const errorNodes = nodesRef.current.map((item) =>
-          item.id === latest.id &&
-          ownsVideoGenerationAttempt(item.metadata, {
-            ...pendingAttempt,
+        const failedMetadata = (metadata: CanvasNodeMetadata | undefined) => ({
+          ...metadata,
+          status: NODE_STATUS_ERROR,
+          errorDetails,
+          seedanceGenerationTaskState: {
+            ...videoTaskStateIdentity(metadata),
+            status: generationErrorStatus,
             taskId: currentTaskId,
-          })
-            ? {
-                ...item,
-                metadata: {
-                  ...item.metadata,
-                  status: NODE_STATUS_ERROR,
-                  errorDetails,
-                  seedanceGenerationTaskState: {
-                    status: generationErrorStatus,
-                    taskId: currentTaskId,
-                    ...(generationErrorStatus === "generating" ? { startedAt } : {}),
-                    errorMessage: errorDetails,
-                  },
-                  ...(generationErrorStatus === "failed"
-                    ? { videoGenerationAttempt: undefined }
-                    : {}),
-                },
-              }
-            : item,
-        );
+            ...(generationErrorStatus === "generating" ? { startedAt } : {}),
+            errorMessage: errorDetails,
+          },
+          ...(generationErrorStatus === "failed"
+            ? { videoGenerationAttempt: undefined }
+            : {}),
+        });
+        const errorNodes = nodesRef.current.map((item) => {
+          if (item.id !== latest.id) return item;
+          if (
+            ownsVideoGenerationAttempt(item.metadata, {
+              ...pendingAttempt,
+              taskId: currentTaskId,
+            })
+          ) {
+            return { ...item, metadata: failedMetadata(item.metadata) };
+          }
+          // A node still parked on this attempt's `loading` badge but no longer
+          // matching it would otherwise spin forever and then reset to a blank
+          // placeholder. Only settle that case; a genuinely newer attempt owns
+          // its own state and must not be overwritten.
+          const supersededByNewerAttempt = Boolean(
+            item.metadata?.videoGenerationAttempt &&
+              item.metadata.videoGenerationAttempt.id !== pendingAttempt.id,
+          );
+          if (supersededByNewerAttempt) return item;
+          if (item.metadata?.status !== NODE_STATUS_LOADING) return item;
+          return { ...item, metadata: failedMetadata(item.metadata) };
+        });
+        nodesRef.current = errorNodes;
         setNodes(errorNodes);
         persistCanvasSnapshot(errorNodes);
         message.error(errorDetails);
@@ -14560,10 +14744,13 @@ function InfiniteCanvasPage() {
             : sourceReference.length
               ? sourceReference
               : generationContext.referenceImages;
-          const imageOperation = resolveCanvasImageOperation(sourceNode?.metadata, {
+          const resolvedImageOperation = resolveCanvasImageOperation(sourceNode?.metadata, {
             referenceCount: collectedReferenceImages.length,
             hasImageContent: Boolean(sourceNode?.metadata?.content),
           });
+          const imageOperation = resolvedImageOperation
+            ? normalizeImageRequestOperation(resolvedImageOperation, collectedReferenceImages.length)
+            : undefined;
           if (!imageOperation) {
             const errorDetails =
               "缺少已持久化的图片 operation；请选择图片操作。所有参考图保持原样。";
@@ -15902,9 +16089,9 @@ function InfiniteCanvasPage() {
         return;
       }
       const generationType = savedGenerationType;
-      const retryImageOperation = savedImageOperation || "generate";
+      const requestedRetryImageOperation = savedImageOperation || "generate";
       const retryReferenceSnapshotError = retryImageReferenceSnapshotError(
-        retryImageOperation,
+        requestedRetryImageOperation,
         savedImageMetadata,
         isStoryDirectorImage,
       );
@@ -15947,6 +16134,7 @@ function InfiniteCanvasPage() {
             : [];
       if (
         useReferenceImages &&
+        requestedRetryImageOperation !== "edit" &&
         (!retryReferenceImages || !retryReferenceImages.length) &&
         isStoryDirectorImage
       ) {
@@ -15999,7 +16187,13 @@ function InfiniteCanvasPage() {
         retryReferenceImages = validation.references;
       }
       const hasRetryReferenceImages = Boolean(retryReferenceImages?.length);
-      if (useReferenceImages && !hasRetryReferenceImages) {
+      const retryImageOperation = normalizeImageRequestOperation(
+        requestedRetryImageOperation,
+        retryReferenceImages?.length || 0,
+      );
+      const canFallbackGenerate =
+        requestedRetryImageOperation === "edit" && !hasRetryReferenceImages;
+      if (useReferenceImages && !hasRetryReferenceImages && !canFallbackGenerate) {
         message.error("参考图片已丢失，无法继续重试");
         setNodes((prev) =>
           prev.map((item) =>
@@ -17210,6 +17404,12 @@ function InfiniteCanvasPage() {
               onViewImage={previewNodeImage}
               onViewCharacterDerivedViews={handleViewCharacterDerivedViews}
               onExpandCharacterDerivedViews={handleExpandCharacterDerivedViews}
+              onDownload={(node) => void downloadNodeImage(node)}
+              onEditPrompt={(node) => {
+                setSelectedNodeIds(new Set([node.id]));
+                setSelectedConnectionId(null);
+                setDialogNodeId(node.id);
+              }}
               onContextMenu={handleNodeContextMenu}
             />
           ))}
@@ -17989,6 +18189,12 @@ function imageExtension(dataUrl: string) {
   );
 }
 
+function assetSaveErrorMessage(error: unknown) {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "保存到我的素材失败";
+}
+
 async function clipboardImageBlob(dataUrl: string) {
   const sourceBlob = await (await fetch(dataUrl)).blob();
   if (sourceBlob.type === "image/png") return sourceBlob;
@@ -18119,9 +18325,10 @@ async function requestCanvasImageBatch(
   } = {},
 ): Promise<CanvasImageBatchOutcome<GeneratedImageResult>[]> {
   const boardRouteKey = options.boardRouteKey || "imageGeneration";
+  const effectiveOperation = normalizeImageRequestOperation(operation, references.length);
   const requestPreflight = await preflightImageRequest(
     config,
-    operation,
+    effectiveOperation,
     prompt,
     references,
     options.mask,
@@ -18131,7 +18338,7 @@ async function requestCanvasImageBatch(
   const route = requestPreflight.route;
   const settingsContext = resolveImageSettingsContext(
     config,
-    operation,
+    effectiveOperation,
   );
   const imageAdvancedSettings = readImageAdvancedSettings(
     config.imageAdvancedSettingsByScope,
@@ -18165,7 +18372,7 @@ async function requestCanvasImageBatch(
       const onNativeTaskSubmitted = persistSubmittedTask
         ? async (submitted: Parameters<typeof snapshotSubmittedNativeImageTask>[1]) => {
             const snapshot = snapshotSubmittedNativeImageTask(route, submitted, {
-              operation,
+              operation: effectiveOperation,
               capabilityId: requestPreflight.capability.id,
               resultPolicy,
             });
@@ -18189,7 +18396,7 @@ async function requestCanvasImageBatch(
             );
           }
         : undefined;
-      if (operation === "edit") return requestEdit(
+      if (effectiveOperation === "edit") return requestEdit(
             batchConfig,
             prompt,
             references,
@@ -18200,11 +18407,11 @@ async function requestCanvasImageBatch(
               onNativeTaskSubmitted,
             },
           );
-      if (operation === "variation") return requestVariation(batchConfig, references[0], boardRouteKey, {
+      if (effectiveOperation === "variation") return requestVariation(batchConfig, references[0], boardRouteKey, {
         prompt,
         onNativeTaskSubmitted,
       });
-      if (operation === "responses-tool") return requestResponsesImage(batchConfig, prompt, references, hydratedMask, boardRouteKey, {
+      if (effectiveOperation === "responses-tool") return requestResponsesImage(batchConfig, prompt, references, hydratedMask, boardRouteKey, {
         onNativeTaskSubmitted,
       });
       return requestGeneration(batchConfig, prompt, boardRouteKey, {
@@ -18216,8 +18423,8 @@ async function requestCanvasImageBatch(
       const target = targetById.get(targetId);
       if (!target) throw new Error(`图片批量目标不存在：${targetId}`);
       const singleConfig = { ...config, count: String(outputCount) };
-      if (operation === "variation" || operation === "responses-tool") {
-        const images = operation === "variation"
+      if (effectiveOperation === "variation" || effectiveOperation === "responses-tool") {
+        const images = effectiveOperation === "variation"
           ? await requestVariation(singleConfig, references[0], boardRouteKey, { prompt })
           : await requestResponsesImage(singleConfig, prompt, references, options.mask, boardRouteKey);
         assertExactCanvasImageBatchCardinality(outputCount, images.length);
@@ -18226,7 +18433,7 @@ async function requestCanvasImageBatch(
       const pollTaskId = await submitCanvasImageTask(
         target.taskId,
         singleConfig,
-        operation,
+        effectiveOperation,
         prompt,
         references,
         {
@@ -18254,7 +18461,8 @@ async function submitCanvasImageTask(
   } = {},
 ): Promise<string> {
   const boardRouteKey = options.boardRouteKey || "imageGeneration";
-  const requestPreflight = await preflightImageRequest(config, operation, prompt, references, options.mask, boardRouteKey, {
+  const effectiveOperation = normalizeImageRequestOperation(operation, references.length);
+  const requestPreflight = await preflightImageRequest(config, effectiveOperation, prompt, references, options.mask, boardRouteKey, {
     useReferenceLabels: options.useReferenceLabels,
     onNativeTaskSubmitted: options.onNativeTaskSubmitted,
   });
@@ -18267,14 +18475,14 @@ async function submitCanvasImageTask(
     : undefined;
   if (route.mode === "local" || route.mode === "localPool") {
     const localTask = (
-      operation === "edit"
+      effectiveOperation === "edit"
         ? requestEdit(config, prompt, references, hydratedMask, boardRouteKey, {
             useReferenceLabels: options.useReferenceLabels,
             onNativeTaskSubmitted: options.onNativeTaskSubmitted,
           })
-        : operation === "variation"
+        : effectiveOperation === "variation"
           ? requestVariation(config, references[0], boardRouteKey, { prompt, onNativeTaskSubmitted: options.onNativeTaskSubmitted })
-          : operation === "responses-tool"
+          : effectiveOperation === "responses-tool"
             ? requestResponsesImage(config, prompt, references, hydratedMask, boardRouteKey, { onNativeTaskSubmitted: options.onNativeTaskSubmitted })
             : requestGeneration(config, prompt, boardRouteKey, {
             references,
@@ -18288,7 +18496,7 @@ async function submitCanvasImageTask(
     return taskId;
   }
 
-  if (operation === "generate" && references.length) {
+  if (effectiveOperation === "generate" && references.length) {
     throw new Error(
       "平台通用图片生成任务没有已验证的参考图合同；已停止提交，不会改写为图片编辑任务。",
     );
@@ -18643,11 +18851,12 @@ function buildImageGenerationMetadata(
   count: number,
   references: ReferenceImage[],
 ): CanvasNodeMetadata {
-  const advancedSnapshot = snapshotCanvasImageAdvancedSettings(config, operation);
+  const effectiveOperation = normalizeImageRequestOperation(operation, references.length);
+  const advancedSnapshot = snapshotCanvasImageAdvancedSettings(config, effectiveOperation);
   const storyImageReferenceSnapshots = snapshotStoryImageReferences(references);
   return {
-    imageOperation: operation,
-    generationType: legacyCanvasImageGenerationType(operation),
+    imageOperation: effectiveOperation,
+    generationType: legacyCanvasImageGenerationType(effectiveOperation),
     ...resolveGenerationMetadataModelIdentity(
       config,
       "image",
@@ -19109,6 +19318,21 @@ async function recoverCanvasImageNode(
     }
   }
 
+  // 自身已具备持久化媒体或有效远程 URL（非临时内存 blob:），直接使用，不判错误
+  const existingContent = String(metadata.content || "").trim();
+  if (existingContent && !existingContent.startsWith("blob:")) {
+    return {
+      ...node,
+      metadata: {
+        ...metadata,
+        content: existingContent,
+        status: metadata.status === NODE_STATUS_ERROR ? NODE_STATUS_SUCCESS : (metadata.status || NODE_STATUS_SUCCESS),
+        errorDetails: undefined,
+        retained: true,
+      },
+    };
+  }
+
   const backendRel = normalizeCanvasBackendRel(
     String(metadata.backendRel || "").trim().replace(/^\/+/, "") ||
       extractBackendImageRel(metadata.backendUrl || metadata.content || ""),
@@ -19251,13 +19475,15 @@ function markCanvasNodeRestoreError(
   errorDetails: string,
 ): CanvasNodeData {
   if (node.type !== CanvasNodeType.Image) return node;
+  const existingContent = String(node.metadata?.content || "").trim();
+  const safeContent = existingContent && !existingContent.startsWith("blob:") ? existingContent : "";
   return {
     ...node,
     metadata: {
       ...node.metadata,
-      content: "",
-      status: NODE_STATUS_ERROR,
-      errorDetails,
+      content: safeContent,
+      status: safeContent ? NODE_STATUS_SUCCESS : NODE_STATUS_ERROR,
+      errorDetails: safeContent ? undefined : errorDetails,
     },
   };
 }
@@ -19420,6 +19646,7 @@ function fitViewportToNodes(
   nodes: CanvasNodeData[],
   width: number,
   height: number,
+  options?: { minScale?: number; maxScale?: number; padding?: number },
 ): ViewportTransform | null {
   if (!nodes.length || width < 40 || height < 40) return null;
   let minX = Infinity;
@@ -19432,13 +19659,90 @@ function fitViewportToNodes(
     maxX = Math.max(maxX, node.position.x + Math.max(node.width || 0, 80));
     maxY = Math.max(maxY, node.position.y + Math.max(node.height || 0, 80));
   }
-  const pad = 72;
+  const pad = options?.padding ?? 72;
   const worldW = Math.max(maxX - minX, 1) + pad * 2;
   const worldH = Math.max(maxY - minY, 1) + pad * 2;
-  const k = Math.min(Math.max(Math.min(width / worldW, height / worldH), 0.2), 1);
+  const minScale = options?.minScale ?? 0.2;
+  const maxScale = options?.maxScale ?? 1;
+  const fitted = Math.min(width / worldW, height / worldH);
+  const k = Math.min(Math.max(fitted, minScale), maxScale);
+  const contentW = worldW * k;
+  const contentH = worldH * k;
+  // When the readable floor is larger than a full fit, pin the top-left of the
+  // group (story director, then the shot cards to its right) instead of
+  // centering a canvas that no longer fits.
+  const overflowX = contentW > width + 1;
+  const overflowY = contentH > height + 1;
   return {
-    x: (width - worldW * k) / 2 - (minX - pad) * k,
-    y: (height - worldH * k) / 2 - (minY - pad) * k,
+    x: overflowX ? pad * k - minX * k + 24 : (width - contentW) / 2 - (minX - pad) * k,
+    y: overflowY ? pad * k - minY * k + 16 : (height - contentH) / 2 - (minY - pad) * k,
+    k,
+  };
+}
+
+// Ports, badges and the story director's outboard handles are drawn outside a
+// node's own box; without this bleed the arc and the left-hand ports land right
+// on the viewport edge.
+const STORY_FOCUS_WORLD_BLEED = 56;
+// Screen-space breathing room, so the margin stays comfortable at any scale --
+// world-space padding shrinks with k and stops protecting the edges.
+const STORY_FOCUS_SCREEN_PADDING = 96;
+const STORY_FOCUS_MIN_SCREEN_PADDING = 40;
+
+/**
+ * Fit every node of a story run fully inside the viewport.
+ *
+ * Unlike {@link fitViewportToNodes}, this never pins the group's top-left to
+ * keep a readability floor: the whole union box -- character cards on the left,
+ * the director in the middle, all shot cards on the right -- is guaranteed to
+ * be on screen, then centered.
+ */
+function fitViewportToNodesOnScreen(
+  nodes: CanvasNodeData[],
+  width: number,
+  height: number,
+): ViewportTransform | null {
+  if (!nodes.length || width < 40 || height < 40) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.position.x);
+    minY = Math.min(minY, node.position.y);
+    maxX = Math.max(maxX, node.position.x + Math.max(node.width || 0, 80));
+    maxY = Math.max(maxY, node.position.y + Math.max(node.height || 0, 80));
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+  minX -= STORY_FOCUS_WORLD_BLEED;
+  minY -= STORY_FOCUS_WORLD_BLEED;
+  maxX += STORY_FOCUS_WORLD_BLEED;
+  maxY += STORY_FOCUS_WORLD_BLEED;
+  const worldW = Math.max(maxX - minX, 1);
+  const worldH = Math.max(maxY - minY, 1);
+  // Never let the padding eat the viewport on a small window.
+  const padX = Math.max(
+    STORY_FOCUS_MIN_SCREEN_PADDING,
+    Math.min(STORY_FOCUS_SCREEN_PADDING, width * 0.12),
+  );
+  const padY = Math.max(
+    STORY_FOCUS_MIN_SCREEN_PADDING,
+    Math.min(STORY_FOCUS_SCREEN_PADDING, height * 0.12),
+  );
+  const availableW = Math.max(width - padX * 2, 80);
+  const availableH = Math.max(height - padY * 2, 80);
+  const naturalK = Math.min(availableW / worldW, availableH / worldH, 1);
+  // Keep a readability floor so titles, buttons and shot images stay clear and readable.
+  // When the sequence is very wide, anchor viewport on the story director right edge + first shots.
+  const k = Math.max(0.62, Math.min(naturalK, 0.9));
+  let targetX = (width - worldW * k) / 2 - minX * k;
+  if (naturalK < 0.62) {
+    // Offset slightly to focus on the active shot cards area
+    targetX = width * 0.28 - minX * k;
+  }
+  return {
+    x: targetX,
+    y: (height - worldH * k) / 2 - minY * k,
     k,
   };
 }
@@ -19829,23 +20133,16 @@ function synchronizeSeedanceWorkflowPlaceholderSnapshots(
   const workflowModel = String(
     workflowMetadata.seedanceModel || workflowMetadata.model || "",
   ).trim();
-  const workflowProviderId = String(workflowMetadata.modelProviderId || "").trim();
-  if (!workflowModel || !workflowProviderId) return nodes;
+  // Provider 可以为空：工作流只选了模型时，占位框仍应跟着换模型。
+  if (!workflowModel) return nodes;
   return nodes.map((node) => {
-    const taskState = node.metadata?.seedanceGenerationTaskState;
+    // 只有正在跑的任务才拒绝级联，与 isVideoTaskSnapshotLocked 保持一致；
+    // 成功/失败后的占位框重新接受工作流的模型改动。
     if (
       node.type !== CanvasNodeType.Video ||
       node.metadata?.seedanceWorkflowRole !== "placeholder" ||
       node.metadata?.seedanceWorkflowNodeId !== workflowNode.id ||
-      node.metadata?.content ||
-      node.metadata?.status && node.metadata.status !== "idle" ||
-      node.metadata?.videoGenerationTask ||
-      node.metadata?.videoGenerationAttempt ||
-      node.metadata?.seedanceTaskId ||
-      taskState?.taskId ||
-      taskState?.startedAt ||
-      taskState?.attemptId ||
-      taskState?.status !== undefined && taskState.status !== "idle"
+      isVideoTaskSnapshotLocked(node.metadata)
     ) {
       return node;
     }
@@ -20208,48 +20505,6 @@ function storyDevelopmentFunctionLabel(index: number, total: number) {
   return "过程推进";
 }
 
-function draftStoryDirectorAnalysis(
-  idea: string,
-  style: string,
-  shotCount: number,
-): StoryAnalysisResult {
-  const plan = draftPlan(idea, style, shotCount);
-  return parseStoryAnalysis(
-    JSON.stringify({
-      characters: plan.cast.map((person) => ({
-        id: person.id,
-        name: person.name,
-        importance: person.importance,
-        appearance: person.appearance || person.look,
-        visualPrompt: person.visualPrompt || person.look,
-        personality: person.personality,
-        negativePrompt: person.negativePrompt,
-      })),
-      scenes: plan.sceneBoard.map((scene) => ({
-        id: scene.id,
-        name: scene.name,
-        description: scene.description,
-        mood: scene.mood,
-      })),
-      shots: plan.shots.map((shot) => ({
-        id: shot.id,
-        index: shot.index,
-        title: shot.title,
-        sceneId: shot.sceneId,
-        appearingCharacterIds: shot.appearingCharacterIds,
-        excludedCharacterIds: shot.excludedCharacterIds,
-        action: shot.action || shot.prompt,
-        camera: shot.camera,
-        emotion: shot.emotion,
-        continuityNote: shot.continuityNote,
-        visualContent: shot.visualContent || shot.prompt,
-        imagePrompt: shot.imagePrompt || shot.prompt,
-        prompt: shot.prompt,
-      })),
-    }),
-  );
-}
-
 function listPendingSeedance2Placeholders(
   nodes: CanvasNodeData[],
   workflowNodeId: string,
@@ -20278,6 +20533,8 @@ function reusableStoryDirectorAnalysis(
   const source = String(metadata?.storyAnalysisSourceText || "").trim();
   const storyText = storyDirectorEditableText(metadata);
   const requestedShotCount = metadata?.storyShotCount || 5;
+  const analysisTextModel = metadata?.storyAnalysisTextModel;
+  const currentTextModel = metadata?.storyDirectorTextModel;
   if (
     metadata?.storyAnalysisStatus !== NODE_STATUS_SUCCESS ||
     !raw ||
@@ -20285,6 +20542,7 @@ function reusableStoryDirectorAnalysis(
     metadata.storyAnalysisShotCount !== requestedShotCount ||
     !storyText ||
     source !== storyText ||
+    (Boolean(analysisTextModel) && Boolean(currentTextModel) && analysisTextModel !== currentTextModel) ||
     detectTextApiResponseError(raw)
   ) {
     return null;
@@ -20447,7 +20705,7 @@ function normalizeStoryShot(
     appearingCharacterIds: appearing,
     excludedCharacterIds: excluded,
     action: stringValue(item.action) || title,
-    camera: camera || "电影感中景",
+    camera: camera || "",
     emotion: stringValue(item.emotion),
     continuityNote: stringValue(item.continuityNote),
     characterState,
@@ -20578,6 +20836,8 @@ function reconcileStoryDirectorImageResults(
     const shots = node.metadata?.storyShots || [];
     const characters = node.metadata?.storyCharacters || [];
 
+    const currentRunId = node.metadata?.storyRunId;
+
     const latestOutputByIndex = new Map<
       number,
       | { kind: "active" }
@@ -20586,6 +20846,13 @@ function reconcileStoryDirectorImageResults(
     >();
 
     (storyOutputImages.get(node.id) || []).forEach((imageNode) => {
+      if (
+        !currentRunId ||
+        !imageNode.metadata?.storyRunId ||
+        imageNode.metadata.storyRunId !== currentRunId
+      ) {
+        return;
+      }
       const indexes = storyShotIndexesFromImageNode(imageNode);
       if (!indexes.length) return;
       const metadata = imageNode.metadata || {};
@@ -20675,14 +20942,15 @@ function reconcileStoryDirectorImageResults(
       return shot;
     });
 
-    const inputImages = storyCharacterInputImages.get(node.id) || [];
-    const usedCharacterImageIds = new Set<string>();
-    const retryCharacters = characters.filter(
-      (character) =>
-        (character.importance === "main" ||
-          character.importance === "supporting") &&
-        (character.status === "generating" || character.status === "error"),
+    const inputImages = (storyCharacterInputImages.get(node.id) || []).filter(
+      (imageNode) =>
+        Boolean(
+          currentRunId &&
+            imageNode.metadata?.storyRunId &&
+            imageNode.metadata.storyRunId === currentRunId,
+        ),
     );
+    const usedCharacterImageIds = new Set<string>();
     let characterChanged = false;
     const nextCharacters = characters.map((character) => {
       const unclaimedImages = inputImages.filter(
@@ -20704,21 +20972,9 @@ function reconcileStoryDirectorImageResults(
           character,
           orderedCandidateIds,
           nodeById,
+          currentRunId,
         );
         imageNode = matchId ? nodeById.get(matchId) : undefined;
-      }
-      if (!imageNode && retryCharacters.length === 1) {
-        const retryImages = unclaimedImages.filter(
-          (candidate) =>
-            isActiveStoryImageTask(candidate) ||
-            candidate.metadata?.status === NODE_STATUS_ERROR,
-        );
-        if (
-          retryCharacters[0].id === character.id &&
-          retryImages.length === 1
-        ) {
-          imageNode = retryImages[0];
-        }
       }
       if (!imageNode) return character;
       usedCharacterImageIds.add(imageNode.id);
@@ -20844,10 +21100,17 @@ function reconcileStoryDirectorImageResults(
     )
       return node;
 
-    const generationErrorDetails =
+    const rawError =
       nextShots.find((shot) => shot.status === "error")?.errorDetails ||
-      errorCharacter?.errorDetails ||
-      node.metadata?.errorDetails;
+      errorCharacter?.errorDetails;
+    const isCacheRestoreError = Boolean(
+      rawError && (rawError.includes("缓存") || rawError.includes("无法恢复") || rawError.includes("失效"))
+    );
+    const generationErrorDetails = isCacheRestoreError
+      ? undefined
+      : (rawError || (node.metadata?.errorDetails?.includes("无法恢复") ? undefined : node.metadata?.errorDetails));
+    const hasRealGenerationError = Boolean(hasGenerationError && generationErrorDetails);
+
     changed = true;
     return {
       ...node,
@@ -20863,15 +21126,15 @@ function reconcileStoryDirectorImageResults(
             }
           : shouldSettleStoryGeneration
             ? {
-                status: hasGenerationError
+                status: hasRealGenerationError
                   ? NODE_STATUS_ERROR
                   : NODE_STATUS_SUCCESS,
-                storyGenerationStatus: hasGenerationError
+                storyGenerationStatus: hasRealGenerationError
                   ? NODE_STATUS_ERROR
                   : generationCompleted
                     ? NODE_STATUS_SUCCESS
                     : ("idle" as const),
-                errorDetails: hasGenerationError
+                errorDetails: hasRealGenerationError
                   ? generationErrorDetails
                   : undefined,
               }
@@ -21022,11 +21285,13 @@ function syncStoryDirectorInputMetadata(
   let changed = false;
   const nextNodes = nodes.map((node) => {
     if (node.type !== CanvasNodeType.StoryDirector) return node;
+    const currentRunId = node.metadata?.storyRunId;
     const inputs = storyDirectorInputIds(node.id, nodes, connections);
     const storyCharacters = bindStoryCharactersFromInputs(
       node.metadata?.storyCharacters || [],
       inputs.character,
       nodeById,
+      currentRunId,
     );
     const metadata = {
       ...node.metadata,
@@ -21093,12 +21358,12 @@ function storyDirectorInputIds(
 function hasCanvasImageReference(
   node: CanvasNodeData | undefined | null,
 ): node is CanvasNodeData {
-  return Boolean(
-    node?.type === CanvasNodeType.Image &&
-      (node.metadata?.content ||
-        node.metadata?.storageKey ||
-        node.metadata?.backendUrl),
-  );
+  if (node?.type !== CanvasNodeType.Image) return false;
+  const content = node.metadata?.content;
+  const storageKey = node.metadata?.storageKey;
+  const backendUrl = node.metadata?.backendUrl;
+  if (typeof content === "string" && content.startsWith("blob:")) return false;
+  return Boolean((content && !content.startsWith("blob:")) || (storageKey && !storageKey.startsWith("blob:")) || backendUrl);
 }
 
 function storyDirectorKindFromHandleId(
@@ -21114,14 +21379,30 @@ function bindStoryCharactersFromInputs(
   characters: StoryCharacter[],
   characterNodeIds: string[],
   nodeById: Map<string, CanvasNodeData>,
+  currentStoryRunId?: string,
 ) {
   if (!characters.length) return characters;
-  const connectedIds = new Set(characterNodeIds);
+  // 只认领 storyRunId 与当前导演节点一致的图片节点；旧 run（含缺失 storyRunId）不参与认领
+  const validCandidateIds = characterNodeIds.filter((id) => {
+    const candidate = nodeById.get(id);
+    return Boolean(
+      currentStoryRunId &&
+        candidate?.metadata?.storyRunId &&
+        candidate.metadata.storyRunId === currentStoryRunId,
+    );
+  });
+  const connectedIds = new Set(validCandidateIds);
   const usedIds = new Set<string>();
   let changed = false;
   const cleared = characters.map((character) => {
-    if (character.referenceNodeId && character.assetSource === "upstream") {
-      if (!connectedIds.has(character.referenceNodeId)) {
+    if (character.referenceNodeId) {
+      const source = nodeById.get(character.referenceNodeId);
+      const isCurrentRun = Boolean(
+        currentStoryRunId &&
+          source?.metadata?.storyRunId &&
+          source.metadata.storyRunId === currentStoryRunId,
+      );
+      if (!isCurrentRun || !connectedIds.has(character.referenceNodeId)) {
         changed = true;
         return {
           ...character,
@@ -21133,7 +21414,6 @@ function bindStoryCharactersFromInputs(
         };
       }
       usedIds.add(character.referenceNodeId);
-      const source = nodeById.get(character.referenceNodeId);
       const referenceImageUrl =
         source?.metadata?.content ||
         source?.metadata?.backendUrl ||
@@ -21169,10 +21449,9 @@ function bindStoryCharactersFromInputs(
         status: "draft" as const,
       };
     }
-    if (character.referenceNodeId) usedIds.add(character.referenceNodeId);
     return character;
   });
-  const candidates = characterNodeIds.filter((id) => !usedIds.has(id));
+  const candidates = validCandidateIds.filter((id) => !usedIds.has(id));
   if (!candidates.length) return changed ? cleared : characters;
 
   const next = cleared.map((character) => {
@@ -21188,8 +21467,8 @@ function bindStoryCharactersFromInputs(
         character,
         availableCandidates,
         nodeById,
-      ) ||
-      (availableCandidates.length === 1 ? availableCandidates[0] : undefined);
+        currentStoryRunId,
+      );
     if (!matchId) return character;
     const source = nodeById.get(matchId);
     const referenceImageUrl =
@@ -21217,6 +21496,7 @@ function findCharacterReferenceCandidate(
   character: StoryCharacter,
   candidateIds: string[],
   nodeById: Map<string, CanvasNodeData>,
+  currentStoryRunId?: string,
 ) {
   const names = [character.name, ...(character.aliases || [])]
     .map((value) => value.trim().toLowerCase())
@@ -21225,6 +21505,17 @@ function findCharacterReferenceCandidate(
   return (
     candidateIds.find((id) => {
       const node = nodeById.get(id);
+      if (
+        !currentStoryRunId ||
+        !node?.metadata?.storyRunId ||
+        node.metadata.storyRunId !== currentStoryRunId
+      ) {
+        return false;
+      }
+      // 如果该节点是之前某次生成的派生角色卡，且角色 ID 不一致，不能混淆绑定
+      if (node?.metadata?.storyCharacterId && node.metadata.storyCharacterId !== character.id) {
+        return false;
+      }
       const haystack = `${node?.title || ""}\n${
         node?.metadata?.storyLabel || ""
       }\n${node?.metadata?.prompt || ""}`.toLowerCase();
@@ -21254,58 +21545,23 @@ function buildStoryCharacterImagePrompt(
   const referenceLine = referenceCount
     ? `参考图只用于统一整体画风、质感、世界观和色彩标准；不要复制参考图中的构图、背景、人物数量、道具或无关主体。`
     : "";
-  const subjectRule = storyCharacterIsAnimal(character)
-    ? "如果角色本体是动物，只画该动物角色的正面、侧面、背面和头部特写；不要加入人类形态、主人、桌椅、城市、室内场景或其它动物。"
-    : "角色必须是单一人类角色；不要出现动物、宠物、猫、狗、桌椅、房间、城市街景、额外人物或剧情场景。";
-  return `生成角色设定图，16:9 横版，纯白背景，${style}。
-
-最高优先级统一模板：
-- 本故事所有角色图必须像同一套角色资产表，使用完全一致的模板、白底、棚拍光线、镜头距离、色彩风格和渲染质感。
-- 画面是 production character sheet / turnaround reference sheet，不是剧情插画、电影截图、写真、海报或场景图。
-- 纯白无缝背景，柔和均匀棚拍光，不要任何室内、城市、自然、夜景、桌面、窗户、墙面、地面透视或复杂阴影。
-- 固定四区布局，从左到右依次为：正面全身站姿、侧面全身站姿、背面全身站姿、右侧上半身面部特写。
-- 四个区域必须是同一个角色、同一套服装、同一发型、同一脸型和同一材质表现；全身视图比例统一，站姿中性。
-- 视觉关键词只用于角色身份、外貌、服装和气质；忽略其中的背景、灯光、构图、道具、宠物、场景和剧情动作。
-- ${subjectRule}
+  return `生成角色设定图，${style}。
 
 角色：${character.name}
 身份：${character.roleType || character.importance}
 外貌：${character.appearance}
 性格：${character.personality || "按故事气质表现"}
-视觉关键词：${character.visualPrompt}
+视觉呈现：${character.visualPrompt}
 ${referenceLine}
 
-不要出现文字、水印、logo、编号、标签、边框线、拼贴说明。${character.negativePrompt ? `\n避免：${character.negativePrompt}` : ""}`;
+要求：清晰展现角色的面容五官、体型轮廓、发型和标志性服装细节，保持画面主体明确、质感细腻。避免多余的水印、文字、logo。${character.negativePrompt ? `\n避免：${character.negativePrompt}` : ""}`;
 }
 
 function upgradeStoryCharacterPromptForRegeneration(
   prompt: string,
-  node: CanvasNodeData | undefined,
+  _node: CanvasNodeData | undefined,
 ) {
-  if (!prompt || prompt.includes("最高优先级统一模板")) return prompt;
-  const isCharacterSheet =
-    node?.title?.startsWith("角色-") || prompt.includes("生成角色设定图");
-  if (!isCharacterSheet) return prompt;
-  const characterLine = prompt.match(/角色：([^\n]+)/)?.[1] || "";
-  const identityLine = prompt.match(/身份：([^\n]+)/)?.[1] || "";
-  const appearanceLine = prompt.match(/外貌：([^\n]+)/)?.[1] || "";
-  const isAnimal =
-    /转生后为|本体.*(?:猫|狗|狐|狼|虎|豹|鸟|兽)|猫|狗|狐|狼|虎|豹|鸟|兽|灵兽|妖兽|dragon|cat|dog|fox|wolf|tiger|leopard|bird|beast|animal/i.test(
-      `${characterLine} ${identityLine} ${appearanceLine}`,
-    );
-  const subjectRule = isAnimal
-    ? "如果角色本体是动物，只画该动物角色的正面、侧面、背面和头部特写；不要加入人类形态、主人、桌椅、城市、室内场景或其它动物。"
-    : "角色必须是单一人类角色；不要出现动物、宠物、猫、狗、桌椅、房间、城市街景、额外人物或剧情场景。";
-  return `最高优先级统一模板：
-- 本故事所有角色图必须像同一套角色资产表，使用完全一致的模板、白底、棚拍光线、镜头距离、色彩风格和渲染质感。
-- 画面是 production character sheet / turnaround reference sheet，不是剧情插画、电影截图、写真、海报或场景图。
-- 纯白无缝背景，柔和均匀棚拍光，不要任何室内、城市、自然、夜景、桌面、窗户、墙面、地面透视或复杂阴影。
-- 固定四区布局，从左到右依次为：正面全身站姿、侧面全身站姿、背面全身站姿、右侧上半身面部特写。
-- 四个区域必须是同一个角色、同一套服装、同一发型、同一脸型和同一材质表现；全身视图比例统一，站姿中性。
-- 旧提示词里的背景、灯光、构图、道具、宠物、场景和剧情动作全部忽略，只保留角色身份、外貌、服装和气质。
-- ${subjectRule}
-
-${prompt}`;
+  return prompt;
 }
 
 function storyCharacterIsAnimal(character: StoryCharacter) {
@@ -21635,14 +21891,19 @@ async function resolveStoryWorkflowImageRequest(
     "generate",
     "imageGeneration",
   );
-  const edit = referenceIntent
-    ? await resolveImageRequestCapability(imageConfig, "edit", "imageGeneration")
-    : undefined;
+  let edit: Awaited<ReturnType<typeof resolveImageRequestCapability>> | undefined;
+  if (referenceIntent) {
+    try {
+      edit = await resolveImageRequestCapability(imageConfig, "edit", "imageGeneration");
+    } catch {
+      edit = undefined;
+    }
+  }
   const operation = resolveStoryWorkflowImageOperation(
     { generate: generate.capability, edit: edit?.capability },
-    referenceIntent,
+    referenceIntent && Boolean(edit),
   );
-  return operation === "generate" ? generate : edit!;
+  return operation === "generate" || !edit ? generate : edit;
 }
 
 function stableFrontGridStoryShot(shots: StoryShot[]): StoryShot {
@@ -22325,6 +22586,14 @@ function recoverInterruptedGeneration(nodes: CanvasNodeData[]) {
     )
       return node;
     if (
+      node.type === CanvasNodeType.Video &&
+      !node.metadata.content &&
+      !node.metadata.isBatchRoot
+    ) {
+      const settled = recoverInterruptedVideoSubmit(node.metadata);
+      if (settled) return { ...node, metadata: settled as CanvasNodeMetadata };
+    }
+    if (
       node.type === CanvasNodeType.Config ||
       (node.metadata.isBatchRoot && node.metadata.batchChildIds?.length)
     ) {
@@ -22368,9 +22637,8 @@ function recoverInterruptedStoryDirector(node: CanvasNodeData) {
     ...node,
     metadata: {
       ...metadata,
-      status: metadata.errorDetails
-        ? NODE_STATUS_ERROR
-        : NODE_STATUS_SUCCESS,
+      status: NODE_STATUS_SUCCESS,
+      errorDetails: undefined,
       storyAnalysisStatus,
       storyGenerationStatus,
       storyAnalysisRaw: recoverableRaw,

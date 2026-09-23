@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
@@ -9,12 +9,10 @@ import zhCN from "antd/locale/zh_CN";
 import { ApiAccessSettingsDialog } from "@/components/api-access-settings-dialog";
 import { UpdateNotificationBridge } from "@/components/update-notification-bridge";
 import { getAntThemeConfig } from "@/lib/app-theme";
-import { syncAppDataToWebdav } from "@/services/app-sync";
 import { cleanupExpiredStoredImages, collectImageStorageKeys, setStoredImagesRetained } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { retryConfigHydration, useConfigHydrationRuntimeStore, useConfigStore } from "@/stores/use-config-store";
-import { importLatestStorySeed, useCanvasStore } from "./stores/use-canvas-store";
-import { STORY_SEED_STAMP } from "@/studio/canvas/seed-stamp";
+import { useCanvasStore } from "./stores/use-canvas-store";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,30 +24,15 @@ const queryClient = new QueryClient({
   },
 });
 
-const AUTO_WEBDAV_SYNC_DELAY_MS = 2_500;
-
 export function CanvasProviders({ children }: { children: ReactNode }) {
   const configHydrated = useConfigStore((state) => state.hydrated);
   const configHydrationError = useConfigHydrationRuntimeStore((state) => state.error);
   const isConfigHydrationRetrying = useConfigHydrationRuntimeStore((state) => state.isRetrying);
   const channelMode = useConfigStore((state) => state.config.channelMode);
   const loadPublicSettings = useConfigStore((state) => state.loadPublicSettings);
-  const updateWebdavConfig = useConfigStore((state) => state.updateWebdavConfig);
-  const webdav = useConfigStore((state) => state.webdav);
   const canvasHydrated = useCanvasStore((state) => state.hydrated);
-  const projects = useCanvasStore((state) => state.projects);
   const assetHydrated = useAssetStore((state) => state.hydrated);
-  const assets = useAssetStore((state) => state.assets);
-  const syncTimerRef = useRef<number | null>(null);
-  const syncInFlightRef = useRef(false);
-  const lastSyncedFingerprintRef = useRef("");
   const imageCleanupReadyRef = useRef(false);
-  const syncFingerprint = useMemo(() => buildSyncFingerprint(projects, assets), [projects, assets]);
-
-  useEffect(() => {
-    if (!canvasHydrated) return;
-    void importLatestStorySeed();
-  }, [canvasHydrated, STORY_SEED_STAMP]);
 
   useEffect(() => {
     if (!configHydrated || channelMode !== "remote") return;
@@ -62,45 +45,55 @@ export function CanvasProviders({ children }: { children: ReactNode }) {
       return;
     }
     if (imageCleanupReadyRef.current) return;
-    imageCleanupReadyRef.current = true;
 
-    const protectedImageKeys = collectImageStorageKeys({ projects, assets });
-    void (async () => {
-      // Retain the complete cross-store reference set before deleting any old
-      // unretained image. This prevents either persistence store from cleaning
-      // media while the other store is still restoring its references.
-      await setStoredImagesRetained(protectedImageKeys, true);
-      await cleanupExpiredStoredImages(undefined, protectedImageKeys);
-    })().catch((error) => console.warn("Canvas image cleanup failed", error));
-  }, [assetHydrated, assets, canvasHydrated, projects]);
-
-  useEffect(() => {
-    if (!canvasHydrated || !assetHydrated || !webdav.url.trim()) return;
-    if (syncInFlightRef.current || syncFingerprint === lastSyncedFingerprintRef.current) return;
-    if (syncTimerRef.current) window.clearTimeout(syncTimerRef.current);
-    syncTimerRef.current = window.setTimeout(() => {
-      syncTimerRef.current = null;
-      if (syncInFlightRef.current) return;
-      syncInFlightRef.current = true;
-      void (async () => {
-        try {
-          await syncAppDataToWebdav(webdav);
-          lastSyncedFingerprintRef.current = buildSyncFingerprint(useCanvasStore.getState().projects, useAssetStore.getState().assets);
-          updateWebdavConfig("lastSyncedAt", new Date().toISOString());
-        } catch (error) {
-          console.warn("Canvas WebDAV auto sync failed", error);
-        } finally {
-          syncInFlightRef.current = false;
-        }
-      })();
-    }, AUTO_WEBDAV_SYNC_DELAY_MS);
-    return () => {
-      if (syncTimerRef.current) {
-        window.clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
+    let cancelled = false;
+    const runCleanup = () => {
+      if (cancelled || imageCleanupReadyRef.current) return;
+      imageCleanupReadyRef.current = true;
+      const { projects: liveProjects, hydrated: liveCanvasHydrated } = useCanvasStore.getState();
+      const { assets: liveAssets, hydrated: liveAssetHydrated } = useAssetStore.getState();
+      if (!liveCanvasHydrated || !liveAssetHydrated) {
+        imageCleanupReadyRef.current = false;
+        return;
       }
+      const protectedImageKeys = collectImageStorageKeys({ projects: liveProjects, assets: liveAssets });
+      void (async () => {
+        // Retain the complete cross-store reference set before deleting any old
+        // unretained image. This prevents either persistence store from cleaning
+        // media while the other store is still restoring its references.
+        await setStoredImagesRetained(protectedImageKeys, true);
+        await cleanupExpiredStoredImages(undefined, protectedImageKeys);
+      })().catch((error) => console.warn("Canvas image cleanup failed", error));
     };
-  }, [assetHydrated, canvasHydrated, syncFingerprint, updateWebdavConfig, webdav]);
+
+    // First paint must not wait on a full project/asset scan.
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    let idleHandle = 0;
+    let timeoutHandle = 0;
+    const onFirstInteraction = () => {
+      window.removeEventListener("pointerdown", onFirstInteraction);
+      window.removeEventListener("keydown", onFirstInteraction);
+      runCleanup();
+    };
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      idleHandle = idleWindow.requestIdleCallback(runCleanup, { timeout: 4_000 });
+    } else {
+      timeoutHandle = window.setTimeout(runCleanup, 1_500);
+    }
+    window.addEventListener("pointerdown", onFirstInteraction, { once: true });
+    window.addEventListener("keydown", onFirstInteraction, { once: true });
+
+    return () => {
+      cancelled = true;
+      if (idleHandle && typeof idleWindow.cancelIdleCallback === "function") idleWindow.cancelIdleCallback(idleHandle);
+      if (timeoutHandle) window.clearTimeout(timeoutHandle);
+      window.removeEventListener("pointerdown", onFirstInteraction);
+      window.removeEventListener("keydown", onFirstInteraction);
+    };
+  }, [assetHydrated, canvasHydrated]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -175,15 +168,4 @@ function ConfigHydrationErrorShell({ isRetrying, onRetry }: { isRetrying: boolea
       </section>
     </main>
   );
-}
-
-function buildSyncFingerprint(projects: { id: string; updatedAt: string }[], assets: { id: string; updatedAt: string }[]) {
-  return [
-    "projects",
-    projects.length,
-    ...projects.map((project) => `${project.id}:${project.updatedAt}`),
-    "assets",
-    assets.length,
-    ...assets.map((asset) => `${asset.id}:${asset.updatedAt}`),
-  ].join("|");
 }

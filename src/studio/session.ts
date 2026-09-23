@@ -188,6 +188,13 @@ export const useStudioSession = create<StudioSession>()(
         hydrating = true;
         set({ vaultStatus: "syncing", vaultMessage: "正在从数据库读取接线…" });
         try {
+          if (typeof window !== "undefined") {
+            void fetch("/client-api/catalog").then((r) => r.json()).then((cat) => {
+              if (cat?.ok && Array.isArray(cat.providers)) {
+                set({ relays: mergeRelaySources(get().relays, cat.providers) });
+              }
+            }).catch(() => {});
+          }
           const remote = await loadRelayVault();
           const local = get();
           const hiddenPresetIds = Array.from(new Set([...(remote.hiddenPresetIds || []), ...local.hiddenPresetIds]));

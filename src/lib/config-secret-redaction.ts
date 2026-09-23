@@ -1,7 +1,7 @@
 const BROWSER_SAFE_CONFIG_MARKER = "__boundlessStudioBrowserSecretsRedacted";
 
 type PersistedConfigEnvelope = {
-    state?: { config?: Record<string, unknown>; webdav?: Record<string, unknown> };
+    state?: { config?: Record<string, unknown> };
     [key: string]: unknown;
 };
 
@@ -34,8 +34,6 @@ export function browserSafeConfigEnvelope(
             });
         }
     }
-    const webdav = parsed.state?.webdav;
-    if (webdav && typeof webdav === "object") webdav.password = "";
     parsed[BROWSER_SAFE_CONFIG_MARKER] = true;
     return JSON.stringify(parsed);
 }

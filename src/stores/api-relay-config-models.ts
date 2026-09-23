@@ -1,20 +1,20 @@
-import { normalizeProviderKeyInput } from "@/stores/provider-credentials";
-import type { AudioCapabilityProfileId } from "@/services/api/audio-model-capabilities";
-import type { ImageCapabilityProfileSelection } from "@/services/api/image-model-capabilities";
-import type { VideoCapabilityProfileId } from "@/services/api/video-model-capabilities";
-import type { RelayModelCatalogMetadataRecord } from "@/services/api/models-dev-catalog";
+import { normalizeProviderKeyInput } from "./provider-credentials.ts";
+import type { AudioCapabilityProfileId } from "../services/api/audio-model-capabilities.ts";
+import type { ImageCapabilityProfileSelection } from "../services/api/image-model-capabilities.ts";
+import type { VideoCapabilityProfileId } from "../services/api/video-model-capabilities.ts";
+import type { RelayModelCatalogMetadataRecord } from "../services/api/models-dev-catalog.ts";
 import {
     inferCapabilityFromModelName,
     isAudioModelName,
     isImageModelName,
     isTextModelName,
     isVideoModelName,
-} from "./api-relay-model-inference";
+} from "./api-relay-model-inference.ts";
 
 export {
     inferCapabilityFromModelName,
     isHappyHorseVideoModelName,
-} from "./api-relay-model-inference";
+} from "./api-relay-model-inference.ts";
 
 export type ApiCapability = "text" | "image" | "video" | "audio";
 export type ApiRouteSource = "platform" | "localPool" | "relay";

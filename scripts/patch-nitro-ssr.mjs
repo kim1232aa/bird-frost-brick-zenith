@@ -64,3 +64,32 @@ if (/from "\.\/ssr\.mjs"/.test(patchedSsr2)) {
 }
 
 console.log(`[nitro-ssr-patch] patched ${ssrDir}`);
+
+// Inject production env loader into __server.func/index.mjs
+const indexPath = join(outputRoot, "functions", "__server.func", "index.mjs");
+if (existsSync(indexPath)) {
+  let indexSrc = readFileSync(indexPath, "utf8");
+  if (!indexSrc.includes("__auto_load_data_env__")) {
+    const envLoader = `// __auto_load_data_env__
+try {
+  const _fs = await import("node:fs");
+  for (const _p of ["/app/data/.env", ".env.test.local"]) {
+    if (_fs.existsSync(_p)) {
+      const _lines = _fs.readFileSync(_p, "utf-8").split("\\n");
+      for (const _l of _lines) {
+        const _trim = _l.trim();
+        if (_trim && !_trim.startsWith("#") && _trim.includes("=")) {
+          const _eq = _trim.indexOf("=");
+          const _k = _trim.slice(0, _eq).trim();
+          const _v = _trim.slice(_eq + 1).trim();
+          if (_k && !process.env[_k]) process.env[_k] = _v;
+        }
+      }
+    }
+  }
+} catch {}
+`;
+    writeFileSync(indexPath, envLoader + indexSrc);
+    console.log(`[nitro-ssr-patch] injected env loader into ${indexPath}`);
+  }
+}

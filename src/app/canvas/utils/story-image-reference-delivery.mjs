@@ -10,6 +10,10 @@ export function buildStoryImageReferenceDelivery(selection, options = {}) {
   const blockReason = selection.submissionPlan.state === "blocked"
     ? selection.submissionPlan.reasonCode
     : undefined;
+  const requestedOperation = options.operation || selection.submissionPlan.operation;
+  const operation = requestedOperation === 'edit' && selection.submitted.length === 0
+    ? 'generate'
+    : requestedOperation;
   return {
     references: selection.submitted.map(transportReference),
     sourceNodeIds: Array.from(new Set(allCandidates.map(({ descriptor }) => descriptor.sourceNodeId))),
@@ -21,7 +25,7 @@ export function buildStoryImageReferenceDelivery(selection, options = {}) {
         providerLabel: options.providerLabel,
         model: options.model,
       },
-      operation: options.operation || selection.submissionPlan.operation,
+      operation,
       referenceIntent: selection.submissionPlan.referenceIntent,
       ...(blockReason ? { blockReason } : {}),
       counts: {

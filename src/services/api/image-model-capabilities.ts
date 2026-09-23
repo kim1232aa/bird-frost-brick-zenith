@@ -303,6 +303,8 @@ export type ImageCapabilityProfileId =
     | "xai-grok-imagine-2-edit"
     | "google-gemini-chat-image-generate"
     | "google-gemini-chat-image-edit"
+    | "agnes-image-2.5-generate"
+    | "agnes-image-2.5-edit"
     | "agnes-image-2.1-generate"
     | "agnes-image-2.1-edit"
     | "agnes-image-2.0-generate"
@@ -464,17 +466,18 @@ const OPENAI_IMAGE_API = evidence("official-openapi", "https://developers.openai
 const OPENAI_IMAGE_GENERATE_API = evidence("official-openapi", "https://developers.openai.com/api/reference/resources/images/methods/generate", "POST /images/generations: n 1-10 (dall-e-3 only n=1); GPT Image 2 arbitrary WIDTHxHEIGHT; quality auto|low|medium|high; output_format png|jpeg|webp; models include gpt-image-2 and gpt-image-2-2026-04-21, checked 2026-08-30");
 const OPENAI_IMAGE_EDIT_API = evidence("official-openapi", "https://developers.openai.com/api/reference/resources/images/methods/edit", "POST /images/edits: n 1-10; GPT image models including gpt-image-2 / gpt-image-2-2026-04-21 / chatgpt-image-latest accept up to 16 input images; mask applies to the first image, checked 2026-08-30");
 const OPENAI_DEPRECATIONS = evidence("official-doc", "https://developers.openai.com/api/docs/deprecations", "DALL-E 2 and DALL-E 3 were removed from the OpenAI API on 2026-05-12");
-const AGNES_21_DOC = evidence("official-doc", "https://agnes-ai.com/zh-Hans/docs/agnes-image-21-flash", `Agnes Image 2.1 guide, checked ${VERIFIED_AT}`);
+const AGNES_21_DOC = evidence("official-doc", "https://agnes-ai.com/en/docs/agnes-image-21-flash", "Agnes Image 2.1 Flash request fields: model, prompt, size, ratio, image, return_base64, extra_body.response_format. No steps, cfg, sampler, seed, or negative_prompt, checked 2026-09-22");
 const AGNES_20_DOC = evidence("official-doc", "https://agnes-ai.com/en/docs/agnes-image-20-flash", `Agnes Image 2.0 guide, checked ${VERIFIED_AT}`);
+const AGNES_25_DOC = evidence("official-doc", "https://agnes-ai.com/en/docs/agnes-image-25-flash", "Agnes Image 2.5 Flash 官方文档写明 preserves the complete integration contract of Agnes Image 2.1 Flash：请求字段 model, prompt, size(1K/2K/3K/4K), ratio(1:1,3:4,4:3,16:9,9:16,2:3,3:2,21:9), image[], return_base64, extra_body.response_format；支持 text-to-image / image-to-image / 多图合成；无 steps, cfg, sampler, seed, negative_prompt，checked 2026-09-23");
 const DASHSCOPE_IMAGE_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/image-model/", `DashScope image model comparison, checked ${VERIFIED_AT}`);
-const DASHSCOPE_QWEN_IMAGE_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/qwen-image-api", "Qwen Image generation API, checked 2026-08-04");
+const DASHSCOPE_QWEN_IMAGE_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/qwen-image-api", "Qwen Image generation API: negative_prompt, size, n, watermark, seed. No steps, cfg/guidance, or sampler, checked 2026-09-22");
 const DASHSCOPE_QWEN_EDIT_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/qwen-image-edit-guide", `Qwen Image edit guide, checked ${VERIFIED_AT}`);
 const DASHSCOPE_WAN27_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/wan-image-generation-and-editing-api-reference", `Wan2.7 image API, checked ${VERIFIED_AT}`);
 const DASHSCOPE_WAN26_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/wan-image-generation-api-reference", `Wan2.6 image API, checked ${VERIFIED_AT}`);
 const DASHSCOPE_Z_DOC = evidence("official-doc", "https://help.aliyun.com/en/model-studio/z-image-api-reference", `Z-Image API, checked ${VERIFIED_AT}`);
 const ARK_IMAGE_API = evidence("official-openapi", "https://api.volcengine.com/api-docs/view?action=ImageGenerations&serviceCode=ark&version=2024-01-01", `Ark ImageGenerations API, checked ${VERIFIED_AT}`);
 const ARK_SEEDREAM_GUIDE = evidence("official-doc", "https://www.volcengine.com/docs/82379/1829186", `Seedream 4.0-5.0 guide, checked ${VERIFIED_AT}`);
-const SENSENOVA_U1_DOC = evidence("official-doc", "https://platform.sensenova.cn/docs#model-u1", `SenseNova U1 Fast contract, checked ${VERIFIED_AT}`);
+const SENSENOVA_U1_DOC = evidence("official-doc", "https://platform.sensenova.cn/docs", "SenseNova U1 Fast POST /v1/images/generations fields: model, prompt, size, n, watermark. No steps, cfg, sampler, seed, or negative_prompt, checked 2026-09-22");
 const SENSENOVA_MIAOHUA_DOC = evidence("official-doc", "https://largemodel.sensetime.com/product/APIService/document/96/", `SenseTime Miaohua API, checked ${VERIFIED_AT}`);
 const CIVITAI_IMAGE_OPENAPI = evidence("live-openapi", "https://orchestration.civitai.com/v2/consumer/recipes/imageGen/openapi.yaml", `Civitai imageGen live OpenAPI, checked ${VERIFIED_AT}`);
 const XAI_IMAGE_API = evidence("official-openapi", "https://docs.x.ai/developers/rest-api-reference/inference/images", "xAI Images REST: POST /v1/images/generations and /v1/images/edits; generations example includes n and response_format, checked 2026-08-30");
@@ -537,7 +540,7 @@ const XAI_IMAGINE_2_SIZE = tierAndRatio(["1k", "2k"], XAI_IMAGINE_2_RATIOS, {
     required: false,
     defaultTier: "1k",
     defaultRatio: "auto",
-    note: "Official Imagine 2.0 generation uses aspect_ratio plus resolution 1k|2k; quality is a separate request field",
+    note: "支持 1K / 2K 超清生成与多种常用电影、社交媒体画幅。",
 });
 const XAI_IMAGINE_2_QUALITY = enumField(["low", "medium"], { note: "Official Imagine 2.0 quality; omitted defaults to medium" });
 const RESPONSES_IMAGE_TOOL_SIZES = enumSize(["auto", "1024x1024", "1536x1024", "1024x1536"]);
@@ -716,8 +719,36 @@ const CIVITAI_COMFY_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
     },
 };
 
-const DASHSCOPE_WAN27_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
+/** Diffusion knobs these image contracts do not publish. `unsupported` hides them in the settings UI. */
+const CLOSED_DIFFUSION_SAMPLING_FIELDS: Pick<ImageAdvancedFieldsCapability, "steps" | "cfgScale" | "sampler"> = {
+    steps: unsupported("官方图像合同没有 steps / num_inference_steps 请求字段"),
+    cfgScale: unsupported("官方图像合同没有 cfg / guidance 请求字段"),
+    sampler: unsupported("官方图像合同没有 sampler 请求字段"),
+};
+
+const AGNES_IMAGE_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
     ...unknownAdvancedFields(),
+    ...CLOSED_DIFFUSION_SAMPLING_FIELDS,
+    negativePrompt: unsupported("Agnes Image 2.0/2.1/2.5 Flash 请求参数没有 negative_prompt"),
+    seed: unsupported("Agnes Image 2.0/2.1/2.5 Flash 请求参数没有 seed"),
+};
+
+const SENSENOVA_U1_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
+    ...unknownAdvancedFields(),
+    ...CLOSED_DIFFUSION_SAMPLING_FIELDS,
+    negativePrompt: unsupported("SenseNova U1 Fast 图像接口没有 negative_prompt"),
+    seed: unsupported("SenseNova U1 Fast 图像接口没有 seed"),
+};
+
+const DASHSCOPE_IMAGE_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
+    ...unknownAdvancedFields(),
+    ...CLOSED_DIFFUSION_SAMPLING_FIELDS,
+    negativePrompt: { state: "supported", kind: "string", wireName: "negative_prompt", maxLength: 500 },
+    seed: { state: "supported", kind: "number", wireName: "seed", min: 0, max: 2147483647, integer: true },
+};
+
+const DASHSCOPE_WAN27_ADVANCED_FIELDS: ImageAdvancedFieldsCapability = {
+    ...DASHSCOPE_IMAGE_ADVANCED_FIELDS,
     sequential: {
         state: "supported",
         kind: "boolean",
@@ -994,7 +1025,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
             required: false,
             defaultTier: "1k",
             defaultRatio: "auto",
-            note: "xAI Imagine generation 文档（XAI_IMAGINE_GUIDE）：aspect_ratio + resolution 1k|2k 适用于 grok-imagine-image（1.0）与 quality 变体；quality 字段仅 2.0",
+            note: "支持 1K / 2K 超清生成与多种常用电影、社交媒体画幅。",
         }),
         quality: unsupported("xAI Images API 不接受 quality 请求字段（quality 仅 grok-imagine-image-2.0 支持）"),
         outputFormat: enumField(["jpg"], { requestable: false, note: "xAI image output is JPG; response_format only selects url vs b64_json transport" }),
@@ -1109,6 +1140,8 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         }),
         evidence: [KLONG_GEMINI_CHAT_IMAGE_LIVE, GEMINI_IMAGE_GUIDE, GEMINI_OPENAI_COMPAT_DOC],
     }),
+    "agnes-image-2.5-generate": agnesProfile("agnes-image-2.5-generate", "generate", AGNES_21_SIZE, [AGNES_25_DOC]),
+    "agnes-image-2.5-edit": agnesProfile("agnes-image-2.5-edit", "edit", AGNES_21_SIZE, [AGNES_25_DOC]),
     "agnes-image-2.1-generate": agnesProfile("agnes-image-2.1-generate", "generate", AGNES_21_SIZE, [AGNES_21_DOC]),
     "agnes-image-2.1-edit": agnesProfile("agnes-image-2.1-edit", "edit", AGNES_21_SIZE, [AGNES_21_DOC]),
     "agnes-image-2.0-generate": agnesProfile("agnes-image-2.0-generate", "generate", AGNES_20_SIZE, [AGNES_20_DOC]),
@@ -1252,6 +1285,7 @@ export const IMAGE_CAPABILITY_PROFILES: Readonly<Record<ImageCapabilityProfileId
         size: SENSENOVA_U1_SIZES,
         quality: UNSUPPORTED_QUALITY,
         outputFormat: UNKNOWN_OUTPUT_FORMAT,
+        advancedFields: SENSENOVA_U1_ADVANCED_FIELDS,
         serialization: serialization({
             kind: "sensenova-images-generate",
             endpoint: "/images/generations",
@@ -1458,8 +1492,8 @@ export function resolveImageModelCapability(options: {
             provider,
             true,
             specializedId === configured.id
-                ? "explicit imageCapabilityProfiles mapping"
-                : "explicit imageCapabilityProfiles mapping specialized to Imagine 2.0 official fields",
+                ? "已按当前模型准备好参数"
+                : "已按当前模型准备好超清规格与画幅",
         );
     }
     if (configured.kind === "mismatch") {
@@ -1707,7 +1741,13 @@ function resolveOpenAI(model: string, operation: ImageOperation, provider?: Imag
 
 function resolveAgnes(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
     const key = normalizeModelKey(model);
-    const version = key.startsWith("agnes-image-2-1") ? "2.1" : key.startsWith("agnes-image-2-0") ? "2.0" : "";
+    const version = key.startsWith("agnes-image-2-5")
+        ? "2.5"
+        : key.startsWith("agnes-image-2-1")
+          ? "2.1"
+          : key.startsWith("agnes-image-2-0")
+            ? "2.0"
+            : "";
     if (!version) return unknownNativeResolved(operation, model, provider, "Agnes 图片模型版本未识别");
     if (operation !== "generate" && operation !== "edit") return unsupportedResolved(operation, model, provider, "Agnes Image 2.x 仅验证了生成与多图合成");
     return resolvedProfile(`agnes-image-${version}-${operation}` as ImageCapabilityProfileId, model, provider, false, `Agnes ${version} model ID`);
@@ -1797,10 +1837,28 @@ function resolveArk(model: string, operation: ImageOperation, provider?: ImageCa
 }
 
 function resolveSenseNova(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
-    if (normalizeModelKey(model) !== "sensenova-u1-fast") return unknownNativeResolved(operation, model, provider, "Token Plan SenseNova 图片模型合同未识别");
-    return operation === "generate"
-        ? resolvedProfile("sensenova-u1-generate", model, provider, false, "SenseNova U1 Fast model ID")
-        : unsupportedResolved(operation, model, provider, "SenseNova U1 Fast 官方合同仅支持文生图；秒画是另一个 adapter 和端点");
+    // normalizeModelKey turns `sensenova-u1.5-lite` into `sensenova-u1-5-lite`.
+    const key = normalizeModelKey(model);
+    const isU1Fast = key === "sensenova-u1-fast";
+    const isU15 = /^sensenova-u1-5(-|$)/.test(key);
+    if (!isU1Fast && !isU15) return unknownNativeResolved(operation, model, provider, "Token Plan SenseNova 图片模型合同未识别");
+    if (operation === "generate") {
+        return resolvedProfile(
+            "sensenova-u1-generate",
+            model,
+            provider,
+            false,
+            isU15 ? "SenseNova U1.5 Lite model ID（与 U1 Fast 共用 /images/generations 合同）" : "SenseNova U1 Fast model ID",
+        );
+    }
+    return unsupportedResolved(
+        operation,
+        model,
+        provider,
+        isU15
+            ? "SenseNova U1.5 Lite 的 /images/edits 参考图合同尚未标定为 capability profile；当前只开放文生图"
+            : "SenseNova U1 Fast 官方合同仅支持文生图；秒画是另一个 adapter 和端点",
+    );
 }
 
 function resolveMiaohua(model: string, operation: ImageOperation, provider?: ImageCapabilityProvider) {
@@ -2067,10 +2125,11 @@ function agnesProfile<O extends "generate" | "edit">(
     size: ImageSizeCapability,
     evidenceItems: readonly ImageCapabilityEvidence[],
 ): ImageCapabilityProfileBase<O> {
+    const version = /agnes-image-(\d+\.\d+)-/.exec(id)?.[1] || "";
     return profile({
         id,
         provider: "agnes",
-        label: `Agnes Image ${id.includes("2.1") ? "2.1" : "2.0"} ${operation}`,
+        label: `Agnes Image ${version} ${operation}`,
         operation,
         outputCount: clientFanout(null, "Agnes does not document n; requested multiple outputs must use independent single-output calls"),
         referenceCount: operation === "edit" ? references(1, null, "Official examples show multiple images but publish no maximum") : UNSUPPORTED_REFERENCES,
@@ -2078,11 +2137,12 @@ function agnesProfile<O extends "generate" | "edit">(
         size,
         quality: UNSUPPORTED_QUALITY,
         outputFormat: UNKNOWN_OUTPUT_FORMAT,
+        advancedFields: AGNES_IMAGE_ADVANCED_FIELDS,
         serialization: serialization({
             kind: "agnes-images-generate",
             endpoint: "/images/generations",
             referenceField: operation === "edit" ? "extra_body.image[]" : null,
-            sizeField: id.includes("2.1") ? "size+ratio" : "size",
+            sizeField: size.state === "supported" && size.kind === "tier-and-ratio" ? "size+ratio" : "size",
             responseEncodingField: "extra_body.response_format",
         }),
         storyIdentityReferenceStrategy: "shot-angle",
@@ -2113,7 +2173,7 @@ function dashscopeProfile<O extends "generate" | "edit">(options: {
         size: options.size,
         quality: UNSUPPORTED_QUALITY,
         outputFormat: enumField(["png"], { requestable: false, note: "The verified contracts return PNG and expose no output-format request field" }),
-        ...(options.advancedFields ? { advancedFields: options.advancedFields } : {}),
+        advancedFields: options.advancedFields || DASHSCOPE_IMAGE_ADVANCED_FIELDS,
         serialization: serialization({
             kind: "dashscope-multimodal-image",
             endpoint: "/services/aigc/multimodal-generation/generation",
@@ -2960,7 +3020,11 @@ function validateSize(
         const pixelMapped = hasDimensions
             ? mapPixelSizeToPublishedEnum(capability.values, Number(request.width), Number(request.height))
             : undefined;
-        const candidate = pixelMapped || rawSize || String(request.aspectRatio || "").trim();
+        const rawCandidate = pixelMapped || rawSize || String(request.aspectRatio || "").trim();
+        const ratioMapped = (!pixelMapped && rawCandidate && rawCandidate.includes(":"))
+            ? mapRatioStringToPublishedEnum(capability.values, rawCandidate)
+            : undefined;
+        const candidate = ratioMapped || rawCandidate;
         if (!enumIncludes(capability.values, candidate)) {
             addError("size_invalid", "size", `${subject} 不支持尺寸 ${candidate || `${request.width}x${request.height}`}；可选值：${capability.values.join(", ")}`);
         }
@@ -3051,6 +3115,8 @@ function validateEnumField(
     }
 }
 
+const PERMISSIVE_UNKNOWN_ADVANCED_FIELDS = new Set<ImageAdvancedFieldName>(["negativePrompt", "seed", "steps", "cfgScale"]);
+
 function validateAdvancedFields(
     capabilities: ImageAdvancedFieldsCapability,
     request: ImageRequestValidationInput,
@@ -3077,6 +3143,7 @@ function validateAdvancedFields(
             continue;
         }
         if (capability.state === "unknown") {
+            if (PERMISSIVE_UNKNOWN_ADVANCED_FIELDS.has(field)) continue;
             addError("advanced_field_unverified", field, `${subject}：${capability.reason}；请使用已验证 profile 后重试`);
             continue;
         }
@@ -3174,6 +3241,26 @@ function closestPublishedAspectRatio(values: readonly string[], width: number, h
     if (!candidates.length) return undefined;
     return candidates.reduce((best, candidate) => (
         Math.abs(candidate.ratio - target) < Math.abs(best.ratio - target) ? candidate : best
+    )).value;
+}
+
+function mapRatioStringToPublishedEnum(values: readonly string[], ratioStr: string) {
+    const parts = ratioStr.trim().split(":");
+    if (parts.length !== 2) return undefined;
+    const w = Number(parts[0]);
+    const h = Number(parts[1]);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return undefined;
+    const target = w / h;
+    const pixelCandidates = values.flatMap((value) => {
+        const match = /^(\d+)[x×](\d+)$/i.exec(value.trim());
+        if (!match) return [];
+        const pw = Number(match[1]);
+        const ph = Number(match[2]);
+        return [{ value, ratio: pw / ph }];
+    });
+    if (!pixelCandidates.length) return undefined;
+    return pixelCandidates.reduce((best, cur) => (
+        Math.abs(cur.ratio - target) < Math.abs(best.ratio - target) ? cur : best
     )).value;
 }
 

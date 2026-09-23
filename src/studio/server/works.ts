@@ -286,3 +286,6 @@ export const deleteStudioWork = createServerFn({ method: "POST" })
     }
     return { ok: true as const };
   });
+
+export const removeStudioWork = deleteStudioWork;
+

@@ -197,11 +197,8 @@ export function buildCivitaiImageWorkflow(options: CivitaiImageWorkflowOptions) 
         || operation === "image-to-image"
     ) && !acceptsOptionalImages && !kreaFal;
     if (requiresImage && !images.length) throw new Error(`Civitai / ${options.model} 需要参考图片，请连接图片后重试`);
-    if (images.length && !requiresImage && !acceptsOptionalImages && !kreaFal) {
-        throw new Error(`Civitai / ${options.model} ${civitaiPureTextToImageReferenceMessage(service.id || options.model)}`);
-    }
-    if (operation === "createVariant" && images.length !== 1) throw new Error(`Civitai / ${options.model} 仅接受 1 张变体源图`);
-    const imageInput = kreaFal
+    // 对于不支持参考图的模型，安全忽略参考图以防上游报错，不硬阻断用户提交
+    const imageInput = (kreaFal || (!requiresImage && !acceptsOptionalImages))
         ? {}
         : operation === "createVariant"
           ? { image: requireCivitaiImageSource(images[0], service) }

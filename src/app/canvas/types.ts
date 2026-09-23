@@ -446,7 +446,7 @@ export type CanvasNodeMetadata = {
     /** Retained, storage-key-only crops derived from this turnaround sheet. */
     characterDerivedViews?: CharacterDerivedView[];
     /** Derivation status is independent from the parent character-image generation. */
-    characterDerivedViewsStatus?: "pending" | "ready" | "error";
+    characterDerivedViewsStatus?: "pending" | "ready" | "error" | "failed";
     characterDerivedViewsError?: string;
     /** Set only on an expanded derived-view node. */
     characterDerivedViewAngle?: CharacterDerivedViewAngle;
@@ -480,6 +480,7 @@ export type CanvasNodeMetadata = {
     imageGenerationTask?: CanvasImageTaskBinding;
     imageTaskId?: string;
     storyText?: string;
+    storyRunId?: string;
     storyDirectorTextModel?: string;
     /** Exact provider paired with the Story Director text model. */
     storyDirectorTextModelProviderId?: string;
@@ -527,6 +528,8 @@ export type CanvasNodeMetadata = {
     storyAnalysisPreviousRaw?: string;
     /** Exact source text sent to the last successful story analysis request. */
     storyAnalysisSourceText?: string;
+    /** Model snapshot used by the last successful story analysis. */
+    storyAnalysisTextModel?: string;
     /** Exact generated development text shown after the last successful analysis. */
     storyAnalysisRenderedText?: string;
     /** Shot-count input used by the last successful analysis. */
@@ -537,6 +540,7 @@ export type CanvasNodeMetadata = {
     seedanceApiProvider?: "local";
     seedanceApiEndpoint?: string;
     seedanceWorkflowMode?: "continuous" | "slice";
+    seedanceStoryPackMode?: "auto" | "per_shot";
     seedanceShotCount?: number;
     seedanceGenerateCount?: number;
     seedanceContinuous?: boolean;

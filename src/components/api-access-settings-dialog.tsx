@@ -16,7 +16,6 @@ import {
     safeProviderDiscoveryErrorMessage,
 } from "@/components/provider-discovery-state";
 import { RelayConfigTransferPanel } from "@/components/relay-config-transfer-panel";
-import { WebdavSettingsPanel } from "@/components/webdav-settings-panel";
 import { Button } from "@/components/ui/button";
 import {
     AUDIO_CAPABILITY_PROFILES,
@@ -102,7 +101,7 @@ export function ApiAccessSettingsDialog() {
     useEffect(() => {
         const openRequestedSettings = (event: Event) => {
             const requestedTab = event instanceof CustomEvent ? event.detail : null;
-            const nextTab: ApiSettingsTab = requestedTab === "routing" || requestedTab === "sync" ? requestedTab : "relay";
+            const nextTab: ApiSettingsTab = requestedTab === "routing" ? requestedTab : "relay";
             requestedSettingsTabRef.current = nextTab;
             setSettingsTab(nextTab);
             setOpen(true);
@@ -416,15 +415,6 @@ export function ApiAccessSettingsDialog() {
                         >
                             模型路由设置
                         </button>
-                        <button
-                            type="button"
-                            role="tab"
-                            aria-selected={settingsTab === "sync"}
-                            className={`whitespace-nowrap rounded-lg px-2 py-2 text-sm font-medium transition sm:px-4 ${settingsTab === "sync" ? "bg-white text-stone-950 shadow-sm dark:bg-stone-800 dark:text-white" : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-white"}`}
-                            onClick={() => setSettingsTab("sync")}
-                        >
-                            WebDAV 同步
-                        </button>
                     </div>
 
                     <div className="mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1 sm:mt-5">
@@ -482,7 +472,7 @@ export function ApiAccessSettingsDialog() {
                                     </div>
                                 </div>
                             </div>
-                        ) : settingsTab === "routing" ? (
+                        ) : (
                             <div className="space-y-5" role="tabpanel">
                                 <div>
                                     <div className="text-base font-semibold">模型路由设置</div>
@@ -527,8 +517,6 @@ export function ApiAccessSettingsDialog() {
                                     </div>
                                 </details>
                             </div>
-                        ) : (
-                            <WebdavSettingsPanel />
                         )}
                     </div>
                     <div className="mt-5 flex min-w-0 shrink-0 items-center justify-end gap-3">

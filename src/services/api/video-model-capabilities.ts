@@ -871,7 +871,9 @@ function makeVideoGenerationParameterContract(
 }
 
 const AGNES_VIDEO_EVIDENCE = [
-    "https://agnes-ai.com/en/docs/agnes-video-v20 (verified 2026-08-03)",
+    "https://agnes-ai.com/en/docs/agnes-video-v20 (verified 2026-08-03; create fields model/prompt/image/mode/height/width/num_frames/frame_rate/num_inference_steps/seed/negative_prompt/extra_body.image; mode 取值 ti2vid 或 keyframes)",
+    "live probe 2026-09-23: POST /v1/videos accepted resolution=720p, mode=ti2vid, num_frames=121 + frame_rate=24; create response 归一化为 1088x832 (720p/4:3) 并回顶层 size_mapping",
+    "live probe 2026-09-23: completed task 的结果地址在顶层 url，metadata 字段不存在",
 ] as const;
 const OPENAI_VIDEO_EVIDENCE = [
     "https://developers.openai.com/api/reference/resources/videos/methods/create (verified 2026-08-03)",
@@ -957,7 +959,7 @@ const AGNES_VIDEO_GENERATION_PARAMETERS = makeVideoGenerationParameterContract(
         negativePrompt: supportedParameter("string", "negative_prompt", "官方请求字段 negative_prompt"),
         seed: supportedParameter("integer", "seed", "官方请求字段 seed；未公布数值范围", { integer: true }),
         steps: supportedParameter("integer", "num_inference_steps", "官方请求字段 num_inference_steps；未公布数值范围", { integer: true }),
-        resolution: unavailableParameter("unsupported", "Agnes 创建请求使用 width/height，不接受通用 resolution 档位字段"),
+        resolution: supportedParameter("string", "resolution", "官方文档公布 480p / 720p / 1080p 三档；2026-09-23 实测 resolution=720p 被接受并按档位归一化输出尺寸", { enumValues: ["480p", "720p", "1080p"] }),
     },
 );
 
@@ -2406,9 +2408,16 @@ function dashscopeProfileForModel(model: string): VideoCapabilityProfileId {
     return "dashscope-unknown";
 }
 
+/**
+ * Models the Agnes video adapter actually serves. Verified 2026-09-23 against
+ * the live API: `agnes-video-2.5` / `agnes-video-2.5-flash` reject
+ * `num_frames` ("num_frames is a forbidden field") and require `mode`, so they
+ * use a different wire contract that is not wired yet. Claiming the v2 profile
+ * for them advertised a capability the adapter then refused at submit time, so
+ * they resolve to `agnes-unknown` (fail-closed) until that contract is wired.
+ */
 function isExactAgnesVideoModel(model: string) {
-    const key = normalizeModelKey(model);
-    return key === "agnes-video-v2-0" || key === "agnes-video-2-5-flash" || key === "agnes-video-2-5";
+    return normalizeModelKey(model) === "agnes-video-v2-0";
 }
 
 function isExactOpenAiVideoModel(model: string) {
@@ -2520,7 +2529,10 @@ function isOfficialXaiProvider(provider: VideoCapabilityProvider | undefined) {
 function videoGenerationParametersForModel(provider: VideoCapabilityProfile["provider"], model: string): VideoGenerationParameterContract {
     const normalized = normalizeModelKey(model);
     if (provider === "agnes") {
-        return normalized === "agnes-video-v2-0" || normalized === "agnes-video-2-5-flash" || normalized === "agnes-video-2-5"
+        // Only the model the adapter actually serves gets the v2.0 frame contract.
+        // agnes-video-2.5 forbids num_frames and requires mode, so advertising the
+        // v2.0 parameter set for it would offer参数 the model rejects.
+        return normalized === "agnes-video-v2-0"
             ? AGNES_VIDEO_GENERATION_PARAMETERS
             : unknownGenerationParameters("agnes", model);
     }

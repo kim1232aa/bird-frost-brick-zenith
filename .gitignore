@@ -23,3 +23,11 @@ public/works/
 static/works/
 .grok/
 temp/
+
+# 一次性会话产物：逐个版本的部署快照脚本与临时复现目录，不进仓库
+deploy-v*.sh
+deploy-force-*.sh
+push-v*.sh
+git-push.sh
+deploy.py
+temp-civitai-repro/

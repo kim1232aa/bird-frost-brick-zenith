@@ -38,6 +38,10 @@ export async function appendGeneratedImagesToCanvas(items: AppendGeneratedImageI
         project = useCanvasStore.getState().projects.find((item) => item.id === projectId) || null;
     }
     if (!project) return 0;
+    if (project.detailLoaded === false) {
+        project = await store.ensureProjectLoaded(projectId);
+        if (!project) return 0;
+    }
 
     const existingSourceIds = new Set(project.nodes.map((node) => node.metadata?.sourceImageTaskId).filter((value): value is string => Boolean(value)));
     const nodesToAppend: CanvasNodeData[] = [];

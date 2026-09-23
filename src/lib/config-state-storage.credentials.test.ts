@@ -54,14 +54,6 @@ mock.module("localforage", {
   },
 });
 
-mock.module(new URL("../services/desktop-storage.ts", import.meta.url).href, {
-  namedExports: {
-    getDesktopState: async (key: string) => nativeValues.get(key) ?? null,
-    setDesktopState: async (key: string, value: string) => { nativeValues.set(key, value); },
-    removeDesktopState: async (key: string) => { nativeValues.delete(key); },
-  },
-});
-
 mock.module(new URL("./localforage-storage.ts", import.meta.url).href, {
   namedExports: {
     getStrictLocalForageItem: async (key: string) => indexedValues.get(key) ?? localValues.get(key) ?? null,
@@ -78,7 +70,6 @@ const RELAY_SECRET = "synthetic-recovery-relay-secret";
 const POOLED_SECRET = "synthetic-recovery-pool-secret";
 const GLOBAL_SECRET = "synthetic-recovery-global-secret";
 const IMAGE_HOST_SECRET = "synthetic-recovery-image-host-secret";
-const WEBDAV_SECRET = "synthetic-recovery-webdav-secret";
 const PROXY_URL = "http://proxy.example.test:8080";
 
 function rawRecoveryEnvelope() {
@@ -100,7 +91,6 @@ function rawRecoveryEnvelope() {
           proxyUrl: PROXY_URL,
         }],
       },
-      webdav: { password: WEBDAV_SECRET },
     },
     version: 0,
   });
@@ -137,7 +127,7 @@ test("legacy raw browser recovery is redacted before restore and replaced in eve
   const restored = await recoverableConfigStorage.getItem(STORE_NAME);
 
   assert.ok(restored);
-  for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET, WEBDAV_SECRET]) {
+  for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET]) {
     assert.equal(restored.includes(secret), false, `restored state must not contain ${secret}`);
   }
   const parsed = JSON.parse(restored) as {
@@ -159,7 +149,7 @@ test("legacy raw browser recovery is redacted before restore and replaced in eve
     const indexedCopy = indexedValues.get(key);
     assert.ok(localCopy, `${key} localStorage copy must be replaced`);
     assert.ok(indexedCopy, `${key} IndexedDB copy must be replaced`);
-    for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET, WEBDAV_SECRET]) {
+    for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET]) {
       assert.equal(localCopy.includes(secret), false);
       assert.equal(indexedCopy.includes(secret), false);
     }
@@ -180,7 +170,7 @@ test("native raw config is redacted before hydration without overwriting the nat
   const restored = await recoverableConfigStorage.getItem(STORE_NAME);
 
   assert.ok(restored);
-  for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET, WEBDAV_SECRET]) {
+  for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET]) {
     assert.equal(restored.includes(secret), false, `hydrated state must not contain ${secret}`);
   }
   assert.equal(nativeValues.get(STORE_NAME), raw);
@@ -189,93 +179,11 @@ test("native raw config is redacted before hydration without overwriting the nat
     const indexedCopy = indexedValues.get(key);
     assert.ok(localCopy, `${key} localStorage copy must remain available`);
     assert.ok(indexedCopy, `${key} IndexedDB copy must remain available`);
-    for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET, WEBDAV_SECRET]) {
+    for (const secret of [RELAY_SECRET, POOLED_SECRET, GLOBAL_SECRET, IMAGE_HOST_SECRET]) {
       assert.equal(localCopy.includes(secret), false);
       assert.equal(indexedCopy.includes(secret), false);
     }
   }
 });
 
-test("desktop-required storage keeps the native custom proxy while exposing direct browser copies", async () => {
-  localValues.clear();
-  indexedValues.clear();
-  nativeValues.clear();
-  desktopRequired = true;
-  const raw = rawRecoveryEnvelope();
 
-  try {
-    await recoverableConfigStorage.setItem(STORE_NAME, raw);
-
-    assert.equal(nativeValues.get(STORE_NAME), raw);
-    assert.equal(nativeValues.get(RECOVERY_NAME), raw);
-    for (const key of [STORE_NAME, RECOVERY_NAME]) {
-      const localCopy = localValues.get(key);
-      const indexedCopy = indexedValues.get(key);
-      assert.ok(localCopy, `${key} localStorage copy must be written`);
-      assert.ok(indexedCopy, `${key} IndexedDB copy must be written`);
-      assert.equal(localCopy.includes(RELAY_SECRET), false);
-      assert.equal(indexedCopy.includes(RELAY_SECRET), false);
-      const parsed = JSON.parse(localCopy) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-      assert.equal(parsed.state.config.apiRelays[0]?.proxyMode, "direct");
-      assert.equal(parsed.state.config.apiRelays[0]?.proxyUrl, "");
-    }
-  } finally {
-    desktopRequired = false;
-  }
-});
-
-test("desktop flush preserves a proxy setting supplied in the native snapshot", async () => {
-  localValues.clear();
-  indexedValues.clear();
-  nativeValues.clear();
-  desktopRequired = true;
-  const raw = rawRecoveryEnvelope();
-
-  try {
-    const nativeSnapshot = browserSafeConfigEnvelope(raw, { redactProxy: false });
-    const nativeParsed = JSON.parse(nativeSnapshot) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-    assert.equal(nativeParsed.state.config.apiRelays[0]?.proxyMode, "custom");
-    assert.equal(nativeParsed.state.config.apiRelays[0]?.proxyUrl, PROXY_URL);
-
-    await flushRecoverableConfig(STORE_NAME, nativeSnapshot);
-
-    const savedNative = nativeValues.get(STORE_NAME);
-    assert.ok(savedNative);
-    const savedNativeParsed = JSON.parse(savedNative) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-    assert.equal(savedNativeParsed.state.config.apiRelays[0]?.proxyMode, "custom");
-    assert.equal(savedNativeParsed.state.config.apiRelays[0]?.proxyUrl, PROXY_URL);
-    const savedBrowser = localValues.get(STORE_NAME);
-    assert.ok(savedBrowser);
-    const savedBrowserParsed = JSON.parse(savedBrowser) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-    assert.equal(savedBrowserParsed.state.config.apiRelays[0]?.proxyMode, "direct");
-    assert.equal(savedBrowserParsed.state.config.apiRelays[0]?.proxyUrl, "");
-  } finally {
-    desktopRequired = false;
-  }
-});
-
-test("desktop migration keeps a legacy custom proxy in native storage but returns direct browser state", async () => {
-  localValues.clear();
-  indexedValues.clear();
-  nativeValues.clear();
-  desktopRequired = true;
-  const raw = rawRecoveryEnvelope();
-  localValues.set(RECOVERY_NAME, raw);
-  indexedValues.set(RECOVERY_NAME, raw);
-
-  try {
-    const restored = await recoverableConfigStorage.getItem(STORE_NAME);
-    assert.ok(restored);
-    const restoredParsed = JSON.parse(restored) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-    assert.equal(restoredParsed.state.config.apiRelays[0]?.proxyMode, "direct");
-    assert.equal(restoredParsed.state.config.apiRelays[0]?.proxyUrl, "");
-
-    const savedNative = nativeValues.get(STORE_NAME);
-    assert.ok(savedNative);
-    const savedNativeParsed = JSON.parse(savedNative) as { state: { config: { apiRelays: Array<{ proxyMode?: string; proxyUrl?: string }> } } };
-    assert.equal(savedNativeParsed.state.config.apiRelays[0]?.proxyMode, "custom");
-    assert.equal(savedNativeParsed.state.config.apiRelays[0]?.proxyUrl, PROXY_URL);
-  } finally {
-    desktopRequired = false;
-  }
-});

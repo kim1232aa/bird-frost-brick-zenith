@@ -49,12 +49,26 @@ function parseSize(value: string) {
     return { width, height };
 }
 
-/** 返回精确的 SenseNova 尺寸；不支持的值会显式失败，绝不静默改写。 */
+export const SENSENOVA_RATIO_TO_SIZE: Record<string, string> = {
+    "1:1": "2048x2048",
+    "16:9": "2752x1536",
+    "9:16": "1536x2752",
+    "3:2": "2496x1664",
+    "2:3": "1664x2496",
+    "4:3": "2368x1760",
+    "3:4": "1760x2368",
+    "21:9": "3072x1376",
+};
+
+/** 返回精确的 SenseNova 尺寸；支持常见宽高比映射与官方枚举值校验。 */
 export function normalizeSenseNovaImageSize(value: string) {
     const raw = String(value || "").trim();
-    if (!raw || raw.toLowerCase() === "auto") return "";
+    if (!raw || raw.toLowerCase() === "auto") return SENSENOVA_DEFAULT_IMAGE_SIZE;
+    if (SENSENOVA_RATIO_TO_SIZE[raw]) {
+        return SENSENOVA_RATIO_TO_SIZE[raw];
+    }
     const requested = parseSize(value);
-    if (!requested) throw new Error(`SenseNova 图片尺寸格式无效：${raw}；请使用 WIDTHxHEIGHT`);
+    if (!requested) throw new Error(`SenseNova 图片尺寸格式无效：${raw}；请使用比例（如 16:9、1:1）或 WIDTHxHEIGHT`);
     if ((SENSENOVA_IMAGE_SIZES as readonly string[]).includes(`${requested.width}x${requested.height}`)) {
         return `${requested.width}x${requested.height}`;
     }

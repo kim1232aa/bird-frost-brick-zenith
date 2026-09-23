@@ -54,3 +54,8 @@ test("huggingfaceImageSize returns undefined for empty input without ratio", () 
   assert.equal(huggingfaceImageSize("", ""), undefined);
   assert.equal(huggingfaceImageSize(undefined, undefined), undefined);
 });
+
+test("huggingfaceImageSize rejects unknown aspect ratios instead of silently turning into square", () => {
+  assert.throws(() => huggingfaceImageSize("1K", "invalid-ratio"), /不支持未知的宽高比/);
+  assert.throws(() => huggingfaceImageSize("", "unknown"), /不支持未知的宽高比/);
+});

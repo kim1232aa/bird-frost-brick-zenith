@@ -423,7 +423,7 @@ test("customer video requests pin only an opaque credential id and never constru
   assert.doesNotMatch(source, /customerLocalCredential\.apiKey/);
 });
 
-test("Fal customer builder remains refused rather than relaxing validation", () => {
+test("Fal customer builder refuses unmapped models instead of relaxing validation", () => {
   assert.throws(
     () =>
       buildCustomerVideoStudioRequest({
@@ -433,6 +433,6 @@ test("Fal customer builder remains refused rather than relaxing validation", () 
         prompt: "p",
         first_frame: "https://example.test/first.png",
       }),
-    /视频未接线|未实现/,
+    /未映射到官方队列端点/,
   );
 });

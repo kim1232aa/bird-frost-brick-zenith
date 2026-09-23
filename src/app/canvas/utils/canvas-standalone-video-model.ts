@@ -22,11 +22,31 @@ export function standaloneSeedance2VideoModelPatch(modelOrSelection: string | Pr
     };
 }
 
+/**
+ * A workflow-placed placeholder keeps its shot/workflow identity, but the
+ * provider/model-bound snapshot belongs to the previous model. `videoGenerationScope`
+ * outranks `model` in both the picker resolver and the submit route resolver, so a
+ * stale scope would silently resubmit the old model. Clearing the snapshot — and only
+ * the snapshot — is what makes the new selection the one that actually runs.
+ */
+export function seedance2VideoPlaceholderModelPatch(modelOrSelection: string | ProviderModelSelection) {
+    return {
+        ...standaloneSeedance2VideoModelPatch(modelOrSelection),
+        videoGenerationOperationMigration: undefined,
+    };
+}
+
 export function isStandaloneSeedance2VideoPlaceholder(metadata: {
     seedanceWorkflowRole?: string;
     seedanceWorkflowNodeId?: string;
 } | null | undefined) {
     return metadata?.seedanceWorkflowRole === "placeholder" && !metadata.seedanceWorkflowNodeId;
+}
+
+export function isEditableSeedance2VideoPlaceholder(metadata: {
+    seedanceWorkflowRole?: string;
+} | null | undefined) {
+    return metadata?.seedanceWorkflowRole === "placeholder";
 }
 
 export function standaloneVideoSettingsAccess(modelOrSelection: string | ProviderModelSelection | null | undefined, hasExactRoute: boolean) {

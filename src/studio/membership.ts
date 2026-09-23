@@ -39,7 +39,7 @@ export const STUDIO_PLANS: StudioPlan[] = [
     tagline: "多人共用一套中转",
     price: "未接结算",
     limits: { text: 80_000, image: 8_000, video: 1_600 },
-    perks: ["专业版全部能力", "运营后台模型上下架", "WebDAV 同步", "多中转轮询"],
+    perks: ["专业版全部能力", "运营后台模型上下架", "多中转轮询"],
   },
 ];
 

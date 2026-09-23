@@ -68,7 +68,7 @@ export function selectStoryImageReferences(options) {
   appendCandidates(candidates, retainedButNotSubmitted, warnings, options.propReferences || [], 'prop', orderDescriptor);
   appendOtherCandidates(candidates, retainedButNotSubmitted, warnings, options.otherReferences || [], orderDescriptor);
 
-  const hardBlockingReason = warnings.find((warning) => warning.code === 'character_not_found' || warning.code === 'character_reference_missing')?.code;
+  const hardBlockingReason = undefined;
   const referenceIntent = candidates.length > 0 || retainedButNotSubmitted.length > 0 || Boolean(hardBlockingReason);
   const plannedOperation = options.requestedOperation || (referenceIntent ? 'edit' : 'generate');
   const uniqueCandidates = [];
@@ -101,13 +101,13 @@ export function selectStoryImageReferences(options) {
     }));
     return emptySubmission(retainedButNotSubmitted, warnings, {
       state: 'ready',
-      operation: plannedOperation,
+      operation: 'generate',
       referenceIntent: false,
     });
   }
 
   if (options.capability.referenceCount.state !== 'supported') {
-    return emptySubmission(retainedButNotSubmitted, warnings, { state: 'ready', operation: plannedOperation, referenceIntent: false });
+    return emptySubmission(retainedButNotSubmitted, warnings, { state: 'ready', operation: 'generate', referenceIntent: false });
   }
 
   const max = options.capability.referenceCount.max;
@@ -137,10 +137,10 @@ export function selectStoryImageReferences(options) {
     };
   });
   const submissionPlan = hardBlockingReason
-    ? { state: 'blocked', operation: plannedOperation, referenceIntent: true, reasonCode: hardBlockingReason }
+    ? { state: 'blocked', operation: 'generate', referenceIntent: true, reasonCode: hardBlockingReason }
     : submitted.length > 0
     ? { state: 'ready', operation: plannedOperation, referenceIntent: true }
-    : { state: 'ready', operation: plannedOperation, referenceIntent: false };
+    : { state: 'ready', operation: 'generate', referenceIntent: false };
   return {
     submitted,
     semanticDescriptors: submitted,

@@ -14,7 +14,7 @@ export const NODE_DEFAULT_SIZE = {
     [CanvasNodeType.Config]: { width: 400, height: 520, title: "生成配置" },
     [CanvasNodeType.Video]: { width: 420, height: 236, title: "Video" },
     [CanvasNodeType.Audio]: { width: 340, height: 120, title: "Audio" },
-    [CanvasNodeType.StoryDirector]: { width: 520, height: 640, title: "故事导演" },
+    [CanvasNodeType.StoryDirector]: { width: 580, height: 940, title: "故事导演" },
     [CanvasNodeType.Seedance2Workflow]: { width: 520, height: 640, title: "分镜视频工作流" },
 } satisfies Record<CanvasNodeType, { width: number; height: number; title: string }>;
 

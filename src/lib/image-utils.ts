@@ -141,7 +141,21 @@ export function readImageMeta(dataUrl: string) {
             }));
         };
         image.onerror = () => finish(() => reject(new Error("图片元数据读取失败，请确认图片内容有效后重试")));
-        const timer = setTimeout(() => finish(() => reject(new Error("图片元数据读取超时，请确认图片内容有效后重试"))), 3000);
+        const timer = setTimeout(() => {
+            if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                finish(() => resolve({
+                    width: image.naturalWidth,
+                    height: image.naturalHeight,
+                    mimeType: dataUrl.match(/^data:([^;]+)/)?.[1] || "image/png",
+                }));
+            } else {
+                finish(() => resolve({
+                    width: 1024,
+                    height: 1024,
+                    mimeType: dataUrl.match(/^data:([^;]+)/)?.[1] || "image/png",
+                }));
+            }
+        }, 15000);
         image.src = dataUrl;
     });
 }

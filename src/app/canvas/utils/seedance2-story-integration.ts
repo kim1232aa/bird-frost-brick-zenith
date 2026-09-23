@@ -10,6 +10,7 @@ import type {
   VideoReferenceRole,
 } from "../types";
 import { CanvasNodeType } from "../types";
+import { isCharacterAssetForbiddenForVideo } from "./character-video-guard";
 import type {
   AutoCharacterDerivedViewPolicy,
   ResolvedVideoModelCapability,
@@ -51,6 +52,7 @@ export function packStoryVideoRequestWindows(options: {
   prompts?: string[];
   operation?: VideoReferenceSubmissionOperation;
   policy: Seedance2StoryReferenceCapability;
+  packMode?: "auto" | "per_shot";
 }): StoryVideoRequestWindow[] {
   const pairs = options.shots.flatMap((shot, index) => {
     const image = options.images[index];
@@ -65,6 +67,7 @@ export function packStoryVideoRequestWindows(options: {
     options.policy,
     pairs.length,
     options.operation,
+    options.packMode,
   );
   const titled = (shots: StoryShot[]) => {
     const first = shots[0];
@@ -121,9 +124,9 @@ export function packStoryVideoRequestWindows(options: {
     const minimum = options.policy.referenceImagePolicy?.supported && typeof options.policy.referenceImagePolicy.min === "number"
       ? options.policy.referenceImagePolicy.min
       : 1;
-    // `current-shot` means one request per story shot. It must not suppress the
-    // semantic character/scene references that the chosen R2V operation accepts.
-    if (perShotStoryReferenceWindows(options.policy)) {
+    // 只有用户明确指定 "per_shot" 时才逐镜一镜一视频；
+    // 默认（"auto"）则按模型能力最大参考图上限打包成最少数量的视频占位框，吃满槽位！
+    if (options.packMode === "per_shot") {
       return pairs.map((item) => windowOf([item], "reference-to-video"));
     }
     return packNonOverlappingWindows(pairs, minimum, Math.max(maximum, minimum)).map((items) => windowOf(items, "reference-to-video"));
@@ -135,10 +138,23 @@ function resolveRequestedStoryPackOperation(
   policy: Seedance2StoryReferenceCapability,
   imageCount: number,
   requested?: VideoReferenceSubmissionOperation,
+  packMode?: "auto" | "per_shot",
 ): VideoReferenceSubmissionOperation {
+  // 智能合并模式下，多素材且模型支持多参考时，自动将操作提升为 reference-to-video，
+  // 从而打包装箱生成最少数量的视频占位框并吃满参考槽位。
+  if (
+    packMode !== "per_shot" &&
+    imageCount > 1 &&
+    (!requested || requested === "image-to-video" || requested === "reference-to-video") &&
+    ((policy.referenceImagePolicy?.supported && (policy.referenceImagePolicy.max ?? 0) > 1) ||
+      policy.intentPolicy === "frames-or-reference-set" ||
+      policy.intentPolicy === "reference-set" ||
+      policy.intentPolicy === "r2v-with-first" ||
+      policy.intentPolicy === "reference-set-with-frames")
+  ) {
+    return "reference-to-video";
+  }
   const auto = defaultStoryPackOperation(policy, imageCount);
-  // An explicit operation is part of the request contract. Never replace it
-  // merely because the profile's automatic Story strategy is current-shot.
   return requested || auto;
 }
 
@@ -150,22 +166,15 @@ function defaultStoryPackOperation(
   if (policy.requiresFirstLastFrame) return "first-last-frame-to-video";
   if (policy.intentPolicy === "none") return "text-to-video";
   if (policy.intentPolicy === "keyframes" && policy.supportsKeyframeSequence) return "keyframes-to-video";
-  if (perShotStoryReferenceWindows(policy)) return "reference-to-video";
-  if (policy.storyAutoReferencePolicy === "current-shot") return "image-to-video";
-  if (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first") {
+  if (
+    policy.intentPolicy === "frames-or-reference-set" ||
+    policy.intentPolicy === "reference-set" ||
+    policy.intentPolicy === "r2v-with-first" ||
+    policy.intentPolicy === "reference-set-with-frames"
+  ) {
     return "reference-to-video";
   }
   return "image-to-video";
-}
-
-function perShotStoryReferenceWindows(policy: Seedance2StoryReferenceCapability) {
-  const maximum = policy.referenceImagePolicy?.supported ? policy.referenceImagePolicy.max : 0;
-  return policy.storyAutoReferencePolicy === "current-shot" &&
-    (maximum === null || maximum > 1) &&
-    (policy.intentPolicy === "frames-or-reference-set" ||
-      policy.intentPolicy === "reference-set" ||
-      policy.intentPolicy === "r2v-with-first" ||
-      policy.intentPolicy === "reference-set-with-frames");
 }
 
 function packNonOverlappingWindows<T>(items: T[], minimum: number, maximum: number): T[][] {
@@ -725,7 +734,12 @@ export function collectSeedance2StoryRewriteInput(options: {
   const shots = storyShots.map((shot) => {
     const currentShot = findCurrentShotImageForStoryShot(shot, storyDirector, imageNodes, connections);
     if (!currentShot) throw new Error(`Seedance2 第 ${shot.index} 镜缺少当前分镜图`);
-    const currentPrompt = typeof currentShot.metadata?.prompt === "string" ? currentShot.metadata.prompt : "";
+    const directorRunId = storyDirector.metadata?.storyRunId;
+    const imageRunId = currentShot.metadata?.storyRunId;
+    const isMatchingRun = !directorRunId || !imageRunId || directorRunId === imageRunId;
+    const currentPrompt = (isMatchingRun && typeof currentShot.metadata?.prompt === "string" && currentShot.metadata.prompt.trim())
+      ? currentShot.metadata.prompt
+      : (stringValue(shot.imagePrompt) || stringValue(shot.visualContent) || (typeof currentShot.metadata?.prompt === "string" ? currentShot.metadata.prompt : ""));
     const storyContext = {
       sceneId: stringValue(shot.sceneId) || undefined,
       appearingCharacterIds: Array.isArray(shot.appearingCharacterIds) ? shot.appearingCharacterIds : [],
@@ -827,12 +841,14 @@ export function buildVersionedStoryDirectorSlicePlaceholders(options: {
   );
   const workflowMetadata = workflowNode.metadata || {};
   const policy = resolveStoryReferencePrefillPolicy(options.capability, options.referencePolicy);
+  const packMode = (workflowMetadata.seedanceStoryPackMode as "auto" | "per_shot" | undefined) || "per_shot";
   const requestWindows = packStoryVideoRequestWindows({
     shots: rewrittenInOrder.map(({ shot }) => shot),
     images: currentShots,
     prompts: rewrittenInOrder.map(({ prompt }) => prompt),
     operation: storyReferenceSubmissionOperation(workflowMetadata),
     policy,
+    packMode,
   });
   if (!requestWindows.length) throw new Error("当前分镜图不足以按模型能力组成一次视频请求");
 
@@ -975,8 +991,21 @@ export function findCurrentShotImageForStoryShot(
   );
   const isCurrentShotMatch = (node: CanvasNodeData) =>
     isUsableImageReference(node) && storyShotIndexesFromImageNode(node).includes(shot.index);
+  const targetRunId = storyDirector.metadata?.storyRunId;
   const bestCurrentShotMatch = (candidates: CanvasNodeData[]) => {
     const matches = candidates.filter(isCurrentShotMatch);
+    if (!matches.length) return undefined;
+    if (targetRunId) {
+      const runMatched = matches.filter((node) => node.metadata?.storyRunId === targetRunId);
+      if (runMatched.length) {
+        return (
+          runMatched.find((node) => {
+            const indexes = storyShotIndexesFromImageNode(node);
+            return indexes.length === 1 && indexes[0] === shot.index;
+          }) || runMatched[0]
+        );
+      }
+    }
     return (
       matches.find((node) => {
         const indexes = storyShotIndexesFromImageNode(node);
@@ -2038,32 +2067,17 @@ function appearingCharacterReferenceNodes(
   const primary: Array<{ node: CanvasNodeData; entityId: string; label: string; asset?: Pick<CharacterDerivedView, "id" | "storageKey"> }> = [];
   const extraByCharacter: StoryShotSemanticReference[][] = [];
   const notices: string[] = [];
-  const preferredAngle = preferredCharacterViewAngle(shot);
   appearingCharacters.forEach((character) => {
     const boundNode = imageNodeById(nodeById, character.referenceNodeId)[0];
     const matchedNode =
       boundNode || imageNodeById(nodeById, findCharacterReferenceCandidate(character, candidateIds, nodeById))[0];
     if (!matchedNode) return;
     const label = `角色图：${stringValue(character.name) || stringValue(matchedNode.title) || matchedNode.id}`;
-    if (matchedNode.metadata?.storyCharacterAssetKind === "turnaround_sheet") {
-      const views = validCharacterDerivedViews(matchedNode);
-      if (!views.length || derivedViewPolicy === "disabled") {
-        notices.push(`${label} 的 turnaround sheet 未自动使用：缺少可用独立派生视图或当前模型未核验该策略。`);
-        return;
-      }
-      const preferred = views.find((view) => view.angle === preferredAngle) || views.find((view) => view.angle === "front") || views[0];
-      primary.push({ node: matchedNode, entityId: character.id, label: `${label}（${preferred.label}）`, asset: preferred });
-      extraByCharacter.push(views
-        .filter((view) => view.id !== preferred.id)
-        .map((view) => ({
-          node: matchedNode,
-          role: "character" as const,
-          entityId: character.id,
-          label: `${label}（${view.label}）`,
-          useAs: "reference_image" as const,
-          referenceAssetId: view.id,
-          referenceAssetStorageKey: view.storageKey,
-        })));
+    // Character turnaround sheets (四象图) and their derived front/side/back/portrait
+    // crops are identity-only reference art for image generation — they must
+    // never occupy a video reference slot (see character-video-guard.ts).
+    if (isCharacterAssetForbiddenForVideo(matchedNode)) {
+      notices.push(`${label} 是角色四象/派生视图，按规则不进入视频参考，该候选不会提交。`);
       return;
     }
     primary.push({
@@ -2073,28 +2087,6 @@ function appearingCharacterReferenceNodes(
     });
   });
   return { primary, extraByCharacter, notices };
-}
-
-function validCharacterDerivedViews(node: CanvasNodeData): CharacterDerivedView[] {
-  const sourceStorageKey = stringValue(node.metadata?.storageKey);
-  const seenAngles = new Set<string>();
-  return (node.metadata?.characterDerivedViews || []).filter((view) => {
-    if (!view.id || !view.storageKey || !view.angle || seenAngles.has(view.angle)) return false;
-    if (sourceStorageKey && view.sourceStorageKey !== sourceStorageKey) return false;
-    seenAngles.add(view.angle);
-    return true;
-  });
-}
-
-function preferredCharacterViewAngle(shot: StoryShot): CharacterDerivedView["angle"] {
-  const semantics = [shot.camera, shot.visualContent, shot.imagePrompt, shot.finalPrompt, shot.action]
-    .map(stringValue)
-    .join("\n")
-    .toLowerCase();
-  if (/背面|背影|后背|from behind|back view|rear view/.test(semantics)) return "back";
-  if (/侧面|侧身|侧脸|profile|side view/.test(semantics)) return "side";
-  if (/特写|近景|脸部|close[- ]?up|portrait|headshot/.test(semantics)) return "portrait";
-  return "front";
 }
 
 function appearingCharacterReferenceNodesForShots(

@@ -1,11 +1,9 @@
 import type { Edge, Node } from "@xyflow/react";
 import { DEFAULT_IMAGE, DEFAULT_TEXT, DEFAULT_VIDEO } from "./nodes";
-import { draftPlan } from "@/studio/story/plan";
 import type { CanvasData } from "./types";
 
 export function storyWorkflowTemplate(): { nodes: Node<CanvasData>[]; edges: Edge[] } {
   const idea = "雨夜码头，女警探林晚追踪一枚会发光的铜铃。克制、潮湿、霓虹，电影感写实。";
-  const plan = draftPlan(idea, "电影感写实", 5);
   return {
     nodes: [
       {
@@ -15,7 +13,6 @@ export function storyWorkflowTemplate(): { nodes: Node<CanvasData>[]; edges: Edg
         data: {
           kind: "story",
           text: idea,
-          development: plan.development,
           textModel: DEFAULT_TEXT,
           imageModel: DEFAULT_IMAGE,
           videoModel: DEFAULT_VIDEO,
@@ -24,24 +21,24 @@ export function storyWorkflowTemplate(): { nodes: Node<CanvasData>[]; edges: Edg
           shotCount: 5,
           ratio: "16:9",
           quality: "2K",
-          status: "已分析",
-          logline: plan.logline,
-          scenes: plan.scenes,
-          cast: plan.cast,
-          shots: plan.shots,
+          status: "待分析",
+          logline: "",
+          scenes: [],
+          cast: [],
+          shots: [],
         },
       },
       {
         id: "char-1",
         type: "character",
         position: { x: -140, y: 120 },
-        data: { kind: "character", name: plan.cast[0]?.name || "林晚", look: plan.cast[0]?.look || "湿风衣", model: DEFAULT_IMAGE, status: "角色资产" },
+        data: { kind: "character", name: "林晚", look: "湿风衣", model: DEFAULT_IMAGE, status: "角色资产" },
       },
       {
         id: "img-1",
         type: "image",
         position: { x: 820, y: -40 },
-        data: { kind: "image", prompt: plan.shots[0]?.prompt || "", model: DEFAULT_IMAGE, status: "第1镜", ratio: "16:9", style: "电影感写实" },
+        data: { kind: "image", prompt: "", model: DEFAULT_IMAGE, status: "第1镜", ratio: "16:9", style: "电影感写实" },
       },
       {
         id: "vid-1",
@@ -54,7 +51,7 @@ export function storyWorkflowTemplate(): { nodes: Node<CanvasData>[]; edges: Edg
           duration: 5,
           ratio: "16:9",
           generateAudio: true,
-          shotCount: plan.shots.length,
+          shotCount: 5,
           status: "分镜式",
         },
       },

@@ -72,3 +72,13 @@ test("ModelScope does not add a LoRA field when no LoRA was requested", () => {
   });
   assert.equal("loras" in planned.body, false);
 });
+
+test("ModelScope image size preserves 4:3, 3:4, 3:2, 2:3 and does not collapse into 3 tiers", async () => {
+  const { modelscopeImageSize } = await import("./modelscope.ts");
+  assert.equal(modelscopeImageSize("", "4:3"), "1472x1140");
+  assert.equal(modelscopeImageSize("", "3:4"), "1140x1472");
+  assert.equal(modelscopeImageSize("", "3:2"), "1584x1056");
+  assert.equal(modelscopeImageSize("", "2:3"), "1056x1584");
+  assert.equal(modelscopeImageSize("1472x1140"), "1472x1140");
+  assert.equal(modelscopeImageSize("1584x1056"), "1584x1056");
+});

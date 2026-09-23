@@ -1,7 +1,6 @@
 import axios from "axios";
 
 import { dataUrlToFile } from "@/lib/image-utils";
-import { desktopApiUrl } from "@/services/desktop-api-url";
 import { imageToDataUrl } from "@/services/image-storage";
 import { persistImageHostCredential } from "@/stores/use-config-store";
 import type { AiConfig } from "@/stores/use-config-store";
@@ -48,7 +47,7 @@ export async function uploadImageToConfiguredHost(
 
     let response;
     try {
-        response = await axios.post<ImageHostUploadResponse>(desktopApiUrl("/client-api/upload-image-host"), formData, {
+        response = await axios.post<ImageHostUploadResponse>("/client-api/upload-image-host", formData, {
             headers,
             timeout: 60_000,
         });

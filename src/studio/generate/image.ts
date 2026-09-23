@@ -62,15 +62,16 @@ export async function generateStudioImage(input: {
     model,
   );
   if (!adapter.generateImage) throw new Error(`${adapter.label} 不支持生图`);
+  const refs = await Promise.all(collectImageRefs(input).map((url) => toDataUrlIfLocal(url)));
+  const effectiveOperation = input.operation === "edit" && refs.length === 0 ? "generate" : input.operation;
   const civitai = studioImageAdapterFields(adapter.id, model, {
     n: input.n,
     quantity: input.quantity,
     checkpointAir: input.checkpointAir,
     loras: input.loras,
-    operation: input.operation,
+    operation: effectiveOperation,
   });
   const count = civitai.n;
-  const refs = await Promise.all(collectImageRefs(input).map((url) => toDataUrlIfLocal(url)));
   const maskUrl = input.maskUrl ? await toDataUrlIfLocal(input.maskUrl) : undefined;
   const imageInput: ImageGenInput = {
     model,
@@ -84,12 +85,13 @@ export async function generateStudioImage(input: {
     seed: input.seed,
     negativePrompt: input.negativePrompt,
     steps: input.steps,
-    guidance: input.guidance,
+    guidance: input.guidance ?? input.cfgScale ?? (input.advanced?.cfgScale as number | undefined),
     sampler: input.sampler,
     scheduler: input.scheduler,
+    outputFormat: (input as { outputFormat?: string }).outputFormat ?? (input.advanced?.outputFormat as string | undefined),
     quantity: count,
     n: count,
-    operation: input.operation,
+    operation: effectiveOperation,
     quality: input.quality,
     maskUrl,
     loras: civitai.loras,

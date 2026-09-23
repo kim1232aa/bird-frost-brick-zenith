@@ -1,4 +1,3 @@
-import { desktopApiUrl } from "@/services/desktop-api-url";
 import type { RelayModelCatalogMetadataRecord } from "@/services/api/models-dev-catalog";
 import {
     API_CAPABILITIES,
@@ -191,7 +190,7 @@ function normalizeCatalogMetadataForModels(models: string[], metadata: RelayMode
 }
 
 export function buildLocalRelayProxyUrl(path: string) {
-    return desktopApiUrl(`${LOCAL_RELAY_PROXY_PREFIX}/${path.replace(/^\/+/, "").replace(/\/+$/, "")}/`);
+    return `${LOCAL_RELAY_PROXY_PREFIX}/${path.replace(/^\/+/, "").replace(/\/+$/, "")}/`;
 }
 
 export function buildProviderProxyHeaders(provider: { proxyMode?: unknown; proxyUrl?: string }) {
@@ -257,6 +256,7 @@ export function buildLocalRelayProxyHeaders(
         ...(relayId && !builtin["x-boundless-builtin"] && selectedCredentialId
             ? { [LOCAL_RELAY_CREDENTIAL_ID_HEADER]: selectedCredentialId }
             : {}),
+        ...(provider.authScheme ? { "x-auth-scheme": provider.authScheme } : {}),
         ...buildProviderProxyHeaders(provider),
         ...builtin,
         ...(contentType ? { "Content-Type": contentType } : {}),

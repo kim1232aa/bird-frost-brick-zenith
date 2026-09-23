@@ -1,7 +1,7 @@
-import type { StudioAdapter } from "./types";
-import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { collectImageRefs } from "@/studio/image-refs";
-import { buildArkImageGenerationBody, buildArkVideoBody, readArkVideoPoll, studioEndpoint } from "./contracts";
+import type { StudioAdapter } from "./types.ts";
+import { allImageUrls, studioProxyJson } from "../generate/proxy.ts";
+import { collectImageRefs } from "../image-refs.ts";
+import { buildArkImageGenerationBody, buildArkVideoBody, readArkVideoPoll, studioEndpoint } from "./contracts.ts";
 
 function explainVideoError(message: string) {
   if (/UnsupportedModel|does not support the agent plan/i.test(message)) {
@@ -31,6 +31,10 @@ export const arkPlanAdapter: StudioAdapter = {
         size: input.size,
         n: input.n,
         image: refs,
+        watermark: typeof input.watermark === "boolean" ? input.watermark : undefined,
+        seed: typeof input.seed === "number" && Number.isFinite(input.seed) ? input.seed : undefined,
+        negative_prompt: input.negativePrompt,
+        quality: input.quality,
       }),
       timeoutMs: 120_000,
     });
@@ -106,10 +110,7 @@ export const arkPlanAdapter: StudioAdapter = {
       if (/404/i.test(message)) {
         return { ok: false, message: agentPlan ? `Agent Plan 生图 404。确认 Base URL 是 /api/plan/v3。${message}` : `标准 Ark 生图 404。确认 Base URL 是 /api/v3。${message}` };
       }
-      if (/401|invalid|unauthorized|model|quota|param/i.test(message)) {
-        return { ok: true, message: `生图端点在，厂商返回：${message.slice(0, 160)}` };
-      }
-      return { ok: false, message };
+      return { ok: false, message: `火山方舟校验失败：${message.slice(0, 160)}` };
     }
   },
 };

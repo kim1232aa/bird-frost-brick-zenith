@@ -150,10 +150,10 @@ test("non-Civitai providers never show Civitai LoRA/checkpoint and follow publis
   assert.equal(gpt.needsCheckpoint, false);
   assert.equal(gpt.referenceMax, 0);
 
-  const fal = imageStudioParamState("generic", "flux-dev");
+  const fal = imageStudioParamState("generic", "flux-dev", "t2i", "fal", { adapterType: "fal" });
   assert.equal(fal.showLora, false);
   assert.equal(fal.needsCheckpoint, false);
-  assert.equal(fal.showSeed, false);
+  assert.equal(fal.showSeed, true);
   assert.equal(fal.quantityMax, null);
   assert.deepEqual(fal.quantityOptions, [1, 2, 4, 6, 8, 10]);
 });
@@ -836,6 +836,30 @@ test("page request mapping forwards GPT quality and every edit reference", () =>
     checkpointAir: undefined,
     workTitle: "改图",
   });
+
+  const noReferencePayload = buildImageStudioGenerateFields({
+    family: "gpt",
+    model: "gpt-image-2",
+    mode: "edit",
+    quality: "hq",
+    aspect: "16:9",
+    size: "2K",
+    seed: "",
+    count: 1,
+    references: [],
+    loras: [],
+    checkpointAir: "",
+    dims: DIMS,
+  });
+  assert.equal(buildImageStudioRequest({
+    mode: "edit",
+    relays: [],
+    prompt: "text-only fallback",
+    providerId: "preset-openai",
+    model: "gpt-image-2",
+    payload: noReferencePayload,
+    workTitle: "改图",
+  }).operation, "generate");
 });
 
 test("GPT Image 2 aliases transmit quality and an aspect-ratio-compatible edit size", () => {

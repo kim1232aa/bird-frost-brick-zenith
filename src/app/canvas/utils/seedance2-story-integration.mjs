@@ -5,6 +5,7 @@ const CanvasNodeType = {
   Seedance2Workflow: "seedance2_workflow"
 };
 import { resolveVideoReferenceSlotContract } from "../../../services/api/video-reference-slot-contract.mjs";
+import { isCharacterAssetForbiddenForVideo } from "./character-video-guard.mjs";
 import {
   LOCAL_SEEDANCE2_API_ENDPOINT,
   createSeedance2VideoPlaceholderMetadata,
@@ -21,7 +22,7 @@ function packStoryVideoRequestWindows(options) {
     if (!image) return [];
     return [{ shot, image, prompt: options.prompts?.[index] || "" }];
   });
-  const operation = resolveRequestedStoryPackOperation(options.policy, pairs.length, options.operation);
+  const operation = resolveRequestedStoryPackOperation(options.policy, pairs.length, options.operation, options.packMode);
   const titled = (shots) => {
     const first = shots[0];
     const last = shots[shots.length - 1];
@@ -72,19 +73,27 @@ function packStoryVideoRequestWindows(options) {
     const minimum = options.policy.referenceImagePolicy?.supported && typeof options.policy.referenceImagePolicy.min === "number"
       ? options.policy.referenceImagePolicy.min
       : 1;
-    // `current-shot` means one request per story shot; it does not suppress
-    // semantic character/scene references accepted by the chosen R2V operation.
-    if (perShotStoryReferenceWindows(options.policy)) {
+    if (options.packMode === "per_shot") {
       return pairs.map((item) => windowOf([item], "reference-to-video"));
     }
     return packNonOverlappingWindows(pairs, minimum, Math.max(maximum, minimum)).map((items) => windowOf(items, "reference-to-video"));
   }
   return pairs.map((item) => windowOf([item], operation));
 }
-function resolveRequestedStoryPackOperation(policy, imageCount, requested) {
+function resolveRequestedStoryPackOperation(policy, imageCount, requested, packMode) {
+  if (
+    packMode !== "per_shot" &&
+    imageCount > 1 &&
+    (!requested || requested === "image-to-video" || requested === "reference-to-video") &&
+    ((policy.referenceImagePolicy?.supported && (policy.referenceImagePolicy.max ?? 0) > 1) ||
+      policy.intentPolicy === "frames-or-reference-set" ||
+      policy.intentPolicy === "reference-set" ||
+      policy.intentPolicy === "r2v-with-first" ||
+      policy.intentPolicy === "reference-set-with-frames")
+  ) {
+    return "reference-to-video";
+  }
   const auto = defaultStoryPackOperation(policy, imageCount);
-  // An explicit operation is part of the request contract; never replace it
-  // merely because the profile's automatic Story strategy is current-shot.
   return requested || auto;
 }
 function defaultStoryPackOperation(policy, imageCount) {
@@ -92,18 +101,10 @@ function defaultStoryPackOperation(policy, imageCount) {
   if (policy.requiresFirstLastFrame) return "first-last-frame-to-video";
   if (policy.intentPolicy === "none") return "text-to-video";
   if (policy.intentPolicy === "keyframes" && policy.supportsKeyframeSequence) return "keyframes-to-video";
-  if (perShotStoryReferenceWindows(policy)) return "reference-to-video";
-  if (policy.storyAutoReferencePolicy === "current-shot") return "image-to-video";
-  if (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first") {
+  if (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first" || policy.intentPolicy === "reference-set-with-frames") {
     return "reference-to-video";
   }
   return "image-to-video";
-}
-function perShotStoryReferenceWindows(policy) {
-  const maximum = policy.referenceImagePolicy?.supported ? policy.referenceImagePolicy.max : 0;
-  return policy.storyAutoReferencePolicy === "current-shot" &&
-    (maximum === null || maximum > 1) &&
-    (policy.intentPolicy === "frames-or-reference-set" || policy.intentPolicy === "reference-set" || policy.intentPolicy === "r2v-with-first" || policy.intentPolicy === "reference-set-with-frames");
 }
 function packNonOverlappingWindows(items, minimum, maximum) {
   const windows = [];
@@ -450,7 +451,12 @@ function collectSeedance2StoryRewriteInput(options) {
   const shots = storyShots.map((shot) => {
     const currentShot = findCurrentShotImageForStoryShot(shot, storyDirector, imageNodes, connections);
     if (!currentShot) throw new Error(`Seedance2 \u7B2C ${shot.index} \u955C\u7F3A\u5C11\u5F53\u524D\u5206\u955C\u56FE`);
-    const currentPrompt = typeof currentShot.metadata?.prompt === "string" ? currentShot.metadata.prompt : "";
+    const directorRunId = storyDirector.metadata?.storyRunId;
+    const imageRunId = currentShot.metadata?.storyRunId;
+    const isMatchingRun = !directorRunId || !imageRunId || directorRunId === imageRunId;
+    const currentPrompt = isMatchingRun && typeof currentShot.metadata?.prompt === "string" && currentShot.metadata.prompt.trim()
+      ? currentShot.metadata.prompt
+      : stringValue(shot.imagePrompt) || stringValue(shot.visualContent) || (typeof currentShot.metadata?.prompt === "string" ? currentShot.metadata.prompt : "");
     const storyContext = {
       sceneId: stringValue(shot.sceneId) || void 0,
       appearingCharacterIds: Array.isArray(shot.appearingCharacterIds) ? shot.appearingCharacterIds : [],
@@ -528,12 +534,14 @@ function buildVersionedStoryDirectorSlicePlaceholders(options) {
   const currentShots = rewrittenInOrder.map(({ shot }) => findCurrentShotImageForStoryShot(shot, storyDirector, imageNodes, connections));
   const workflowMetadata = workflowNode.metadata || {};
   const policy = resolveStoryReferencePrefillPolicy(options.capability, options.referencePolicy);
+  const packMode = workflowMetadata.seedanceStoryPackMode || "per_shot";
   const requestWindows = packStoryVideoRequestWindows({
     shots: rewrittenInOrder.map(({ shot }) => shot),
     images: currentShots,
     prompts: rewrittenInOrder.map(({ prompt }) => prompt),
     operation: storyReferenceSubmissionOperation(workflowMetadata),
-    policy
+    policy,
+    packMode
   });
   if (!requestWindows.length) throw new Error("\u5F53\u524D\u5206\u955C\u56FE\u4E0D\u8DB3\u4EE5\u6309\u6A21\u578B\u80FD\u529B\u7EC4\u6210\u4E00\u6B21\u89C6\u9891\u8BF7\u6C42");
   const rewriteModel = stringValue(options.rewriteModel);
@@ -663,8 +671,19 @@ function findCurrentShotImageForStoryShot(shot, storyDirector, imageNodes, conne
     connections.filter((connection) => connection.fromNodeId === storyDirector.id).map((connection) => connection.toNodeId)
   );
   const isCurrentShotMatch = (node) => isUsableImageReference(node) && storyShotIndexesFromImageNode(node).includes(shot.index);
+  const targetRunId = storyDirector.metadata?.storyRunId;
   const bestCurrentShotMatch = (candidates) => {
     const matches = candidates.filter(isCurrentShotMatch);
+    if (!matches.length) return void 0;
+    if (targetRunId) {
+      const runMatched = matches.filter((node) => node.metadata?.storyRunId === targetRunId);
+      if (runMatched.length) {
+        return runMatched.find((node) => {
+          const indexes = storyShotIndexesFromImageNode(node);
+          return indexes.length === 1 && indexes[0] === shot.index;
+        }) || runMatched[0];
+      }
+    }
     return matches.find((node) => {
       const indexes = storyShotIndexesFromImageNode(node);
       return indexes.length === 1 && indexes[0] === shot.index;
@@ -1366,7 +1385,7 @@ function sameConnections(left, right) {
     return [...keys].every((key) => connectionValues[key] === otherValues[key]);
   });
 }
-function appearingCharacterReferenceNodes(shot, storyDirector, nodeById, connections, derivedViewPolicy) {
+function appearingCharacterReferenceNodes(shot, storyDirector, nodeById, connections, _derivedViewPolicy) {
   const characterById = new Map(
     (storyDirector.metadata?.storyCharacters || []).map((character) => [character.id, character])
   );
@@ -1381,29 +1400,13 @@ function appearingCharacterReferenceNodes(shot, storyDirector, nodeById, connect
   const primary = [];
   const extraByCharacter = [];
   const notices = [];
-  const preferredAngle = preferredCharacterViewAngle(shot);
   appearingCharacters.forEach((character) => {
     const boundNode = imageNodeById(nodeById, character.referenceNodeId)[0];
     const matchedNode = boundNode || imageNodeById(nodeById, findCharacterReferenceCandidate(character, candidateIds, nodeById))[0];
     if (!matchedNode) return;
     const label = `\u89D2\u8272\u56FE\uFF1A${stringValue(character.name) || stringValue(matchedNode.title) || matchedNode.id}`;
-    if (matchedNode.metadata?.storyCharacterAssetKind === "turnaround_sheet") {
-      const views = validCharacterDerivedViews(matchedNode);
-      if (!views.length || derivedViewPolicy === "disabled") {
-        notices.push(`${label} \u7684 turnaround sheet \u672A\u81EA\u52A8\u4F7F\u7528\uFF1A\u7F3A\u5C11\u53EF\u7528\u72EC\u7ACB\u6D3E\u751F\u89C6\u56FE\u6216\u5F53\u524D\u6A21\u578B\u672A\u6838\u9A8C\u8BE5\u7B56\u7565\u3002`);
-        return;
-      }
-      const preferred = views.find((view) => view.angle === preferredAngle) || views.find((view) => view.angle === "front") || views[0];
-      primary.push({ node: matchedNode, entityId: character.id, label: `${label}\uFF08${preferred.label}\uFF09`, asset: preferred });
-      extraByCharacter.push(views.filter((view) => view.id !== preferred.id).map((view) => ({
-        node: matchedNode,
-        role: "character",
-        entityId: character.id,
-        label: `${label}\uFF08${view.label}\uFF09`,
-        useAs: "reference_image",
-        referenceAssetId: view.id,
-        referenceAssetStorageKey: view.storageKey
-      })));
+    if (isCharacterAssetForbiddenForVideo(matchedNode)) {
+      notices.push(`${label} \u662F\u89D2\u8272\u56DB\u8C61/\u6D3E\u751F\u89C6\u56FE\uFF0C\u6309\u89C4\u5219\u4E0D\u8FDB\u5165\u89C6\u9891\u53C2\u8003\uFF0C\u8BE5\u5019\u9009\u4E0D\u4F1A\u63D0\u4EA4\u3002`);
       return;
     }
     primary.push({
@@ -1413,23 +1416,6 @@ function appearingCharacterReferenceNodes(shot, storyDirector, nodeById, connect
     });
   });
   return { primary, extraByCharacter, notices };
-}
-function validCharacterDerivedViews(node) {
-  const sourceStorageKey = stringValue(node.metadata?.storageKey);
-  const seenAngles = /* @__PURE__ */ new Set();
-  return (node.metadata?.characterDerivedViews || []).filter((view) => {
-    if (!view.id || !view.storageKey || !view.angle || seenAngles.has(view.angle)) return false;
-    if (sourceStorageKey && view.sourceStorageKey !== sourceStorageKey) return false;
-    seenAngles.add(view.angle);
-    return true;
-  });
-}
-function preferredCharacterViewAngle(shot) {
-  const semantics = [shot.camera, shot.visualContent, shot.imagePrompt, shot.finalPrompt, shot.action].map(stringValue).join("\n").toLowerCase();
-  if (/背面|背影|后背|from behind|back view|rear view/.test(semantics)) return "back";
-  if (/侧面|侧身|侧脸|profile|side view/.test(semantics)) return "side";
-  if (/特写|近景|脸部|close[- ]?up|portrait|headshot/.test(semantics)) return "portrait";
-  return "front";
 }
 function appearingCharacterReferenceNodesForShots(shots, storyDirector, nodeById, connections, derivedViewPolicy) {
   const merged = { primary: [], extraByCharacter: [], notices: [] };

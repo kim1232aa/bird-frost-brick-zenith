@@ -4,7 +4,6 @@ import localforage from "localforage";
 
 import type { ImageModel } from "@/lib/api";
 import { hasUsableStoredImageSource } from "@/lib/image-utils";
-import { createDesktopObjectStorage } from "@/services/desktop-storage";
 import { getCachedAuthStorageScope, normalizeStorageScope, scopedStorageKey } from "@/lib/user-storage-scope";
 
 export type ImageConversationMode = "generate" | "edit";
@@ -87,7 +86,7 @@ const legacyImageConversationStorage = localforage.createInstance({
   name: "chatgpt2api",
   storeName: "image_conversations",
 });
-const imageConversationStorage = createDesktopObjectStorage("chatgpt2api/image_conversations", legacyImageConversationStorage);
+const imageConversationStorage = legacyImageConversationStorage;
 
 const IMAGE_CONVERSATIONS_KEY = "items";
 const DRAFT_REFERENCE_IMAGES_KEY = "draft_reference_images";

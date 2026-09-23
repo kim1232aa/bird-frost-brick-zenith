@@ -19,12 +19,39 @@ export function planSenseNovaImageRequest(input: ImageGenInput): { path: string;
     throw new Error("SenseNova U1.5 仅允许 n=1。");
   }
   const editing = refs.length > 0;
+  const requestedSize = String(input.size || "").trim();
+  const SENSENOVA_RATIOS: Record<string, string> = {
+    "1:1": "2048x2048",
+    "16:9": "2752x1536",
+    "9:16": "1536x2752",
+    "3:2": "2496x1664",
+    "2:3": "1664x2496",
+    "4:3": "2368x1760",
+    "3:4": "1760x2368",
+    "21:9": "3072x1376",
+  };
+  const size = SENSENOVA_RATIOS[requestedSize] || requestedSize || "2048x2048";
   const body: Record<string, unknown> = {
     model: input.model,
     prompt: input.prompt,
-    size: input.size || "2048x2048",
+    size,
     n: isSenseNovaU15(input.model) ? 1 : input.n || 1,
   };
+  // U1 Fast generations fields are model, prompt, size, n, watermark.
+  // https://platform.sensenova.cn/docs — no seed, negative_prompt, steps, or cfg.
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
+    console.warn("SenseNova 图像接口未记录 seed，本次不发送。");
+  }
+  if (input.negativePrompt) {
+    console.warn("SenseNova 图像接口未记录 negative_prompt，本次不发送。");
+  }
+  if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
+    console.warn("SenseNova 图像接口未记录 steps，本次不发送。");
+  }
+  const cfg = input.cfgScale ?? input.guidance;
+  if (typeof cfg === "number" && Number.isFinite(cfg)) {
+    console.warn("SenseNova 图像接口未记录 cfg/guidance，本次不发送。");
+  }
   if (editing) body.images = refs.map((image_url) => ({ image_url }));
   return {
     path: editing ? "/images/edits" : "/images/generations",

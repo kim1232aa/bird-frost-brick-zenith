@@ -93,8 +93,12 @@ async function persistItem(item: StudioHistoryItem) {
     persistWarning: undefined,
   };
   if (!urls[0]) throw new Error("作品没有可保存的文件");
-  const { saveStudioWork } = await import("@/studio/server/works");
-  const saved = await saveStudioWork({ data: next });
+  const resp = await fetch("/client-api/works", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item: next }),
+  }).catch(() => null);
+  const saved = resp ? await resp.json().catch(() => null) : null;
   if (saved?.ok && saved.item?.urls?.[0]) {
     return {
       ...saved.item,
@@ -156,22 +160,20 @@ export const useStudioHistory = create<HistoryState>()(
       },
       remove: (id) => {
         set({ items: get().items.filter((item) => item.id !== id) });
-        void import("@/studio/server/works")
-          .then(({ deleteStudioWork }) => deleteStudioWork({ data: { id } }))
-          .catch(() => undefined);
+        void fetch(`/client-api/works?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => undefined);
       },
       clear: () => {
         const ids = get().items.map((item) => item.id);
         set({ items: [] });
-        void import("@/studio/server/works")
-          .then(({ deleteStudioWork }) => Promise.all(ids.map((id) => deleteStudioWork({ data: { id } }))))
-          .catch(() => undefined);
+        void Promise.all(ids.map((id) => fetch(`/client-api/works?id=${encodeURIComponent(id)}`, { method: "DELETE" }))).catch(() => undefined);
       },
       hydrate: async () => {
         try {
-          const { listStudioWorks } = await import("@/studio/server/works");
+          const resp = await fetch("/client-api/works").catch(() => null);
+          const data = resp ? await resp.json().catch(() => null) : null;
+          const remote = Array.isArray(data?.items) ? data.items : [];
           set({
-            items: mergeStudioHistoryItems(await listStudioWorks(), get().items),
+            items: mergeStudioHistoryItems(remote, get().items),
             hydrated: true,
           });
         } catch {

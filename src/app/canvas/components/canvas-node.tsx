@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight, Clapperboard, Eye, Film, Image as ImageIcon, Music2, RefreshCw, Star, Video, X } from "lucide-react";
+import { ChevronRight, Clapperboard, Download, Eye, Film, Image as ImageIcon, Music2, Pencil, RefreshCw, Star, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { ProviderModelPicker } from "@/components/model-picker";
@@ -47,8 +47,9 @@ import {
 } from "../utils/seedance2-reference-slots";
 import { seedance2RegeneratePromptPatch } from "../utils/seedance2-story-integration";
 import {
+    isEditableSeedance2VideoPlaceholder,
     isStandaloneSeedance2VideoPlaceholder,
-    standaloneSeedance2VideoModelPatch,
+    seedance2VideoPlaceholderModelPatch,
     standaloneVideoSettingsAccess,
 } from "../utils/canvas-standalone-video-model";
 import type { CanvasResourceReference } from "../utils/canvas-resource-references";
@@ -57,6 +58,7 @@ import { resolveCanvasVideoModelCapability } from "../utils/canvas-video-capabil
 import { canvasVideoAspectRatioLabel, canvasVideoDurationLabel, canvasVideoModelLabel } from "../utils/canvas-video-result-display";
 import { isCanvasOverlayTarget } from "../utils/canvas-overlay-popup";
 import { isVideoTaskSnapshotLocked } from "../utils/canvas-video-task-edit-lock";
+import { adaptVideoReferenceListForOperation } from "../utils/canvas-video-slot-adaptation";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import type { ReferenceVideo } from "@/types/media";
 
@@ -68,25 +70,12 @@ const selectionBlue = "#2f80ff";
 const IMAGE_WHEEL_SCALE_PRESETS = [0.55, 0.7, 0.85, 1, 1.25, 1.5, 1.75, 2, 2.4, 3, 3.8, 4.8, 6];
 const IMAGE_LABEL_ID_LENGTH = 4;
 const STORY_DIRECTOR_MIN_HEIGHT = NODE_DEFAULT_SIZE[CanvasNodeType.StoryDirector].height;
+const STORY_DIRECTOR_MAX_HEIGHT = 1400;
+const SEEDANCE2_WORKFLOW_MIN_HEIGHT = NODE_DEFAULT_SIZE[CanvasNodeType.Seedance2Workflow].height;
+const SEEDANCE2_WORKFLOW_MAX_HEIGHT = 1400;
 const SEEDANCE2_RATIO_OPTIONS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"] as const;
-const SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH = 1114;
-const SEEDANCE2_HTML_PLACEHOLDER_BASE_HEIGHT = 668;
-const SEEDANCE2_HTML_STAGE_NODE_LEFT = 88;
-const SEEDANCE2_HTML_STAGE_NODE_TOP = 30;
-const SEEDANCE2_HTML_LANDSCAPE_RECTS = {
-    divider: { left: 421, top: 33, width: 2, height: 662 },
-    preview: { left: 106, top: 49, width: 301, height: 220 },
-    model: { left: 106, top: 283, width: 301, height: 53 },
-    ratio: { left: 107, top: 343, width: 147, height: 53 },
-    duration: { left: 261, top: 343, width: 145, height: 53 },
-    upload: { left: 106, top: 410, width: 301, height: 269 },
-    promptTitle: { left: 445, top: 61, width: 210, height: 26 },
-    promptEdit: { left: 991, top: 61, width: 185, height: 26 },
-    promptBox: { left: 445, top: 103, width: 731, height: 486 },
-    generate: { left: 445, top: 604, width: 731, height: 67 },
-} as const;
 
-type Seedance2HtmlLandscapeRect = (typeof SEEDANCE2_HTML_LANDSCAPE_RECTS)[keyof typeof SEEDANCE2_HTML_LANDSCAPE_RECTS];
+type Seedance2PlaceholderOrientation = "portrait" | "landscape";
 
 type Seedance2PlaceholderAspectRatioSources = {
     upstreamNaturalRatio?: string | null;
@@ -150,6 +139,8 @@ type CanvasNodeProps = {
     onViewImage?: (node: CanvasNodeData) => void;
     onViewCharacterDerivedViews?: (node: CanvasNodeData) => void;
     onExpandCharacterDerivedViews?: (node: CanvasNodeData) => void;
+    onDownload?: (node: CanvasNodeData) => void;
+    onEditPrompt?: (node: CanvasNodeData) => void;
     onContextMenu: (event: React.MouseEvent, nodeId: string) => void;
 };
 
@@ -182,6 +173,8 @@ type NodeContentRendererProps = {
     onExtractVideoFrame?: (node: CanvasNodeData, frame: { dataUrl: string; width: number; height: number; currentTime: number }) => void;
     onViewCharacterDerivedViews?: (node: CanvasNodeData) => void;
     onExpandCharacterDerivedViews?: (node: CanvasNodeData) => void;
+    onDownload?: (node: CanvasNodeData) => void;
+    onEditPrompt?: (node: CanvasNodeData) => void;
     onToggleBatch?: () => void;
     onSetBatchPrimary?: () => void;
 };
@@ -230,6 +223,8 @@ export const CanvasNode = React.memo(function CanvasNode({
     onViewImage,
     onViewCharacterDerivedViews,
     onExpandCharacterDerivedViews,
+    onDownload,
+    onEditPrompt,
     onContextMenu,
 }: CanvasNodeProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -463,8 +458,15 @@ export const CanvasNode = React.memo(function CanvasNode({
             ? {
                 selector: "[data-story-director-panel]",
                 minHeight: STORY_DIRECTOR_MIN_HEIGHT,
+                maxHeight: STORY_DIRECTOR_MAX_HEIGHT,
             }
-            : null;
+            : isSeedance2Workflow
+              ? {
+                  selector: "[data-seedance2-workflow-panel]",
+                  minHeight: SEEDANCE2_WORKFLOW_MIN_HEIGHT,
+                  maxHeight: SEEDANCE2_WORKFLOW_MAX_HEIGHT,
+              }
+              : null;
         if (!autoHeightPanel) return;
         const contentFrame = contentFrameRef.current;
         if (!contentFrame) return;
@@ -475,10 +477,13 @@ export const CanvasNode = React.memo(function CanvasNode({
                 storyResizeFrameRef.current = null;
                 const currentNode = nodeSizeRef.current;
                 const panel = contentFrame.querySelector(autoHeightPanel.selector);
-                const measuredHeight = panel instanceof HTMLElement ? storyDirectorPanelContentHeight(panel) : contentFrame.scrollHeight;
-                const nextHeight = Math.max(
-                    autoHeightPanel.minHeight,
-                    Math.ceil(measuredHeight + 4),
+                const measuredHeight = panel instanceof HTMLElement ? storyDirectorPanelContentHeight(panel, autoHeightPanel.maxHeight) : contentFrame.scrollHeight;
+                const nextHeight = Math.min(
+                    autoHeightPanel.maxHeight,
+                    Math.max(
+                        autoHeightPanel.minHeight,
+                        Math.ceil(measuredHeight + 4),
+                    ),
                 );
                 if (Math.abs(nextHeight - currentNode.height) > 3) onResize(currentNode.id, currentNode.width, nextHeight);
             });
@@ -516,8 +521,12 @@ export const CanvasNode = React.memo(function CanvasNode({
             className={`node-element absolute flex select-none flex-col transition-shadow duration-200 ${isSelected ? "z-50" : "z-10"}`}
             style={{
                 transform: `translate(${data.position.x}px, ${data.position.y}px)`,
-                width: data.width,
-                height: data.height,
+                width: isStoryDirector ? Math.max(580, data.width || 0) : data.width,
+                height: isStoryDirector
+                    ? Math.min(STORY_DIRECTOR_MAX_HEIGHT, Math.max(STORY_DIRECTOR_MIN_HEIGHT, data.height || 0))
+                    : isSeedance2Workflow
+                      ? Math.min(SEEDANCE2_WORKFLOW_MAX_HEIGHT, Math.max(SEEDANCE2_WORKFLOW_MIN_HEIGHT, data.height || 0))
+                      : data.height,
                 transition: "box-shadow 200ms ease",
                 contain: "layout style",
             }}
@@ -602,6 +611,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                         onExtractVideoFrame={onExtractVideoFrame}
                         onViewCharacterDerivedViews={onViewCharacterDerivedViews}
                         onExpandCharacterDerivedViews={onExpandCharacterDerivedViews}
+                        onDownload={onDownload}
+                        onEditPrompt={onEditPrompt}
                         onToggleBatch={() => onToggleBatch?.(data.id)}
                         onSetBatchPrimary={() => onSetBatchPrimary?.(data)}
                     />
@@ -810,6 +821,9 @@ function ImageNodeContent(props: NodeContentRendererProps) {
             onSetBatchPrimary={props.onSetBatchPrimary}
             onViewCharacterDerivedViews={props.onViewCharacterDerivedViews}
             onExpandCharacterDerivedViews={props.onExpandCharacterDerivedViews}
+            onRetry={props.onRetry}
+            onDownload={props.onDownload}
+            onEditPrompt={props.onEditPrompt}
         />
     );
 }
@@ -1154,205 +1168,55 @@ function Seedance2LandscapeVideoPlaceholderCard(props: {
     onUpdateConnectionUseAs?: Seedance2UpdateConnectionUseAs;
     onGenerateVideo?: (node: CanvasNodeData) => void;
 }) {
-    const hasVideo = Boolean(props.node.metadata?.content);
     return (
         <div
-            className="relative h-full w-full min-h-[668px] min-w-[1114px] overflow-hidden seedance2-placeholder-landscape flex-row rounded-[45px] border-[4px]"
+            className="flex h-full w-full flex-col overflow-hidden rounded-[28px] border"
             data-seedance2-orientation="landscape"
-            data-seedance2-landscape-html-reference
+            data-seedance2-landscape-placeholder
             style={{
                 background: props.theme.node.fill,
                 borderColor: props.theme.node.stroke,
                 color: props.theme.node.text,
-                minWidth: SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH,
-                minHeight: SEEDANCE2_HTML_PLACEHOLDER_BASE_HEIGHT,
             }}
         >
-            <div
-                className="absolute z-[2]"
-                style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.divider), background: props.theme.node.stroke }}
-                aria-hidden="true"
-            />
-            <div
-                className="absolute z-[3] overflow-hidden rounded-[29px] border-[1.5px]"
-                style={{
-                    ...seedance2HtmlLandscapeResponsivePreviewStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.preview),
-                    background: props.theme.node.panel,
-                    borderColor: props.theme.node.stroke,
-                }}
-                data-seedance2-landscape-preview
-            >
-                {hasVideo ? (
-                    <video src={props.node.metadata?.content} controls className="h-full w-full bg-black object-contain" data-canvas-no-zoom />
-                ) : (
-                    <div className="absolute inset-0 grid place-items-center text-center">
-                        <div data-seedance2-placeholder-copy>
-                            <Video className="mx-auto mb-5 size-[34px] opacity-95" style={{ color: props.theme.node.faint }} />
-                            <div className="whitespace-nowrap text-[28px] font-extrabold leading-[34px]" style={{ color: props.theme.node.text, textShadow: "-1px 0 #2aa7ff, 1px 0 #ff6d00" }}>
-                                第{props.shot}镜视频占位框
-                            </div>
-                            <div className="mt-2 text-[20px] font-semibold leading-[26px]" style={{ color: props.theme.node.muted }}>
-                                {props.status} · {props.mode}
-                            </div>
-                            <Seedance2PlaceholderErrorDetails node={props.node} className="mx-auto max-w-[440px] text-[14px]" />
-                        </div>
-                    </div>
-                )}
-            </div>
-            <Seedance2LandscapeModelSummary
-                theme={props.theme}
-                rect={SEEDANCE2_HTML_LANDSCAPE_RECTS.model}
-                node={props.node}
-                onMetadataChange={props.onMetadataChange}
-            />
-            <Seedance2LandscapeSelect
-                theme={props.theme}
-                rect={SEEDANCE2_HTML_LANDSCAPE_RECTS.ratio}
-                value={
-                    props.node.metadata?.seedanceInheritSourceRatio !== false &&
-                    !props.node.metadata?.seedanceRatioTouched
-                        ? "inherit"
-                        : props.ratio
-                }
-                title="画布布局比例：默认跟随上游图片；只影响画布排版，不作为 API 参数"
-                onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "inherit") {
-                        props.onMetadataChange?.(props.node.id, {
-                            seedanceInheritSourceRatio: true,
-                            seedanceRatioTouched: false,
-                            seedanceSourceAspectRatio: undefined,
-                        });
-                        return;
-                    }
-                    const selectedRatio = normalizeSeedance2AspectRatio(value);
-                    props.onMetadataChange?.(props.node.id, {
-                        seedanceRatio: selectedRatio,
-                        size: selectedRatio,
-                        seedanceInheritSourceRatio: false,
-                        seedanceRatioTouched: true,
-                    });
-                }}
-            >
-                <option value="inherit">画布布局：跟随上游</option>
-                {SEEDANCE2_RATIO_OPTIONS.map((option) => (
-                    <option key={option} value={option}>画布布局：{option}</option>
-                ))}
-            </Seedance2LandscapeSelect>
-            <Seedance2LandscapeDurationControl
-                theme={props.theme}
-                rect={SEEDANCE2_HTML_LANDSCAPE_RECTS.duration}
-                node={props.node}
-                onMetadataChange={props.onMetadataChange}
-            />
-            <Seedance2LandscapeHtmlReferencePanel
+            <Seedance2PlaceholderPreviewArea
                 node={props.node}
                 theme={props.theme}
+                shot={props.shot}
+                status={props.status}
+                mode={props.mode}
+                orientation="landscape"
+            />
+            <Seedance2PlaceholderConfigArea
+                node={props.node}
+                theme={props.theme}
+                ratio={props.ratio}
                 referenceOrder={props.referenceOrder}
                 resolvedSlots={props.seedance2ReferenceSlots}
                 referenceVideos={props.referenceVideos}
+                orientation="landscape"
                 onMetadataChange={props.onMetadataChange}
                 onDeleteConnection={props.onDeleteConnection}
                 onUpdateConnectionUseAs={props.onUpdateConnectionUseAs}
             />
-            {props.isCompactPromptPanel ? (
-                <Seedance2CompactPromptSummary node={props.node} theme={props.theme} variant="landscape-html" isRunning={props.isRunning} onMetadataChange={props.onMetadataChange} onGenerateVideo={props.onGenerateVideo} />
-            ) : (
-                <Seedance2LandscapeHtmlPromptArea
-                    node={props.node}
-                    theme={props.theme}
-                    mentionReferences={props.mentionReferences}
-                    isRunning={props.isRunning}
-                    onPromptChange={(value) => props.onContentChange(props.node.id, value)}
-                    onMetadataChange={props.onMetadataChange}
-                    onGenerateVideo={() => props.onGenerateVideo?.(props.node)}
-                />
-            )}
+            <div className="min-h-0 flex-1">
+                {props.isCompactPromptPanel ? (
+                    <Seedance2CompactPromptSummary node={props.node} theme={props.theme} className="border-t" variant="portrait" isRunning={props.isRunning} onMetadataChange={props.onMetadataChange} onGenerateVideo={props.onGenerateVideo} />
+                ) : (
+                    <Seedance2InlinePromptEditor
+                        node={props.node}
+                        theme={props.theme}
+                        mentionReferences={props.mentionReferences}
+                        className="border-t"
+                        variant="portrait"
+                        isRunning={props.isRunning}
+                        onPromptChange={(value) => props.onContentChange(props.node.id, value)}
+                        onMetadataChange={props.onMetadataChange}
+                        onGenerateVideo={() => props.onGenerateVideo?.(props.node)}
+                    />
+                )}
+            </div>
         </div>
-    );
-}
-
-function seedance2HtmlLandscapeResponsivePreviewStyle(rect: Seedance2HtmlLandscapeRect): React.CSSProperties {
-    return {
-        position: "absolute",
-        left: `${((rect.left - SEEDANCE2_HTML_STAGE_NODE_LEFT) / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        top: rect.top - SEEDANCE2_HTML_STAGE_NODE_TOP,
-        width: `max(${rect.width}px, ${(rect.width / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%)`,
-        height: rect.height,
-    };
-}
-
-function seedance2HtmlLandscapeFixedControlStyle(rect: Seedance2HtmlLandscapeRect): React.CSSProperties {
-    return {
-        position: "absolute",
-        left: `${((rect.left - SEEDANCE2_HTML_STAGE_NODE_LEFT) / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        top: rect.top - SEEDANCE2_HTML_STAGE_NODE_TOP,
-        width: `${(rect.width / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        height: rect.height,
-    };
-}
-
-function seedance2HtmlLandscapeReferencePanelStyle(rect: Seedance2HtmlLandscapeRect): React.CSSProperties {
-    const localTop = rect.top - SEEDANCE2_HTML_STAGE_NODE_TOP;
-    return {
-        position: "absolute",
-        left: `${((rect.left - SEEDANCE2_HTML_STAGE_NODE_LEFT) / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        top: localTop,
-        bottom: SEEDANCE2_HTML_PLACEHOLDER_BASE_HEIGHT - localTop - rect.height,
-        width: `${(rect.width / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-    };
-}
-
-function seedance2HtmlLandscapeRectStyle(rect: Seedance2HtmlLandscapeRect, options: { bottom?: number } = {}): React.CSSProperties {
-    const localLeft = rect.left - SEEDANCE2_HTML_STAGE_NODE_LEFT;
-    const localTop = rect.top - SEEDANCE2_HTML_STAGE_NODE_TOP;
-    return {
-        position: "absolute",
-        left: `${(localLeft / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        top: options.bottom === undefined ? `${(localTop / SEEDANCE2_HTML_PLACEHOLDER_BASE_HEIGHT) * 100}%` : undefined,
-        bottom: options.bottom === undefined ? undefined : options.bottom,
-        width: `${(rect.width / SEEDANCE2_HTML_PLACEHOLDER_BASE_WIDTH) * 100}%`,
-        height: `${(rect.height / SEEDANCE2_HTML_PLACEHOLDER_BASE_HEIGHT) * 100}%`,
-    };
-}
-
-function Seedance2LandscapeSelect({
-    theme,
-    rect,
-    value,
-    title,
-    onChange,
-    children,
-}: {
-    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    rect: Seedance2HtmlLandscapeRect;
-    value: string;
-    title: string;
-    onChange: (event: React.ChangeEvent<HTMLSelectElement>) => void;
-    children: ReactNode;
-}) {
-    return (
-        <label
-            className="z-[4] block"
-            style={seedance2HtmlLandscapeFixedControlStyle(rect)}
-            data-canvas-no-drag
-            data-canvas-no-zoom
-            data-seedance2-landscape-html-controls
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            <select
-                value={value}
-                title={title}
-                className="h-full w-full appearance-none rounded-[25px] border-[1.5px] px-[15px] pr-12 text-[18px] font-medium leading-[52px] outline-none transition hover:border-orange-500/80 focus:border-orange-500"
-                style={{ background: theme.node.panel, borderColor: theme.node.stroke, color: theme.node.text }}
-                onChange={onChange}
-                onClick={(event) => event.stopPropagation()}
-            >
-                {children}
-            </select>
-            <span className="pointer-events-none absolute right-[17px] top-1/2 size-[10px] -translate-y-1/2 rotate-45 border-b-[3px] border-r-[3px]" style={{ borderColor: theme.node.muted }} />
-        </label>
     );
 }
 
@@ -1402,8 +1266,23 @@ function seedance2VideoProviderModelLabel(node: CanvasNodeData, config: AiConfig
     if (isVideoTaskSnapshotLocked(metadata)) {
         const task = metadata.videoGenerationTask;
         const taskState = metadata.seedanceGenerationTaskState;
-        const model = String(task?.model || taskState?.model || "").trim();
-        const providerId = String(task?.providerId || taskState?.providerId || "").trim();
+        // 快照可能还没写入模型（提交瞬间、旧节点），此时回落到节点自身的选择，
+        // 否则会把用户明确选过的模型显示成「未选择模型」。
+        const model = String(
+            task?.model ||
+            taskState?.model ||
+            metadata.seedanceModel ||
+            metadata.model ||
+            metadata.videoGenerationScope?.model ||
+            "",
+        ).trim();
+        const providerId = String(
+            task?.providerId ||
+            taskState?.providerId ||
+            metadata.modelProviderId ||
+            metadata.videoGenerationScope?.providerId ||
+            "",
+        ).trim();
         const provider = providerId ? config.apiRelays.find((item) => item.id === providerId) : undefined;
         const providerLabel = provider
             ? providerDisplayName(provider, config.apiRelays)
@@ -1422,8 +1301,11 @@ function seedance2VideoProviderModelLabel(node: CanvasNodeData, config: AiConfig
 
 function Seedance2VideoModelSummary({ node, theme, className = "", onMetadataChange }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; className?: string; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void }) {
     const effectiveConfig = useEffectiveConfig();
-    if (isStandaloneSeedance2VideoPlaceholder(node.metadata)) {
-        return <Seedance2StandaloneVideoModelControl node={node} theme={theme} className={className} onMetadataChange={onMetadataChange} />;
+    // Workflow-placed placeholders are editable on the same terms as standalone ones:
+    // only an in-flight task freezes the selection, not the fact that a workflow
+    // placed the card.
+    if (isEditableSeedance2VideoPlaceholder(node.metadata)) {
+        return <Seedance2VideoPlaceholderModelControl node={node} theme={theme} className={className} onMetadataChange={onMetadataChange} />;
     }
     const modelLabel = seedance2VideoProviderModelLabel(node, effectiveConfig);
     const taskLocked = isVideoTaskSnapshotLocked(node.metadata);
@@ -1442,7 +1324,7 @@ function Seedance2VideoModelSummary({ node, theme, className = "", onMetadataCha
     );
 }
 
-function Seedance2StandaloneVideoModelControl({ node, theme, className = "", onMetadataChange }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; className?: string; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void }) {
+function Seedance2VideoPlaceholderModelControl({ node, theme, className = "", onMetadataChange }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; className?: string; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void }) {
     const effectiveConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const modelSelectionState = resolveCanvasGenerationModelSelection(effectiveConfig, node.metadata, "video");
@@ -1467,7 +1349,7 @@ function Seedance2StandaloneVideoModelControl({ node, theme, className = "", onM
                 fullWidth
                 placeholder="选择视频模型"
                 className="mt-1 !h-7 !min-w-0 !rounded-md !px-2 !text-[10px]"
-                onChange={(selection) => onMetadataChange?.(node.id, standaloneSeedance2VideoModelPatch(selection))}
+                onChange={(selection) => onMetadataChange?.(node.id, seedance2VideoPlaceholderModelPatch(selection))}
                 onMissingConfig={() => openConfigDialog(true)}
             />
         </div>
@@ -1570,7 +1452,7 @@ function Seedance2StandaloneVideoSettingsControl({ node, theme, effectiveConfig,
 
 function Seedance2VideoDurationControl({ node, theme, onMetadataChange, className = "", compact = false }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void; className?: string; compact?: boolean }) {
     const effectiveConfig = useEffectiveConfig();
-    if (isStandaloneSeedance2VideoPlaceholder(node.metadata)) {
+    if (isEditableSeedance2VideoPlaceholder(node.metadata)) {
         return <Seedance2StandaloneVideoSettingsControl node={node} theme={theme} effectiveConfig={effectiveConfig} onMetadataChange={onMetadataChange} className={className} compact={compact} />;
     }
     const scope = node.metadata?.videoGenerationScope;
@@ -1610,48 +1492,6 @@ function Seedance2VideoDurationControl({ node, theme, onMetadataChange, classNam
                     }}
                 />
             ) : null}
-        </div>
-    );
-}
-
-function Seedance2LandscapeModelSummary({
-    theme,
-    rect,
-    node,
-    onMetadataChange,
-}: {
-    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    rect: Seedance2HtmlLandscapeRect;
-    node: CanvasNodeData;
-    onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void;
-}) {
-    return (
-        <div
-            className="z-[4] block"
-            style={seedance2HtmlLandscapeFixedControlStyle(rect)}
-            data-canvas-no-drag
-            data-canvas-no-zoom
-            data-seedance2-landscape-html-controls
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            <Seedance2VideoModelSummary node={node} theme={theme} className="h-full rounded-[25px] border-[1.5px] px-[15px] py-1.5" onMetadataChange={onMetadataChange} />
-        </div>
-    );
-}
-
-function Seedance2LandscapeDurationControl({ theme, rect, node, onMetadataChange }: { theme: (typeof canvasThemes)[keyof typeof canvasThemes]; rect: Seedance2HtmlLandscapeRect; node: CanvasNodeData; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void }) {
-    return (
-        <div
-            className="z-[4] block"
-            style={seedance2HtmlLandscapeFixedControlStyle(rect)}
-            data-canvas-no-drag
-            data-canvas-no-zoom
-            data-seedance2-landscape-html-controls
-            onMouseDown={(event) => event.stopPropagation()}
-            onPointerDown={(event) => event.stopPropagation()}
-        >
-            <Seedance2VideoDurationControl node={node} theme={theme} onMetadataChange={onMetadataChange} compact className="h-full rounded-[25px] border-[1.5px] px-[15px] py-1.5" />
         </div>
     );
 }
@@ -1909,14 +1749,16 @@ export function seedance2ReferenceDeliveryPlan(
                 nextImageConnectionPurpose: null,
             };
         }
+        const targetOperation = resolveStandaloneVideoOperation({
+            capability,
+            persistedOperation: node.metadata?.videoGenerationScope?.operation,
+            hasConnectedImage: slots.length > 0,
+        });
+        const adaptedSlots = adaptVideoReferenceListForOperation(slots, capability, targetOperation);
         const slotContract = resolveVideoReferenceSlotContract({
             capability,
-            operation: resolveStandaloneVideoOperation({
-                capability,
-                persistedOperation: node.metadata?.videoGenerationScope?.operation,
-                hasConnectedImage: slots.length > 0,
-            }),
-            references: slots,
+            operation: targetOperation,
+            references: adaptedSlots,
             videos: referenceVideos,
         });
         const totalMaximum = slotContract.state === "unbounded"
@@ -2206,6 +2048,7 @@ function Seedance2ReferencePreviewOverlay({ preview, onClose }: { preview: Seeda
 function ResolvedCanvasImage({ source, ...imageProps }: Omit<React.ImgHTMLAttributes<HTMLImageElement>, "src"> & { source?: string }) {
     const [resolvedSource, setResolvedSource] = useState(() => needsCanvasImageUrlResolution(source) ? "" : source || "");
     const [failed, setFailed] = useState(false);
+    const [retrying, setRetrying] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -2233,18 +2076,49 @@ function ResolvedCanvasImage({ source, ...imageProps }: Omit<React.ImgHTMLAttrib
         };
     }, [source]);
 
-    // 解析失败不能静默空白——渲染占位错误态，让节点不再是「空壳」。
+    const handleImgError = () => {
+        if (!retrying && source) {
+            setRetrying(true);
+            void resolveImageUrl(source, "")
+                .then((fresh) => {
+                    if (fresh && fresh !== resolvedSource) {
+                        setResolvedSource(fresh);
+                        setFailed(false);
+                    } else {
+                        setFailed(true);
+                    }
+                })
+                .catch(() => setFailed(true));
+        } else {
+            setFailed(true);
+        }
+    };
+
     if (failed) {
         return (
             <div
-                className="flex min-h-[120px] min-w-[160px] items-center justify-center rounded-lg border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-500"
+                className="flex min-h-[140px] min-w-[160px] flex-col items-center justify-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-xs text-amber-600 dark:text-amber-400"
                 role="status"
             >
-                图片加载失败
+                <div className="font-medium">图片加载中或缓存已更新</div>
+                <button
+                    type="button"
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        setFailed(false);
+                        setRetrying(false);
+                        void resolveImageUrl(source, "").then((fresh) => {
+                            if (fresh) setResolvedSource(fresh);
+                        });
+                    }}
+                    className="mt-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-300"
+                >
+                    点击刷新加载
+                </button>
             </div>
         );
     }
-    return resolvedSource ? <img {...imageProps} src={resolvedSource} onError={() => setFailed(true)} /> : null;
+    return resolvedSource ? <img {...imageProps} src={resolvedSource} onError={handleImgError} /> : null;
 }
 
 function Seedance2ReferenceThumbnailActions({
@@ -2305,310 +2179,6 @@ function Seedance2ReferenceThumbnailActions({
     );
 }
 
-function Seedance2LandscapeHtmlReferencePanel({
-    node,
-    theme,
-    referenceOrder,
-    resolvedSlots,
-    referenceVideos,
-    onMetadataChange,
-    onDeleteConnection,
-    onUpdateConnectionUseAs,
-}: {
-    node: CanvasNodeData;
-    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    referenceOrder: string[];
-    resolvedSlots?: Seedance2ResolvedReferenceSlot[];
-    referenceVideos: readonly ReferenceVideo[];
-    onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void;
-    onDeleteConnection?: (connectionId: string) => void;
-    onUpdateConnectionUseAs?: Seedance2UpdateConnectionUseAs;
-}) {
-    const [preview, setPreview] = useState<Seedance2ReferencePreviewState>(null);
-    const effectiveConfig = useEffectiveConfig();
-    const bindings = node.metadata?.seedanceReferenceSlotBindings || {};
-    const extraBindings = node.metadata?.seedanceReferenceExtraSlotBindings || {};
-    const orderedSlotKeys = buildSeedance2ReferenceSlotKeysFromOrder(referenceOrder);
-    type LandscapeReferenceSlot = {
-        key: Seedance2ReferenceSlotKey | Seedance2ExtraReferenceSlotKey;
-        slotIndex: number;
-        isExtra: boolean;
-        binding?: Seedance2ReferenceSlotBinding;
-        resolved?: Seedance2ResolvedReferenceSlot;
-        plannedUseAs?: Seedance2ReferenceSlotUseAs;
-    };
-    const slotForIndex = (index: number): LandscapeReferenceSlot => {
-        if (index < SEEDANCE2_REFERENCE_SLOT_FALLBACK_ORDER.length) {
-            const key = orderedSlotKeys[index];
-            return { key, slotIndex: index + 1, isExtra: false, binding: bindings[key] };
-        }
-        const key = `reference_${index + 1}` as Seedance2ExtraReferenceSlotKey;
-        return { key, slotIndex: index + 1, isExtra: true, binding: extraBindings[key] };
-    };
-    const boundFallbackSlotIndexes = new Set<number>();
-    orderedSlotKeys.forEach((key, index) => {
-        if (bindings[key]?.value || bindings[key]?.nodeId) boundFallbackSlotIndexes.add(index);
-    });
-    Object.entries(extraBindings).forEach(([key, binding]) => {
-        const match = key.match(/^reference_(\d+)$/);
-        if (match && (binding?.value || binding?.nodeId)) boundFallbackSlotIndexes.add(Number(match[1]) - 1);
-    });
-    const rawSlots: LandscapeReferenceSlot[] = resolvedSlots !== undefined
-        ? resolvedSlots.map((resolved) => ({
-            ...slotForIndex(resolved.slotIndex - 1),
-            resolved,
-        }))
-        : Array.from(boundFallbackSlotIndexes).sort((a, b) => a - b).map(slotForIndex);
-    const isOccupiedSlot = (slot: LandscapeReferenceSlot) => (
-        slot.resolved?.source !== undefined && slot.resolved.source !== "empty"
-    ) || Boolean(slot.binding?.value || slot.binding?.nodeId);
-    const occupiedSlotCount = rawSlots.filter(isOccupiedSlot).length;
-    const purposeSlots: Seedance2ReferencePurposeSlot[] = rawSlots
-        .filter((slot) => Boolean(slot.resolved?.value || slot.binding?.value))
-        .map((slot) => ({
-            id: slot.resolved?.connectionId ? `connection:${slot.resolved.connectionId}` : `slot:${slot.key}`,
-            key: slot.key,
-            isExtra: slot.isExtra,
-            label: slot.resolved?.label || slot.binding?.label || `参考图 ${slot.slotIndex}`,
-            binding: slot.binding,
-            connectionId: slot.resolved?.connectionId,
-            useAs: normalizeSeedance2ReferenceSlotUseAs(slot.resolved?.useAs ?? slot.binding?.useAs),
-            role: seedance2PurposeSlotRole(slot.key, slot.resolved?.role),
-            referenceOrigin: slot.resolved?.referenceOrigin,
-        }));
-    const deliveryPlan = seedance2ReferenceDeliveryPlan(node, purposeSlots, effectiveConfig, referenceVideos);
-    const notSubmittedIds = deliveryPlan ? deliveryPlan.ignoredIds : undefined;
-    const nextSlotIndex = rawSlots.filter(isOccupiedSlot).reduce((highest, slot) => Math.max(highest, slot.resolved?.slotIndex || slot.slotIndex), 0);
-    const plannedAddSlots = seedance2PlannedAddPurposes(deliveryPlan, purposeSlots).map((purpose, index) => ({
-        ...slotForIndex(nextSlotIndex + index),
-        plannedUseAs: purpose,
-    }));
-    const slots = seedance2PrimaryReferenceGridSlots(
-        rawSlots,
-        isOccupiedSlot,
-        (slot) => slot.resolved?.connectionId ? `connection:${slot.resolved.connectionId}` : `slot:${slot.key}`,
-        notSubmittedIds,
-        Boolean(
-            deliveryPlan &&
-            deliveryPlan.canAddReference,
-        ),
-        () => slotForIndex(rawSlots.reduce((highest, slot) => Math.max(highest, slot.resolved?.slotIndex || slot.slotIndex), 0)),
-        plannedAddSlots,
-    );
-    const primaryOccupiedSlotCount = slots.filter(isOccupiedSlot).length;
-    const submittedCount = deliveryPlan ? deliveryPlan.submittedCount : undefined;
-    const notDirectCount = deliveryPlan ? deliveryPlan.notDirectCount : undefined;
-    const deliverySummary = seedance2ReferenceDeliveryCountSummary(deliveryPlan, occupiedSlotCount, purposeSlots.length);
-    const upstreamStoryContextSummary = seedance2UpstreamStoryContextSummary(deliveryPlan);
-    const loadReferenceImage = (slot: (typeof slots)[number], file?: File) => {
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-            if (typeof reader.result !== "string") return;
-            const nextBinding = {
-                nodeId: `manual-${slot.key}-${Date.now()}`,
-                value: reader.result,
-                label: file.name || `参考图 ${slot.slotIndex}`,
-                required: !slot.isExtra && (slot.key === "upstream_hd_frame" || slot.key === "current_shot"),
-                useAs: slot.plannedUseAs || (slot.binding?.useAs
-                    ? normalizeSeedance2ReferenceSlotUseAs(slot.binding.useAs)
-                    : seedance2DefaultReferencePurpose(deliveryPlan, purposeSlots)),
-            };
-            if (slot.isExtra) {
-                onMetadataChange?.(node.id, {
-                    seedanceReferenceExtraSlotBindings: {
-                        [slot.key]: nextBinding,
-                    },
-                });
-                return;
-            }
-            onMetadataChange?.(node.id, {
-                seedanceReferenceSlotBindings: {
-                    ...bindings,
-                    [slot.key]: nextBinding,
-                },
-            });
-        };
-        reader.readAsDataURL(file);
-    };
-    const removeManualReference = (slot: (typeof slots)[number]) => {
-        if (slot.isExtra) {
-            onMetadataChange?.(node.id, {
-                seedanceReferenceExtraSlotBindings: { [slot.key]: undefined },
-            });
-            return;
-        }
-        onMetadataChange?.(node.id, {
-            seedanceReferenceSlotBindings: { [slot.key]: undefined },
-        });
-    };
-    return (
-        <section
-            className="z-[3] overflow-hidden rounded-[28px] border-[1.5px]"
-            style={{ ...seedance2HtmlLandscapeReferencePanelStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.upload), background: theme.node.panel, borderColor: theme.node.stroke }}
-            data-seedance2-landscape-reference-panel
-            data-visible-slot-count={slots.length}
-            data-seedance2-occupied-count={primaryOccupiedSlotCount}
-            data-seedance2-submitted-count={submittedCount}
-            data-seedance2-not-direct-count={notDirectCount}
-            data-seedance2-not-submitted-count={notSubmittedIds?.size || 0}
-            data-seedance2-delivery-state={deliveryPlan ? deliveryPlan.state : "pending"}
-            data-canvas-no-zoom
-        >
-            <div
-                className="absolute left-[15px] right-[150px] top-[10px] overflow-hidden text-ellipsis whitespace-nowrap text-[14px] font-extrabold leading-[20px]"
-                style={{ color: theme.node.text }}
-            >
-                图片排序 · 参考图上传
-            </div>
-            <div className="absolute right-[16px] top-[10px] whitespace-nowrap text-[11px] font-bold leading-[20px]" style={{ color: theme.node.muted }} data-seedance2-reference-capacity>
-                已添加 {primaryOccupiedSlotCount}{seedance2ReferenceCapacitySuffix(deliveryPlan)}
-            </div>
-            <div
-                className="absolute left-[15px] right-[16px] top-[31px] overflow-hidden text-ellipsis whitespace-nowrap text-[10px] font-bold leading-[14px]"
-                style={{ color: deliveryPlan ? (deliveryPlan.warning ? "#fb923c" : "#22c55e") : theme.node.muted }}
-                title={deliveryPlan ? deliveryPlan.notice : "当前模型或参考图合同尚未解析，实际提交数量待确认。"}
-                data-seedance2-delivery-summary
-            >
-                {deliverySummary}
-            </div>
-            {upstreamStoryContextSummary ? (
-                <div
-                    className="absolute left-[15px] right-[16px] top-[45px] overflow-hidden text-ellipsis whitespace-nowrap text-[9px] font-bold leading-[12px]"
-                    style={{ color: theme.node.muted }}
-                    title={upstreamStoryContextSummary}
-                    data-seedance2-upstream-context-summary
-                >
-                    {upstreamStoryContextSummary}
-                </div>
-            ) : null}
-            <div
-                className={`absolute inset-x-[18px] bottom-[10px] ${upstreamStoryContextSummary ? "top-[60px]" : "top-[52px]"} grid content-start gap-2 ${slots.length > 4 ? "thin-scrollbar grid-cols-3 auto-rows-min overflow-y-auto pr-1" : "grid-cols-[repeat(2,98px)] justify-center overflow-hidden"}`}
-                data-seedance2-landscape-reference-grid
-                data-canvas-no-drag
-            >
-                {slots.map((slot) => {
-                    const source = slot.resolved?.source;
-                    const isReadOnlySlot = source === "connected" || source === "pending";
-                    const isCompact = slots.length > 4;
-                    const hasValue = Boolean(slot.resolved?.value || slot.binding?.value || slot.binding?.nodeId);
-                    const connectionSequence = slot.resolved?.referenceSequence ?? slot.slotIndex;
-                    const semanticLabel = String(slot.resolved?.label || slot.binding?.label || "").trim();
-                    const displayLabel = source === "connected"
-                        ? semanticLabel || `参考图 ${slot.slotIndex} · 连线`
-                        : source === "manual"
-                            ? semanticLabel || `参考图 ${slot.slotIndex} · 手动`
-                            : slot.plannedUseAs ? seedance2ReferencePurposeLabel(slot.plannedUseAs) : `参考图 ${slot.slotIndex}`;
-                    const connectionId = slot.resolved?.connectionId;
-                    const purposeId = connectionId ? `connection:${connectionId}` : `slot:${slot.key}`;
-                    const currentUseAs = normalizeSeedance2ReferenceSlotUseAs(slot.resolved?.useAs ?? slot.binding?.useAs ?? slot.plannedUseAs);
-                    const purposeSlot: Seedance2ReferencePurposeSlot = purposeSlots.find((item) => item.id === purposeId) || {
-                        id: purposeId,
-                        key: slot.key,
-                        isExtra: slot.isExtra,
-                        label: displayLabel,
-                        binding: slot.binding,
-                        connectionId,
-                        useAs: currentUseAs,
-                        role: seedance2PurposeSlotRole(slot.key, slot.resolved?.role),
-                    };
-                    const deliveryItemState = seedance2ReferenceDeliveryItemState(purposeSlot, connectionSequence, deliveryPlan);
-                    const subtext = source === "connected"
-                        ? deliveryItemState.text
-                        : source === "manual"
-                            ? `${deliveryItemState.text} · 手动`
-                            : source === "pending"
-                                ? "等待图片生成"
-                                : hasValue ? "点击替换" : "等待连线或点击上传";
-                    const thumbnailValue = isReadOnlySlot
-                        ? slot.resolved?.previewValue
-                        : slot.resolved?.value || slot.binding?.value;
-                    const SlotElement = isReadOnlySlot ? "div" : "label";
-                    const hasOtherFirstFrame = purposeSlots.some((purposeSlot) => purposeSlot.id !== purposeId && purposeSlot.useAs === "first_frame");
-                    const removeReference = isReadOnlySlot
-                        ? connectionId && onDeleteConnection
-                            ? () => onDeleteConnection(connectionId)
-                            : undefined
-                        : hasValue
-                            ? () => removeManualReference(slot)
-                            : undefined;
-                    return (
-                        <SlotElement
-                            key={slot.key}
-                            className={`group relative aspect-square min-w-0 overflow-hidden border-[1.5px] ${isCompact ? "rounded-md" : "rounded-xl"} ${isReadOnlySlot ? "cursor-default" : "cursor-pointer transition hover:border-orange-500/80"}`}
-                            style={{ background: theme.node.fill, borderColor: hasValue ? "rgba(249,115,22,.7)" : theme.node.stroke }}
-                            data-seedance2-landscape-reference-slot
-                            data-seedance2-reference-source-node-id={slot.resolved?.nodeId}
-                            data-seedance2-reference-delivery-status={deliveryItemState.status}
-                            data-seedance2-reference-not-submitted-reason-code={deliveryItemState.status === "not-submitted" ? deliveryItemState.reasonCode : undefined}
-                            data-canvas-no-drag
-                            title={`${displayLabel}：${subtext}`}
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onPointerDown={(event) => event.stopPropagation()}
-                        >
-                            {!isReadOnlySlot ? (
-                                <input
-                                    type="file"
-                                    accept="image/*"
-                                    className="sr-only"
-                                    onChange={(event) => {
-                                        const input = event.currentTarget;
-                                        loadReferenceImage(slot, input.files?.[0]);
-                                        input.value = "";
-                                    }}
-                                />
-                            ) : null}
-                            {thumbnailValue ? (
-                                <ResolvedCanvasImage source={thumbnailValue} alt={displayLabel} className="absolute inset-0 h-full w-full object-cover" />
-                            ) : (
-                                <span className={isCompact ? "absolute inset-0 grid place-items-center bg-[#653516] text-[11px] font-extrabold text-[#ffad61]" : "absolute inset-0 grid place-items-center bg-[#653516] text-[14px] font-extrabold text-[#ffad61]"}>{seedance2ReferenceAddLabel(slot.plannedUseAs)}</span>
-                            )}
-                            <Seedance2ReferenceThumbnailActions
-                                value={thumbnailValue}
-                                label={displayLabel}
-                                onPreview={setPreview}
-                                onRemove={removeReference}
-                                removeTitle={isReadOnlySlot ? "删除连线及参考图" : "删除手动参考图"}
-                            />
-                            {hasValue ? (
-                                <select
-                                    value={currentUseAs}
-                                    className="absolute left-1 top-1 z-30 h-6 max-w-[72px] rounded-md border border-white/30 bg-black/80 px-1 text-[9px] font-bold text-white outline-none"
-                                    data-seedance2-reference-use-as
-                                    aria-label={`设置${displayLabel}用途`}
-                                    title={`当前用途：${seedance2ReferencePurposeLabel(currentUseAs, purposeSlot.role)}${deliveryPlan ? `；${deliveryPlan.notice}` : ""}`}
-                                    disabled={Boolean(connectionId && !onUpdateConnectionUseAs)}
-                                    onMouseDown={(event) => event.stopPropagation()}
-                                    onPointerDown={(event) => event.stopPropagation()}
-                                    onClick={(event) => event.stopPropagation()}
-                                    onChange={(event) => {
-                                        event.stopPropagation();
-                                        updateSeedance2ReferencePurpose({
-                                            nodeId: node.id,
-                                            slots: purposeSlots,
-                                            targetId: purposeId,
-                                            nextUseAs: normalizeSeedance2ReferenceSlotUseAs(event.currentTarget.value),
-                                            onMetadataChange,
-                                            onUpdateConnectionUseAs,
-                                        });
-                                    }}
-                                >
-                                    {seedance2ReferencePurposeOptions(deliveryPlan, currentUseAs, purposeSlot.role, hasOtherFirstFrame)}
-                                </select>
-                            ) : null}
-                            <span className={`pointer-events-none absolute inset-x-0 bottom-0 min-w-0 bg-black/65 ${isCompact ? "p-0.5" : "p-1"}`}>
-                                <span className={isCompact ? "block truncate text-[6px] font-bold leading-[7px] text-[#f7f7f7]" : "block truncate text-[9px] font-bold leading-3 text-[#f7f7f7]"}>{displayLabel}</span>
-                                <span className={isCompact ? "block truncate text-[6px] leading-[7px] text-white/70" : "block truncate text-[8px] leading-3 text-white/70"}>{subtext}</span>
-                            </span>
-                        </SlotElement>
-                    );
-                })}
-            </div>
-            <Seedance2ReferencePreviewOverlay preview={preview} onClose={() => setPreview(null)} />
-        </section>
-    );
-}
-
 function Seedance2CompactPromptSummary({
     node,
     theme,
@@ -2621,14 +2191,13 @@ function Seedance2CompactPromptSummary({
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     className?: string;
-    variant?: "default" | "portrait" | "landscape-html";
+    variant?: "default" | "portrait";
     isRunning: boolean;
     onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void;
     onGenerateVideo?: (node: CanvasNodeData) => void;
 }) {
     const prompt = node.metadata?.prompt || "";
-    const promptSummary = seedance2CompactPromptSummaryText(prompt, variant === "landscape-html" ? 150 : 92);
-    const disabled = isRunning;
+    const promptSummary = seedance2CompactPromptSummaryText(prompt, 92);
     const expandPrompt = (event: React.MouseEvent) => {
         event.stopPropagation();
         onMetadataChange?.(node.id, {
@@ -2636,75 +2205,6 @@ function Seedance2CompactPromptSummary({
             seedancePromptExpandedByUser: true,
         });
     };
-    const handleGenerateVideo = (event: React.MouseEvent<HTMLButtonElement>) => {
-        event.stopPropagation();
-        onGenerateVideo?.(node);
-    };
-
-    if (variant === "landscape-html") {
-        return (
-            <div
-                className="pointer-events-none absolute inset-0 z-[3]"
-                data-seedance2-prompt-panel-mode="compact"
-                data-canvas-no-zoom
-            >
-                <div
-                    className="pointer-events-auto absolute flex items-center gap-3 font-extrabold leading-[26px]"
-                    style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptTitle), color: theme.node.text }}
-                >
-                    <span>视频提示词</span>
-                    <span className="rounded-full border border-orange-500/40 bg-orange-500/15 px-3 py-1 text-[16px] font-black" style={{ color: theme.node.text }}>
-                        已折叠
-                    </span>
-                </div>
-                <div
-                    className="pointer-events-auto absolute text-right text-[20px] font-bold leading-[26px]"
-                    style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptEdit), color: theme.node.text }}
-                >
-                    <button
-                        type="button"
-                        className="rounded-full border px-4 py-1 text-[18px] font-black transition hover:opacity-80"
-                        style={{ borderColor: theme.node.stroke, color: theme.node.text }}
-                        onClick={expandPrompt}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                    >
-                        展开编辑
-                    </button>
-                </div>
-                <section
-                    className="pointer-events-auto absolute flex flex-col justify-between overflow-hidden rounded-[30px] border-[1.5px] px-[24px] py-[22px]"
-                    style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptBox), background: theme.node.panel, borderColor: theme.node.stroke }}
-                    data-seedance2-compact-prompt-summary
-                    onDoubleClick={expandPrompt}
-                >
-                    <div>
-                        <div className="text-[24px] font-black leading-[30px]" style={{ color: theme.node.text }}>提示词已生成，默认轻量显示</div>
-                        <div className="mt-4 line-clamp-4 whitespace-pre-wrap break-words text-[22px] font-semibold leading-[31px]" style={{ color: promptSummary ? theme.node.text : theme.node.muted }}>
-                            {promptSummary || "暂无提示词，展开后可手动填写。"}
-                        </div>
-                    </div>
-                    <div className="mt-6 rounded-[22px] border px-5 py-4 text-[18px] font-bold leading-[26px]" style={{ background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.muted }}>
-                        故事模式批量占位默认折叠，减少长文本和编辑器渲染；需要修改时点击“展开编辑”。
-                    </div>
-                </section>
-                <button
-                    type="button"
-                    className="pointer-events-auto absolute z-[4] rounded-[31px] border-0 bg-gradient-to-b from-[#ff6c00] via-[#f86500] to-[#d84f00] text-[26px] font-extrabold leading-[67px] text-white shadow-[0_10px_24px_rgba(249,115,22,.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
-                    style={{
-                        ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.generate, { bottom: 10 }),
-                        top: undefined,
-                    }}
-                    disabled={disabled}
-                    onClick={handleGenerateVideo}
-                    onMouseDown={(event) => event.stopPropagation()}
-                    onPointerDown={(event) => event.stopPropagation()}
-                >
-                    {isRunning ? "视频生成中" : "生成视频"}
-                </button>
-            </div>
-        );
-    }
 
     const isPortrait = variant === "portrait";
     const rootClassName = isPortrait
@@ -2713,9 +2213,6 @@ function Seedance2CompactPromptSummary({
     const summaryClassName = isPortrait
         ? "min-h-0 flex-1 cursor-pointer overflow-hidden rounded-xl border px-3 py-2 text-xs font-semibold leading-5"
         : "min-h-0 flex-1 cursor-pointer overflow-hidden rounded-2xl border px-4 py-3 text-sm font-semibold leading-6";
-    const buttonClassName = isPortrait
-        ? "h-9 shrink-0 rounded-xl bg-orange-500 px-3 text-sm font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
-        : "h-12 shrink-0 rounded-2xl bg-orange-500 px-4 text-base font-bold text-white transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45";
 
     return (
         <div className={rootClassName} style={{ borderColor: theme.node.stroke }} data-seedance2-prompt-panel-mode="compact" data-seedance2-compact-prompt-summary data-canvas-no-zoom>
@@ -2740,16 +2237,15 @@ function Seedance2CompactPromptSummary({
             >
                 {promptSummary || "暂无提示词，展开后可手动填写。"}
             </div>
-            <button
-                type="button"
-                className={buttonClassName}
-                disabled={disabled}
-                onClick={handleGenerateVideo}
-                onMouseDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-            >
-                {isRunning ? "视频生成中" : "生成视频"}
-            </button>
+            <div className="flex shrink-0 justify-end">
+                <StoryboardCardAction
+                    label={isRunning ? "视频生成中" : "生成视频"}
+                    icon={<Film className="size-3.5" />}
+                    tone="surface"
+                    disabled={isRunning}
+                    onClick={() => onGenerateVideo?.(node)}
+                />
+            </div>
         </div>
     );
 }
@@ -2779,142 +2275,6 @@ function useDismissSeedance2PromptEditor(
     }, [dismiss, isEditing, rootRef]);
 }
 
-function Seedance2LandscapeHtmlPromptArea({
-    node,
-    theme,
-    mentionReferences,
-    isRunning,
-    onPromptChange,
-    onMetadataChange,
-    onGenerateVideo,
-}: {
-    node: CanvasNodeData;
-    theme: (typeof canvasThemes)[keyof typeof canvasThemes];
-    mentionReferences: CanvasResourceReference[];
-    isRunning: boolean;
-    onPromptChange: (value: string) => void;
-    onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void;
-    onGenerateVideo: () => void;
-}) {
-    const prompt = node.metadata?.prompt || "";
-    const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-    const promptRootRef = useRef<HTMLDivElement | null>(null);
-    const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-    const promptPreviewText = prompt.trim();
-    const dismissPromptEditor = useCallback(() => setIsEditingPrompt(false), []);
-    useDismissSeedance2PromptEditor(isEditingPrompt, promptRootRef, dismissPromptEditor);
-
-    useEffect(() => {
-        if (!isEditingPrompt) return;
-        const textarea = promptTextareaRef.current;
-        if (!textarea) return;
-        textarea.focus();
-        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-    }, [isEditingPrompt, promptTextareaRef]);
-
-    return (
-        <div
-            ref={promptRootRef}
-            className="pointer-events-none absolute inset-0 z-[3]"
-            data-seedance2-inline-prompt
-            data-seedance2-landscape-html-prompt
-            data-canvas-no-zoom
-        >
-            <div
-                className="pointer-events-auto absolute flex items-center gap-3 font-extrabold leading-[26px]"
-                style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptTitle), color: theme.node.text }}
-            >
-                <span>视频提示词</span>
-                <button
-                    type="button"
-                    className="grid size-[26px] shrink-0 place-items-center rounded-full transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35"
-                    style={{ color: theme.node.muted }}
-                    disabled={
-                        isRunning ||
-                        !node.metadata?.seedanceStoryDirectorNodeId ||
-                        !node.metadata?.seedanceWorkflowNodeId
-                    }
-                    data-seedance2-regenerate-prompt
-                    aria-label="从分镜重新生成提示词"
-                    title="从分镜重新生成提示词"
-                    onClick={(event) => {
-                        event.stopPropagation();
-                        onMetadataChange?.(node.id, seedance2RegeneratePromptPatch(node.metadata));
-                    }}
-                    onMouseDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                    }}
-                    onPointerDown={(event) => event.stopPropagation()}
-                >
-                    <RefreshCw className="size-[17px]" />
-                </button>
-            </div>
-            <div
-                className="absolute text-right text-[20px] font-bold leading-[26px]"
-                style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptEdit), color: theme.node.text }}
-            >
-                双击编辑视频提示词
-            </div>
-            <section
-                className="pointer-events-auto absolute overflow-hidden rounded-[30px] border-[1.5px]"
-                style={{ ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.promptBox), background: theme.node.panel, borderColor: theme.node.stroke }}
-                data-seedance2-landscape-html-prompt-box
-            >
-                {isEditingPrompt ? (
-                    <CanvasResourceMentionTextarea
-                        value={prompt}
-                        references={mentionReferences}
-                        onChange={onPromptChange}
-                        ref={promptTextareaRef}
-                        className="thin-scrollbar block h-full min-h-0 w-full resize-none overflow-y-auto whitespace-pre-wrap break-words rounded-[30px] border-0 px-[23px] py-[18px] text-[26px] font-medium leading-[34px] outline-none select-text"
-                        style={{ background: theme.node.fill, color: theme.node.text }}
-                        highlightLabels={false}
-                        placeholder="描述当前镜头的视频内容。"
-                        data-seedance2-inline-prompt-textarea
-                        data-canvas-wheel-scroll
-                        onBlur={dismissPromptEditor}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onWheel={(event) => event.stopPropagation()}
-                    />
-                ) : (
-                    <div
-                        className="h-full w-full cursor-text overflow-y-auto whitespace-pre-wrap break-words px-[23px] py-[18px] text-[26px] font-medium leading-[34px] select-text"
-                        style={{ color: promptPreviewText ? theme.node.text : theme.node.muted }}
-                        data-seedance2-inline-prompt-preview
-                        data-canvas-wheel-scroll
-                        onWheel={(event) => event.stopPropagation()}
-                        onDoubleClick={(event) => {
-                            event.stopPropagation();
-                            setIsEditingPrompt(true);
-                        }}
-                    >
-                        {promptPreviewText || "描述当前镜头的视频内容。"}
-                    </div>
-                )}
-            </section>
-            <button
-                type="button"
-                className="pointer-events-auto absolute z-[4] rounded-[31px] border-0 bg-gradient-to-b from-[#ff6c00] via-[#f86500] to-[#d84f00] text-[26px] font-extrabold leading-[67px] text-white shadow-[0_10px_24px_rgba(249,115,22,.2)] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-55"
-                style={{
-                    ...seedance2HtmlLandscapeRectStyle(SEEDANCE2_HTML_LANDSCAPE_RECTS.generate, { bottom: 10 }),
-                    top: undefined,
-                }}
-                disabled={isRunning}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onGenerateVideo();
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-            >
-                {isRunning ? "视频生成中" : "生成视频"}
-            </button>
-        </div>
-    );
-}
-
 function Seedance2PortraitVideoPlaceholderCard(props: {
     node: CanvasNodeData;
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
@@ -2941,8 +2301,8 @@ function Seedance2PortraitVideoPlaceholderCard(props: {
             data-seedance2-orientation="portrait"
             data-seedance2-portrait-placeholder
         >
-            <Seedance2PortraitPreviewArea node={props.node} theme={props.theme} shot={props.shot} status={props.status} mode={props.mode} />
-            <Seedance2PortraitConfigArea node={props.node} theme={props.theme} ratio={props.ratio} referenceOrder={props.referenceOrder} resolvedSlots={props.seedance2ReferenceSlots} referenceVideos={props.referenceVideos} onMetadataChange={props.onMetadataChange} onDeleteConnection={props.onDeleteConnection} onUpdateConnectionUseAs={props.onUpdateConnectionUseAs} />
+            <Seedance2PlaceholderPreviewArea node={props.node} theme={props.theme} shot={props.shot} status={props.status} mode={props.mode} orientation="portrait" />
+            <Seedance2PlaceholderConfigArea node={props.node} theme={props.theme} ratio={props.ratio} referenceOrder={props.referenceOrder} resolvedSlots={props.seedance2ReferenceSlots} referenceVideos={props.referenceVideos} orientation="portrait" onMetadataChange={props.onMetadataChange} onDeleteConnection={props.onDeleteConnection} onUpdateConnectionUseAs={props.onUpdateConnectionUseAs} />
             {props.isCompactPromptPanel ? (
                 <Seedance2CompactPromptSummary node={props.node} theme={props.theme} className="border-t" variant="portrait" isRunning={props.isRunning} onMetadataChange={props.onMetadataChange} onGenerateVideo={props.onGenerateVideo} />
             ) : (
@@ -2952,22 +2312,23 @@ function Seedance2PortraitVideoPlaceholderCard(props: {
     );
 }
 
-function Seedance2PortraitPreviewArea({ node, theme, shot, status, mode }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; shot: number; status: string; mode: string }) {
+function Seedance2PlaceholderPreviewArea({ node, theme, shot, status, mode, orientation }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; shot: number; status: string; mode: string; orientation: Seedance2PlaceholderOrientation }) {
     const hasVideo = Boolean(node.metadata?.content);
+    const isLandscape = orientation === "landscape";
     return (
-        <div className="relative flex min-h-0 justify-center border-b px-2 py-3" style={{ borderColor: theme.node.stroke }}>
+        <div className="relative flex shrink-0 justify-center border-b px-2 py-3" style={{ borderColor: theme.node.stroke }}>
             <div
-                className={`grid h-[200px] min-w-0 shrink-0 place-items-center overflow-hidden rounded-[24px] border ${hasVideo ? "bg-black" : "text-center"}`}
+                className={`grid min-w-0 shrink-0 place-items-center overflow-hidden rounded-[24px] border ${isLandscape ? "h-[168px]" : "h-[200px]"} ${hasVideo ? "bg-black" : "text-center"}`}
                 style={{ width: "calc(100% - 6px)", background: hasVideo ? undefined : theme.node.panel, borderColor: theme.node.stroke }}
-                data-seedance2-portrait-preview
+                data-seedance2-placeholder-preview
             >
                 {hasVideo ? (
                     <video src={node.metadata?.content} controls className="h-full w-full bg-black object-contain" data-canvas-no-zoom />
                 ) : (
                     <div className="px-3" data-seedance2-placeholder-copy>
                         <Video className="mx-auto mb-4 size-9" style={{ color: theme.node.faint }} />
-                        <div className="whitespace-nowrap text-xl font-black" style={{ color: theme.node.text }}>第{shot}镜视频占位框</div>
-                        <div className="mt-3 text-sm font-extrabold" style={{ color: theme.node.muted }}>{status} · {mode}</div>
+                        <div className="whitespace-nowrap text-base font-bold" style={{ color: theme.node.text }}>第{shot}镜视频占位框</div>
+                        <div className="mt-2 text-xs font-semibold" style={{ color: theme.node.muted }}>{status} · {mode}</div>
                         <Seedance2PlaceholderErrorDetails node={node} />
                     </div>
                 )}
@@ -2976,13 +2337,14 @@ function Seedance2PortraitPreviewArea({ node, theme, shot, status, mode }: { nod
     );
 }
 
-function Seedance2PortraitConfigArea({ node, theme, ratio, referenceOrder, resolvedSlots, referenceVideos, onMetadataChange, onDeleteConnection, onUpdateConnectionUseAs }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; ratio: string; referenceOrder: string[]; resolvedSlots?: Seedance2ResolvedReferenceSlot[]; referenceVideos: readonly ReferenceVideo[]; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void; onDeleteConnection?: (connectionId: string) => void; onUpdateConnectionUseAs?: Seedance2UpdateConnectionUseAs }) {
+function Seedance2PlaceholderConfigArea({ node, theme, ratio, referenceOrder, resolvedSlots, referenceVideos, orientation, onMetadataChange, onDeleteConnection, onUpdateConnectionUseAs }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; ratio: string; referenceOrder: string[]; resolvedSlots?: Seedance2ResolvedReferenceSlot[]; referenceVideos: readonly ReferenceVideo[]; orientation: Seedance2PlaceholderOrientation; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void; onDeleteConnection?: (connectionId: string) => void; onUpdateConnectionUseAs?: Seedance2UpdateConnectionUseAs }) {
     const followsSource =
         node.metadata?.seedanceInheritSourceRatio !== false &&
         !node.metadata?.seedanceRatioTouched;
+    const isLandscape = orientation === "landscape";
 
     return (
-        <div className="flex h-full min-h-0 flex-col border-b px-3 pb-0 pt-3" style={{ borderColor: theme.node.stroke }} data-canvas-no-drag data-canvas-no-zoom>
+        <div className={`flex min-h-0 flex-col border-b px-3 pb-0 pt-3 ${isLandscape ? "shrink-0" : "h-full"}`} style={{ borderColor: theme.node.stroke }} data-canvas-no-drag data-canvas-no-zoom>
             <div className="grid shrink-0 grid-cols-2 gap-2 text-[10px]">
                 <Seedance2VideoModelSummary node={node} theme={theme} className="col-span-2" onMetadataChange={onMetadataChange} />
                 <label className="min-w-0">
@@ -3021,7 +2383,7 @@ function Seedance2PortraitConfigArea({ node, theme, ratio, referenceOrder, resol
                 </label>
                 <Seedance2VideoDurationControl node={node} theme={theme} onMetadataChange={onMetadataChange} compact />
             </div>
-            <div className="mt-2 min-h-0 flex-1 overflow-hidden">
+            <div className={`mt-2 min-h-0 overflow-hidden ${isLandscape ? "h-[196px] shrink-0" : "flex-1"}`}>
                 <Seedance2VideoThumbnailSortSlot
                     node={node}
                     referenceOrder={referenceOrder}
@@ -3032,77 +2394,6 @@ function Seedance2PortraitConfigArea({ node, theme, ratio, referenceOrder, resol
                     onMetadataChange={onMetadataChange}
                     onDeleteConnection={onDeleteConnection}
                     onUpdateConnectionUseAs={onUpdateConnectionUseAs}
-                />
-            </div>
-        </div>
-    );
-}
-
-function Seedance2LandscapeControlArea({ node, theme, shot, status, mode, ratio, referenceOrder, resolvedSlots, onMetadataChange }: { node: CanvasNodeData; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; shot: number; status: string; mode: string; ratio: string; referenceOrder: string[]; resolvedSlots?: Seedance2ResolvedReferenceSlot[]; onMetadataChange?: (nodeId: string, patch: Partial<NonNullable<CanvasNodeData["metadata"]>>) => void }) {
-    const hasVideo = Boolean(node.metadata?.content);
-    const followsSource =
-        node.metadata?.seedanceInheritSourceRatio !== false &&
-        !node.metadata?.seedanceRatioTouched;
-
-    return (
-        <div className="relative flex h-full min-h-0 min-w-0 flex-col gap-2.5 overflow-hidden border-r p-3" style={{ borderColor: theme.node.stroke }} data-canvas-no-drag data-canvas-no-zoom>
-            <div className={`grid min-h-0 flex-[1.2] place-items-center overflow-hidden rounded-[24px] border ${hasVideo ? "bg-black" : "text-center"}`} style={{ background: hasVideo ? undefined : theme.node.panel, borderColor: theme.node.stroke }}>
-                {hasVideo ? (
-                    <video src={node.metadata?.content} controls className="h-full w-full bg-black object-contain" data-canvas-no-zoom />
-                ) : (
-                    <div className="px-3">
-                        <Video className="mx-auto mb-3 size-8" style={{ color: theme.node.faint }} />
-                        <div className="whitespace-nowrap text-base font-black" style={{ color: theme.node.text }}>第{shot}镜视频占位框</div>
-                        <div className="mt-2 text-[11px] font-extrabold" style={{ color: theme.node.muted }}>{status} · {mode}</div>
-                        <Seedance2PlaceholderErrorDetails node={node} className="text-[10px] leading-3" />
-                    </div>
-                )}
-            </div>
-            <div className="grid shrink-0 grid-cols-2 gap-2 text-[10px]">
-                <Seedance2VideoModelSummary node={node} theme={theme} className="col-span-2" onMetadataChange={onMetadataChange} />
-                <label className="min-w-0">
-                    <span className="sr-only">视频比例</span>
-                    <select
-                        value={followsSource ? "inherit" : ratio}
-                        className="h-8 w-full rounded-xl border px-2 text-[11px] outline-none transition hover:border-orange-500/80 focus:border-orange-500"
-                        style={{ borderColor: theme.node.stroke, background: theme.node.fill, color: theme.node.text }}
-                        title="画布布局比例：默认跟随上游图片；只影响画布排版，不作为 API 参数"
-                        onChange={(event) => {
-                            const value = event.target.value;
-                            if (value === "inherit") {
-                                onMetadataChange?.(node.id, {
-                                    seedanceInheritSourceRatio: true,
-                                    seedanceRatioTouched: false,
-                                    seedanceSourceAspectRatio: undefined,
-                                });
-                                return;
-                            }
-                            const selectedRatio = normalizeSeedance2AspectRatio(value);
-                            onMetadataChange?.(node.id, {
-                                seedanceRatio: selectedRatio,
-                                size: selectedRatio,
-                                seedanceInheritSourceRatio: false,
-                                seedanceRatioTouched: true,
-                            });
-                        }}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onPointerDown={(event) => event.stopPropagation()}
-                    >
-                        <option value="inherit">画布布局：跟随上游</option>
-                        {SEEDANCE2_RATIO_OPTIONS.map((option) => (
-                            <option key={option} value={option}>画布布局：{option}</option>
-                        ))}
-                    </select>
-                </label>
-                <Seedance2VideoDurationControl node={node} theme={theme} onMetadataChange={onMetadataChange} compact />
-            </div>
-            <div className="min-h-0 shrink-0">
-                <Seedance2VideoThumbnailSortSlot
-                    node={node}
-                    referenceOrder={referenceOrder}
-                    theme={theme}
-                    resolvedSlots={resolvedSlots}
-                    onMetadataChange={onMetadataChange}
                 />
             </div>
         </div>
@@ -3220,9 +2511,6 @@ function Seedance2InlinePromptEditor({ node, theme, mentionReferences, className
         : "thin-scrollbar min-h-0 flex-1 cursor-text overflow-y-auto whitespace-pre-wrap break-words rounded-2xl border px-4 py-3 text-sm font-semibold leading-6 select-text";
     const requestPreviewClassName = "rounded-2xl border px-3 py-2 text-[11px] leading-5";
     const requestPreviewText = "请求预览：首帧/尾帧控制画面起止；角色、场景参考仅在支持多参考或 R2V 的模型中直传，否则保留给上游分镜出图使用。";
-    const buttonClassName = isPortraitVariant
-        ? "mt-auto h-10 shrink-0 rounded-xl bg-orange-500 px-3 text-sm font-bold text-white shadow-[0_10px_22px_rgba(249,115,22,.22)] transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
-        : "h-12 shrink-0 rounded-2xl bg-orange-500 px-4 text-base font-bold text-white shadow-[0_12px_30px_rgba(249,115,22,.25)] transition hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45";
     const promptPreviewText = prompt.trim();
 
     useEffect(() => {
@@ -3303,19 +2591,15 @@ function Seedance2InlinePromptEditor({ node, theme, mentionReferences, className
                     {requestPreviewText}
                 </div>
             ) : null}
-            <button
-                type="button"
-                className={buttonClassName}
-                disabled={isRunning}
-                onClick={(event) => {
-                    event.stopPropagation();
-                    onGenerateVideo?.();
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-            >
-                {isRunning ? "视频生成中" : "生成视频"}
-            </button>
+            <div className="mt-auto flex shrink-0 justify-end">
+                <StoryboardCardAction
+                    label={isRunning ? "视频生成中" : "生成视频"}
+                    icon={<Film className="size-3.5" />}
+                    tone="surface"
+                    disabled={isRunning}
+                    onClick={() => onGenerateVideo?.()}
+                />
+            </div>
         </div>
     );
 }
@@ -3909,6 +3193,9 @@ function ImageContent({
     onSetBatchPrimary,
     onViewCharacterDerivedViews,
     onExpandCharacterDerivedViews: _onExpandCharacterDerivedViews,
+    onRetry,
+    onDownload,
+    onEditPrompt,
 }: {
     node: CanvasNodeData;
     resourceLabel?: CanvasResourceReference;
@@ -3922,6 +3209,9 @@ function ImageContent({
     onViewCharacterDerivedViews?: (node: CanvasNodeData) => void;
     /** Forwarded for the caller-owned dialog; never invoked while rendering a node. */
     onExpandCharacterDerivedViews?: (node: CanvasNodeData) => void;
+    onRetry?: (node: CanvasNodeData) => void;
+    onDownload?: (node: CanvasNodeData) => void;
+    onEditPrompt?: (node: CanvasNodeData) => void;
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const isBatchChild = Boolean(node.metadata?.batchRootId);
@@ -3934,6 +3224,7 @@ function ImageContent({
     const showImagePlaceholder = imageLoadFailed || !imageSource;
     const storyLabel = storyImageLabel(node);
     const imageLabel = storyLabel || (resourceLabel?.active && resourceLabel.kind === "image" ? resourceLabel.label : `图片${node.metadata?.imageSequenceNumber || numericImageLabel(node.id)}`);
+    const storyboardCard = storyboardCardIdentity(node);
     const derivedViewsState = characterDerivedViewsUiState(node.metadata, node.id);
 
     const resizeImageByWheel = (event: React.WheelEvent<HTMLDivElement>) => {
@@ -3980,7 +3271,7 @@ function ImageContent({
 
     return (
         <BatchFrame batchCount={isBatchRoot ? batchCount : 0} batchExpanded={batchExpanded} batchOpening={batchOpening} batchRecovering={batchRecovering} onToggleBatch={onToggleBatch}>
-            <div className="relative h-full w-full overflow-hidden rounded-[inherit]" onPointerDown={startWheelHold} onPointerUp={stopWheelHold} onPointerCancel={stopWheelHold} onWheel={resizeImageByWheel}>
+            <div className="group relative h-full w-full overflow-hidden rounded-[inherit]" onPointerDown={startWheelHold} onPointerUp={stopWheelHold} onPointerCancel={stopWheelHold} onWheel={resizeImageByWheel}>
                 <div className="relative h-full w-full overflow-hidden">
                     {imageSource ? (
                         <ResolvedCanvasImage
@@ -4002,15 +3293,64 @@ function ImageContent({
                         </div>
                     ) : null}
                 </div>
-                {(node.metadata?.content || node.metadata?.storageKey) && !isBatchRoot ? (
+                {storyboardCard && !isBatchRoot ? (
+                    <div className="pointer-events-none absolute inset-x-2 top-2 z-30 flex">
+                        <div className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-white/20 bg-black/40 py-1 pl-1.5 pr-2.5 shadow-[0_6px_20px_rgba(0,0,0,.28)] backdrop-blur-md">
+                            <span className="shrink-0 rounded-full bg-white/95 px-2 py-0.5 text-[10px] font-bold leading-none tracking-wide text-black">
+                                第 {storyboardCard.index} 镜
+                            </span>
+                            <span className="min-w-0 truncate text-[12px] font-medium leading-4 text-white drop-shadow-[0_1px_3px_rgba(0,0,0,.65)]">
+                                {storyboardCard.name}
+                            </span>
+                        </div>
+                    </div>
+                ) : (node.metadata?.content || node.metadata?.storageKey) && !isBatchRoot ? (
                     <span className="pointer-events-none absolute right-2 top-2 z-30 rounded-full bg-black/55 px-2 py-1 text-[11px] font-medium leading-none text-white shadow-[0_6px_18px_rgba(0,0,0,.20)] backdrop-blur-sm">
                         {imageLabel}
                     </span>
                 ) : null}
+                {storyboardCard && !isBatchRoot ? (
+                    <div className="absolute inset-x-0 bottom-2.5 z-30 flex justify-center px-2 transition-all duration-200">
+                        <div className="flex max-w-full items-center gap-1 rounded-full border border-white/20 bg-black/60 p-1 shadow-[0_8px_24px_rgba(0,0,0,.3)] backdrop-blur-xl">
+                            <StoryboardCardAction
+                                label="重试"
+                                icon={<RefreshCw className="size-3.5" />}
+                                onClick={() => onRetry?.(node)}
+                            />
+                            <StoryboardCardAction
+                                label="下载高清"
+                                icon={<Download className="size-3.5" />}
+                                disabled={!node.metadata?.content && !node.metadata?.storageKey}
+                                onClick={() => onDownload?.(node)}
+                            />
+                            <StoryboardCardAction
+                                label="提示词"
+                                icon={<Pencil className="size-3.5" />}
+                                onClick={() => onEditPrompt?.(node)}
+                            />
+                        </div>
+                    </div>
+                ) : node.metadata?.storyCharacterAssetKind === "turnaround_sheet" && !isBatchRoot ? (
+                    <div className="absolute inset-x-0 bottom-2.5 z-30 flex justify-center px-2 transition-all duration-200">
+                        <div className="flex max-w-full items-center gap-1 rounded-full border border-white/20 bg-black/60 p-1 shadow-[0_8px_24px_rgba(0,0,0,.3)] backdrop-blur-xl">
+                            <StoryboardCardAction
+                                label="下载设定图"
+                                icon={<Download className="size-3.5" />}
+                                disabled={!node.metadata?.content && !node.metadata?.storageKey}
+                                onClick={() => onDownload?.(node)}
+                            />
+                            <StoryboardCardAction
+                                label="查看提示词"
+                                icon={<Pencil className="size-3.5" />}
+                                onClick={() => onEditPrompt?.(node)}
+                            />
+                        </div>
+                    </div>
+                ) : null}
                 {derivedViewsState !== "hidden" && !isBatchRoot ? (
                     <button
                         type="button"
-                        className="absolute bottom-2 left-2 z-30 rounded-full border px-2 py-1 text-[11px] font-medium shadow-sm backdrop-blur-sm transition hover:opacity-100"
+                        className={`absolute left-2 z-30 rounded-full border px-2 py-1 text-[11px] font-medium shadow-sm backdrop-blur-sm transition hover:opacity-100 ${storyboardCard ? "top-11" : "bottom-2"}`}
                         style={{ background: `${theme.toolbar.panel}d9`, borderColor: `${theme.toolbar.border}cc`, color: theme.node.text }}
                         onClick={(event) => {
                             event.stopPropagation();
@@ -4058,6 +3398,57 @@ function ImageContent({
             ) : null}
         </BatchFrame>
     );
+}
+
+function StoryboardCardAction({
+    label,
+    icon,
+    disabled,
+    tone = "overlay",
+    onClick,
+}: {
+    label: string;
+    icon: ReactNode;
+    disabled?: boolean;
+    /** overlay 覆盖在图片/视频上；surface 落在节点面板底色上。 */
+    tone?: "overlay" | "surface";
+    onClick: () => void;
+}) {
+    const toneClassName = tone === "surface"
+        ? "border-orange-500/35 bg-orange-500/12 text-orange-500 hover:border-orange-500/60 hover:bg-orange-500/20"
+        : "border-white/15 bg-white/8 text-white hover:border-white/35 hover:bg-white/20";
+    return (
+        <button
+            type="button"
+            disabled={disabled}
+            aria-label={label}
+            title={label}
+            className={`flex h-7 min-w-0 items-center justify-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${toneClassName}`}
+            onClick={(event) => {
+                event.stopPropagation();
+                onClick();
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+        >
+            {icon}
+            <span className="truncate">{label}</span>
+        </button>
+    );
+}
+
+function storyboardCardIdentity(node: CanvasNodeData): { index: number; name: string } | null {
+    const label = node.metadata?.storyLabel?.trim() || "";
+    const indexFromLabel = label.match(/^第\s*(\d+)\s*镜/)?.[1];
+    const indexFromTitle = node.title.match(/^镜头\s*(\d+)/)?.[1];
+    const indexText = indexFromLabel || indexFromTitle;
+    if (!indexText) return null;
+    const index = Number(indexText);
+    if (!Number.isFinite(index) || index < 1) return null;
+    const named = node.title.replace(/^镜头\s*\d+\s*[-·:：]?\s*/, "").trim();
+    const name = named && named !== node.title ? named : label.replace(/^第\s*\d+\s*镜\s*[-·:：]?\s*/, "").trim();
+    return { index, name: name || "未命名镜头" };
 }
 
 function numericImageLabel(id: string) {
@@ -4130,7 +3521,7 @@ function ResizeHandle({ corner, onMouseDown }: { corner: ResizeCorner; onMouseDo
     return <div className={`absolute z-50 size-7 ${positionClass}`} onMouseDown={(event) => onMouseDown(event, corner)} />;
 }
 
-function storyDirectorPanelContentHeight(panel: HTMLElement) {
+function storyDirectorPanelContentHeight(panel: HTMLElement, maxHeight: number = STORY_DIRECTOR_MAX_HEIGHT) {
     const style = window.getComputedStyle(panel);
     const paddingTop = Number.parseFloat(style.paddingTop) || 0;
     const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
@@ -4141,7 +3532,12 @@ function storyDirectorPanelContentHeight(panel: HTMLElement) {
         const marginBottom = Number.parseFloat(childStyle.marginBottom) || 0;
         return total + marginTop + child.offsetHeight + marginBottom;
     }, 0);
-    return Math.ceil(paddingTop + childrenHeight + paddingBottom);
+    const contentHeight = Math.ceil(paddingTop + childrenHeight + paddingBottom);
+    const cappedHeight = Math.min(contentHeight, maxHeight);
+    if (panel.scrollHeight > panel.clientHeight + 1) {
+        return Math.min(cappedHeight, Math.ceil(panel.getBoundingClientRect().height));
+    }
+    return cappedHeight;
 }
 
 function ConnectionHandleDot({ nodeType, side, active, visible, onMouseDown }: { nodeType: CanvasNodeType; side: "left" | "right"; active: boolean; visible: boolean; onMouseDown: (event: React.MouseEvent) => void }) {
@@ -4217,13 +3613,13 @@ function canvasNodeDisplayImageSrc(metadata?: CanvasNodeData["metadata"]) {
     const content = String(metadata?.content || "").trim();
     const backend = String(metadata?.backendUrl || "").trim();
     const storageKey = String(metadata?.storageKey || "").trim();
-    if (backend.startsWith("/gallery/")) return backend;
-    if (content.startsWith("/gallery/")) return content;
-    if (storageKey.startsWith("image:")) return storageKey;
+    if (backend.startsWith("/works/") || backend.startsWith("/gallery/")) return backend;
+    if (content.startsWith("/works/") || content.startsWith("/gallery/")) return content;
     if (content.startsWith("data:")) return content;
-    if (content.startsWith("blob:")) return backend.startsWith("/gallery/") || /^https?:\/\//i.test(backend) ? backend : "";
-    if (/^https?:\/\//i.test(content)) return content;
     if (/^https?:\/\//i.test(backend)) return backend;
+    if (/^https?:\/\//i.test(content)) return content;
+    if (storageKey.startsWith("image:")) return storageKey;
+    if (content.startsWith("blob:")) return backend || "";
     return content || backend;
 }
 

@@ -2,7 +2,6 @@ import axios, {AxiosError, AxiosHeaders, type AxiosRequestConfig} from "axios";
 
 import webConfig from "@/constants/common-env";
 import {clearAuthSessionCache} from "@/lib/auth-session";
-import {desktopApiHeaders, desktopApiUrl, isDesktopLoopbackUrl} from "@/services/desktop-api-url";
 import {clearStoredAuthSession, getStoredAuthKey} from "@/store/auth";
 
 type RequestConfig = AxiosRequestConfig & {
@@ -109,10 +108,6 @@ request.interceptors.request.use(async (config) => {
     if (authKey && !headers.has("Authorization")) {
         headers.set("Authorization", `Bearer ${authKey}`);
     }
-    if (typeof nextConfig.url === "string" && isDesktopLoopbackUrl(nextConfig.url)) {
-        const authenticatedHeaders = await desktopApiHeaders();
-        authenticatedHeaders.forEach((value, key) => headers.set(key, value));
-    }
     nextConfig.headers = headers;
     return nextConfig;
 });
@@ -158,7 +153,7 @@ type RequestOptions = {
 export async function httpRequest<T>(path: string, options: RequestOptions = {}) {
     const {method = "GET", body, headers, redirectOnUnauthorized = true} = options;
     const config: RequestConfig = {
-        url: desktopApiUrl(path),
+        url: path.startsWith("/") ? path : `/${path}`,
         method,
         data: body,
         headers,

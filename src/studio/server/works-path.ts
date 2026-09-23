@@ -2,29 +2,37 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 export function worksStorageDir(cwd = process.cwd()) {
-  const normalized = cwd.replaceAll("\\", "/");
+  const vercelStatic = join(cwd, ".vercel", "output", "static", "works");
+  if (existsSync(join(cwd, ".vercel", "output", "static")) || existsSync(vercelStatic)) {
+    return vercelStatic;
+  }
   const staticDir = join(cwd, "static");
-  // Nitro vercel preview cwd is `.vercel/output`; srvx serves `--static ./static`.
-  // Local vite still serves `public/`. Writing to the unserved tree made /works 404.
-  if (existsSync(staticDir) || normalized.endsWith("/.vercel/output")) {
+  if (existsSync(staticDir) || cwd.replaceAll("\\", "/").endsWith("/.vercel/output")) {
     return join(cwd, "static", "works");
   }
   return join(cwd, "public", "works");
 }
 
 export function worksStorageDirs(cwd = process.cwd()) {
-  const primary = worksStorageDir(cwd);
-  // Always dual-write across both served trees: which one is actually served
-  // depends on the runtime (vite dev serves public/, nitro serves static/),
-  // and the primary choice alone has repeatedly produced /works 404s.
-  const extra = primary.replaceAll("\\", "/").endsWith("/static/works")
-    ? join(cwd, "public", "works")
-    : join(cwd, "static", "works");
-  return extra === primary ? [primary] : [primary, extra];
+  const dirs: string[] = [];
+  const vercelStatic = join(cwd, ".vercel", "output", "static");
+  if (existsSync(vercelStatic) || existsSync(join(vercelStatic, "works"))) {
+    dirs.push(join(vercelStatic, "works"));
+  }
+  const staticDir = join(cwd, "static");
+  if (existsSync(staticDir) || cwd.replaceAll("\\", "/").endsWith("/.vercel/output")) {
+    dirs.push(join(cwd, "static", "works"));
+  }
+  dirs.push(join(cwd, "public", "works"));
+  return Array.from(new Set(dirs));
 }
 
 export function worksFilePath(name: string, cwd = process.cwd()) {
   const safe = String(name || "").replace(/^\/+/, "").replace(/\\/g, "/");
   if (!safe || safe.includes("/") || safe.includes("..")) return "";
+  for (const dir of worksStorageDirs(cwd)) {
+    const full = join(dir, safe);
+    if (existsSync(full)) return full;
+  }
   return join(worksStorageDir(cwd), safe);
 }

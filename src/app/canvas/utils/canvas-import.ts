@@ -5,6 +5,8 @@ type ArchiveEntry = Blob;
 type CanvasImportMedia = {
     asset: CanvasExportAsset;
     blob: Blob;
+    /** The key as declared in the archive; project nodes still reference it. */
+    manifestKey: string;
 };
 
 export type CanvasArchive = {
@@ -12,7 +14,8 @@ export type CanvasArchive = {
 };
 
 export type CanvasArchiveImportHandlers = {
-    writeMedia: (storageKey: string, blob: Blob) => Promise<void>;
+    /** Returns the final storage key when the writer relocates the media (e.g. a server upload). */
+    writeMedia: (storageKey: string, blob: Blob) => Promise<string | void>;
     deleteMedia?: (storageKeys: string[]) => Promise<void>;
     importProject: (project: CanvasExportFile["projects"][number]["project"]) => string | void;
     deleteProjects?: (projectIds: string[]) => void;
@@ -40,7 +43,7 @@ export async function collectCanvasArchiveMedia(archive: CanvasArchive, data: Ca
             // Accessing the bytes detects unreadable entries before the first write.
             await entry.arrayBuffer();
             const blob = entry.type ? entry : entry.slice(0, entry.size, asset.mimeType);
-            return { asset, blob };
+            return { asset, blob, manifestKey: asset.storageKey };
         }),
     );
 }
@@ -79,9 +82,17 @@ export async function importCanvasArchive(archive: CanvasArchive, data: CanvasEx
         // Write all media. Every destination key is registered for rollback
         // before the write attempt: a failing writer may have already stored
         // the blob, and deleting a never-written key is harmless.
-        for (const { asset, blob } of media) {
+        for (const { asset, blob, manifestKey } of media) {
             newlyCreatedMediaKeys.push(asset.storageKey);
-            await handlers.writeMedia(asset.storageKey, blob);
+            const writtenKey = await handlers.writeMedia(asset.storageKey, blob);
+            // A writer that relocates the blob (server upload) reports the key it
+            // actually stored, so the imported nodes point at the real media. The
+            // remap is keyed by the manifest key the nodes still carry.
+            if (typeof writtenKey === "string" && writtenKey && writtenKey !== asset.storageKey) {
+                keyRemapping.set(manifestKey, writtenKey);
+                newlyCreatedMediaKeys[newlyCreatedMediaKeys.length - 1] = writtenKey;
+                asset.storageKey = writtenKey;
+            }
         }
 
         // Import all projects with remapped keys

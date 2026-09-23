@@ -25,17 +25,18 @@ export async function resolve(specifier, context, nextResolve) {
 register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.url);
 
 const { falAdapter, planFalImageRequest } = await import("./fal.ts");
-import {
+const {
   agnesVideoPollPath,
   buildAgnesImageBody,
   buildAgnesVideoBody,
   planAgnesVideoPoll,
   readAgnesVideoCreateId,
   readAgnesVideoPoll,
-} from "./agnes.ts";
-import { planSenseNovaImageRequest } from "./sensenova.ts";
-import { buildCustomerVideoStudioRequest, videoPollPath } from "./contracts.ts";
-import { buildRelayTarget } from "../../lib/boundless-proxy.server.ts";
+} = await import("./agnes.ts");
+const { planSenseNovaImageRequest } = await import("./sensenova.ts");
+const { allImageUrls } = await import("../generate/proxy.ts");
+const { buildCustomerVideoStudioRequest, videoPollPath } = await import("./contracts.ts");
+const { buildRelayTarget } = await import("../../lib/boundless-proxy.server.ts");
 
 test("Fal maps configured short names to official fal-ai endpoint ids", () => {
   assert.equal(planFalImageRequest({ model: "flux-2-pro", prompt: "p" }).path, "/fal-ai/flux-2-pro");
@@ -160,6 +161,30 @@ test("Fal rejects an unmapped short name instead of posting it bare", () => {
   assert.throws(() => planFalImageRequest({ model: "not-a-fal-endpoint", prompt: "p" }), /未映射|官方 endpoint|fal-ai/);
 });
 
+test("Fal unregistered qualified endpoints warn and pass known fields without guessing steps", () => {
+  const planned = planFalImageRequest({
+    model: "fal-ai/some-new-model",
+    prompt: "p",
+    seed: 3,
+    steps: 20,
+    guidance: 4,
+  });
+  assert.equal(planned.path, "/fal-ai/some-new-model");
+  assert.equal(planned.body.prompt, "p");
+  assert.equal(planned.body.seed, 3);
+  assert.equal("num_inference_steps" in planned.body, false);
+  assert.equal("guidance_scale" in planned.body, false);
+});
+
+test("Fal profiled endpoints send steps and guidance only when the profile marks them", () => {
+  const dev = planFalImageRequest({ model: "flux-dev", prompt: "p", steps: 28, guidance: 3.5 });
+  assert.equal(dev.body.num_inference_steps, 28);
+  assert.equal(dev.body.guidance_scale, 3.5);
+  const flux2 = planFalImageRequest({ model: "flux-2-pro", prompt: "p", steps: 28, guidance: 3.5 });
+  assert.equal("num_inference_steps" in flux2.body, false);
+  assert.equal("guidance_scale" in flux2.body, false);
+});
+
 test("Fal adapter wires video create/poll through the queue API", () => {
   assert.equal(typeof falAdapter.createVideo, "function");
   assert.equal(typeof falAdapter.pollVideo, "function");
@@ -171,7 +196,7 @@ test("Agnes image requires a documented size and defaults to 1K", () => {
   assert.equal(buildAgnesImageBody({ model: "agnes-image-2.1-flash", prompt: "p", size: "2K" }).size, "2K");
 });
 
-test("Agnes image omits undocumented top-level n, seed, and negative_prompt", () => {
+test("Agnes image forwards n and ratio but not undocumented seed, negative_prompt, or steps", () => {
   const body = buildAgnesImageBody({
     model: "agnes-image-2.1-flash",
     prompt: "p",
@@ -179,11 +204,13 @@ test("Agnes image omits undocumented top-level n, seed, and negative_prompt", ()
     n: 2,
     seed: 7,
     negativePrompt: "blur",
+    steps: 20,
     aspectRatio: "16:9",
   });
-  assert.equal("n" in body, false);
+  assert.equal(body.n, 2);
   assert.equal("seed" in body, false);
   assert.equal("negative_prompt" in body, false);
+  assert.equal("num_inference_steps" in body, false);
   assert.equal(body.ratio, "16:9");
 });
 
@@ -238,7 +265,9 @@ test("Agnes video V2.0 maps duration to documented num_frames/frame_rate and omi
   assert.equal("duration" in body, false);
   assert.equal("generate_audio" in body, false);
   assert.equal("aspect_ratio" in body, false);
-  assert.equal("resolution" in body, false);
+  // resolution is a documented Agnes tier and is accepted by the live API
+  // (probed 2026-09-23), so it is forwarded rather than dropped.
+  assert.equal(body.resolution, "720p");
   assert.equal("image_urls" in body, false);
   assert.equal("last_frame" in body, false);
   assert.equal(body.negative_prompt, "watermark");
@@ -271,10 +300,9 @@ test("Agnes video V2.0 sends an explicit frames value as official num_frames", (
     () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", frames: 80 }),
     /8n\+1|num_frames/,
   );
-  assert.throws(
-    () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", quantity: 2 }),
-    /不支持 quantity|不会静默/,
-  );
+  const withQuantity = buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", quantity: 2 });
+  assert.equal("quantity" in withQuantity, false);
+  assert.equal("n" in withQuantity, false);
 });
 
 test("Agnes video V2.0 maps an explicit fps while preserving the 8n+1 frame rule", () => {
@@ -283,6 +311,58 @@ test("Agnes video V2.0 maps an explicit fps while preserving the 8n+1 frame rule
   assert.equal(body.num_frames, 153);
   assert.equal((Number(body.num_frames) - 1) % 8, 0);
   assert.ok(Number(body.num_frames) <= 441);
+});
+
+test("Agnes video accepts both documented modes and rejects an undocumented one", () => {
+  // Official mode values are ti2vid and keyframes. Probed live 2026-09-23:
+  // mode=ti2vid returned 200, so ti2vid must not be rejected.
+  const t2v = buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", mode: "ti2vid", frames: 81, fps: 24 });
+  assert.equal(t2v.num_frames, 81);
+  const keyframes = buildAgnesVideoBody({
+    model: "agnes-video-v2.0",
+    prompt: "p",
+    imageUrl: "https://x.test/a.png",
+    lastFrameUrl: "https://x.test/b.png",
+  });
+  assert.deepEqual(keyframes.extra_body, {
+    image: ["https://x.test/a.png", "https://x.test/b.png"],
+    mode: "keyframes",
+  });
+  assert.throws(
+    () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", mode: "not-a-mode" }),
+    /ti2vid|keyframes/,
+  );
+});
+
+test("Agnes video sends the documented resolution tiers and rejects others", () => {
+  // Probed live 2026-09-23: resolution=720p returned 200.
+  for (const tier of ["480p", "720p", "1080p"]) {
+    assert.equal(buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", resolution: tier }).resolution, tier);
+  }
+  assert.throws(
+    () => buildAgnesVideoBody({ model: "agnes-video-v2.0", prompt: "p", resolution: "4k" }),
+    /480p|720p|1080p/,
+  );
+});
+
+test("Agnes resolution flows from the video settings panel into the request body", async () => {
+  const { resolveVideoModelCapability } = await import("../../services/api/video-model-capabilities.ts");
+  const { videoGenerationSettingsToRequest } = await import("../../stores/video-generation-settings.ts");
+  const capability = resolveVideoModelCapability({
+    model: "agnes-video-v2.0",
+    provider: { id: "preset-agnes-ai", baseUrl: "https://apihub.agnes-ai.com/v1", adapterType: "agnes" },
+  });
+  const request = videoGenerationSettingsToRequest(
+    { resolution: "720p", aspectRatio: undefined, duration: undefined } as never,
+    capability,
+  );
+  assert.equal(request.resolution, "720p");
+  const body = buildAgnesVideoBody({
+    model: "agnes-video-v2.0",
+    prompt: "p",
+    resolution: String(request.resolution),
+  });
+  assert.equal(body.resolution, "720p");
 });
 
 test("Agnes video rejects invalid duration or fps instead of silently dropping them", () => {
@@ -322,36 +402,64 @@ test("Agnes video create prefers returned video_id", () => {
   assert.equal(readAgnesVideoCreateId({ task_id: "task-1", id: "id-3" }), "task-1");
 });
 
-test("Agnes video poll uses /agnesapi?video_id= and metadata.url", () => {
+test("Agnes video poll uses /agnesapi?video_id= and the top-level result url", () => {
   assert.equal(agnesVideoPollPath("vid 1"), "/agnesapi?video_id=vid%201");
   const planned = planAgnesVideoPoll("vid-1", "https://apihub.agnes-ai.com/v1");
   assert.equal(planned.path, "/agnesapi?video_id=vid-1");
   assert.equal(planned.method, "GET");
   assert.equal("baseUrl" in planned, false);
-  const completed = readAgnesVideoPoll({
+  // Verified 2026-09-23 against a real completed task: `url` is top-level and
+  // `metadata` is null, so the top-level field is authoritative.
+  const realCompleted = readAgnesVideoPoll({
     status: "completed",
-    video_url: "https://example.test/wrong.mp4",
-    url: "https://example.test/also-wrong.mp4",
-    metadata: { url: "https://example.test/official.mp4" },
+    progress: 100,
+    metadata: null,
+    url: "https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/video_5c12fbfb802e4a479438b5a79f469ba9.mp4",
   });
-  assert.deepEqual(completed, { status: "completed", url: "https://example.test/official.mp4" });
+  assert.deepEqual(realCompleted, {
+    status: "completed",
+    url: "https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/video_5c12fbfb802e4a479438b5a79f469ba9.mp4",
+  });
+  // A legacy payload that only carries metadata.url still resolves.
+  assert.deepEqual(
+    readAgnesVideoPoll({ status: "completed", metadata: { url: "https://example.test/legacy.mp4" } }),
+    { status: "completed", url: "https://example.test/legacy.mp4" },
+  );
   assert.equal(readAgnesVideoPoll({ status: "queued" }).status, "pending");
   assert.equal(readAgnesVideoPoll({ status: "in_progress" }).status, "pending");
   assert.equal(readAgnesVideoPoll({ status: "failed", error: { message: "nope" } }).status, "failed");
   assert.equal(readAgnesVideoPoll({ status: "completed" }).status, "failed");
 });
 
-test("SenseNova generations omit references, seed, and negative_prompt", () => {
+test("SenseNova url-output returns b64_json and resolves to a data URI", () => {
+  // Probed live 2026-09-23: POST /v1/images/generations for sensenova-u1-fast
+  // returns { created, data:[{ b64_json }], output_format, size, usage } with no
+  // data[].url, so the b64 branch is the one that actually runs.
+  const urls = allImageUrls({
+    created: 1790163101,
+    data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB" }],
+    output_format: "png",
+    size: "2048x2048",
+  });
+  assert.equal(urls.length, 1);
+  assert.ok(urls[0].startsWith("data:image/png;base64,"));
+});
+
+test("SenseNova generations omit undocumented seed, negative_prompt, and steps", () => {
   const planned = planSenseNovaImageRequest({
     model: "sensenova-u1-fast",
     prompt: "p",
     seed: 11,
     negativePrompt: "blur",
+    steps: 30,
+    cfgScale: 7,
     n: 2,
   });
   assert.equal(planned.path, "/images/generations");
   assert.equal("seed" in planned.body, false);
   assert.equal("negative_prompt" in planned.body, false);
+  assert.equal("steps" in planned.body, false);
+  assert.equal("cfg_scale" in planned.body, false);
   assert.equal("image" in planned.body, false);
   assert.equal("images" in planned.body, false);
   assert.equal(planned.body.n, 2);
@@ -453,7 +561,7 @@ test("Canvas customer Fal video is refused instead of openai-compat /videos", ()
         prompt: "p",
         duration: 5,
       }),
-    /Studio 已支持生图|视频未接线|未实现/,
+    /Studio 已支持生图|视频未接线|未实现|未映射到官方队列端点/,
   );
 });
 

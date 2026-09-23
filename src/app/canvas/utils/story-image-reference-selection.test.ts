@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildStoryImageReferenceDelivery } from "./story-image-reference-delivery.mjs";
 import { selectStoryImageReferences } from "./story-image-reference-selection.mjs";
 import type { StoryImageReferenceWarning } from "./story-image-reference-selection.ts";
 
@@ -66,4 +67,23 @@ test("uncut turnaround sheet submits as one identity reference", () => {
     warnings.some((warning) => warning.message.includes("不会回退提交四视图设定表")),
     false,
   );
+
+  const unsupportedSelection = selectStoryImageReferences({
+    ...turnaroundSheetWithoutDerivedViews(),
+    capability: {
+      referenceCount: { state: "unsupported", reason: "仅支持文生图" },
+      storyPromptConstraintStyle: "explicit-exclusions",
+    },
+    requestedOperation: "edit",
+  });
+  assert.equal(unsupportedSelection.submitted.length, 0);
+  assert.equal(unsupportedSelection.submissionPlan.operation, "generate");
+  const delivery = buildStoryImageReferenceDelivery(unsupportedSelection, {
+    providerId: "preset-openai",
+    providerLabel: "OpenAI",
+    model: "gpt-image-2",
+    operation: "edit",
+    referenceCapacity: { state: "verified", max: 16 },
+  });
+  assert.equal(delivery.snapshot.operation, "generate");
 });

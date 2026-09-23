@@ -51,11 +51,15 @@ export function CanvasVideoSettingsPopover({ config, onGenerationSettingsChange,
         void persistApiSettingsBeforeClose(
             flushConfigStore,
             () => setOpen(false),
-            (error) => { message.error(error); },
+            (error) => {
+                console.warn(error);
+                setOpen(false);
+            },
         ).finally(() => {
             closeInFlightRef.current = false;
+            setOpen(false);
         });
-    }, [message]);
+    }, []);
 
     useEffect(() => {
         if (!open) return;
@@ -92,7 +96,7 @@ export function CanvasVideoSettingsPopover({ config, onGenerationSettingsChange,
         onGenerationSettingsChange?.(settings, scope, capabilityId);
     };
 
-    const panel = open && buttonRect ? <VideoSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} operation={operation} onConfigChange={handleConfigChange} onGenerationSettingsChange={handleGenerationSettingsChange} /> : null;
+    const panel = open && buttonRect ? <VideoSettingsPortal buttonRect={buttonRect} panelRef={panelRef} placement={placement} theme={theme} config={config} operation={operation} onClose={() => requestOpen(false)} onConfigChange={handleConfigChange} onGenerationSettingsChange={handleGenerationSettingsChange} /> : null;
 
     return (
         <>
@@ -115,6 +119,7 @@ function VideoSettingsPortal({
     theme,
     config,
     operation,
+    onClose,
     onConfigChange,
     onGenerationSettingsChange,
 }: {
@@ -124,6 +129,7 @@ function VideoSettingsPortal({
     theme: (typeof canvasThemes)[keyof typeof canvasThemes];
     config: AiConfig;
     operation?: VideoGenerationOperation;
+    onClose?: () => void;
     onConfigChange: (key: keyof AiConfig, value: string) => void;
     onGenerationSettingsChange: (settings: VideoGenerationSettings, scope: VideoGenerationSettingsScope, capabilityId: string) => void;
 }) {
@@ -150,7 +156,12 @@ function VideoSettingsPortal({
 
     return createPortal(
         <>
-            <div aria-hidden className="fixed inset-0 backdrop-blur-[3px]" style={{ zIndex: 1199, background: "rgba(12, 10, 9, 0.28)" }} />
+            <div
+                aria-hidden
+                className="fixed inset-0 backdrop-blur-[2px] cursor-pointer"
+                style={{ zIndex: 1199, background: "rgba(12, 10, 9, 0.2)" }}
+                onClick={onClose}
+            />
             <div
                 ref={panelRef}
                 className="canvas-image-settings-popover"

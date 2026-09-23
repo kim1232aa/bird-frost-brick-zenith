@@ -70,7 +70,7 @@ export function EcommerceSuitePage() {
       return { ok: false, error: message };
     }
     if (!product.trim()) {
-      const message = "先写产品描述，或上传一张商品参考图。";
+      const message = "请填写产品基本描述（如商品品类、特征），商品参考图可选。";
       setError(message);
       return { ok: false, error: message };
     }
@@ -83,6 +83,8 @@ export function EcommerceSuitePage() {
         relays,
         prompt: `${composeEcommercePrompt(product, shot, sceneId, packId)}${extra ? ` Extra direction: ${extra}` : ""}`,
         imageUrl: reference || undefined,
+        imageUrls: reference ? [reference] : undefined,
+        operation: reference ? "edit" : "generate",
         providerId,
         model,
         size: imageParams.size,
@@ -110,7 +112,7 @@ export function EcommerceSuitePage() {
       return;
     }
     if (!product.trim()) {
-      setError("先写产品描述，或上传一张商品参考图。");
+      setError("请填写产品基本描述（如商品品类、特征），商品参考图可选。");
       return;
     }
     setError("");

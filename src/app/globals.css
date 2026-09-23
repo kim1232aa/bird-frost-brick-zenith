@@ -142,7 +142,7 @@
   /* 自定义滚动条 - Firefox */
   html {
     scrollbar-width: thin;
-    scrollbar-color: rgba(139, 92, 246, 0.2) transparent;
+    scrollbar-color: rgba(120, 113, 108, 0.38) transparent;
   }
 
   /* 自定义滚动条 - WebKit */
@@ -156,7 +156,7 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background-color: rgba(139, 92, 246, 0.2);
+    background-color: rgba(120, 113, 108, 0.32);
     border-radius: 999px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -164,12 +164,12 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(139, 92, 246, 0.4);
+    background-color: rgba(87, 83, 78, 0.5);
     background-clip: padding-box;
   }
 
   ::-webkit-scrollbar-thumb:active {
-    background-color: rgba(139, 92, 246, 0.6);
+    background-color: rgba(68, 64, 60, 0.62);
     background-clip: padding-box;
   }
 
@@ -213,26 +213,36 @@
     display: none;
   }
 
-  .scrollbar-fancy {
+  .scrollbar-fancy,
+  .thin-scrollbar,
+  .canvas-neutral-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: rgba(139, 92, 246, 0.2) transparent;
+    scrollbar-color: rgba(120, 113, 108, 0.38) transparent;
   }
-  .scrollbar-fancy::-webkit-scrollbar {
+  .scrollbar-fancy::-webkit-scrollbar,
+  .thin-scrollbar::-webkit-scrollbar,
+  .canvas-neutral-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
-  .scrollbar-fancy::-webkit-scrollbar-track {
+  .scrollbar-fancy::-webkit-scrollbar-track,
+  .thin-scrollbar::-webkit-scrollbar-track,
+  .canvas-neutral-scrollbar::-webkit-scrollbar-track {
     background: transparent;
   }
-  .scrollbar-fancy::-webkit-scrollbar-thumb {
-    background-color: rgba(139, 92, 246, 0.2);
+  .scrollbar-fancy::-webkit-scrollbar-thumb,
+  .thin-scrollbar::-webkit-scrollbar-thumb,
+  .canvas-neutral-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(120, 113, 108, 0.34);
     border-radius: 999px;
     border: 1px solid transparent;
     background-clip: padding-box;
     transition: background-color 0.2s ease;
   }
-  .scrollbar-fancy::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(139, 92, 246, 0.4);
+  .scrollbar-fancy::-webkit-scrollbar-thumb:hover,
+  .thin-scrollbar::-webkit-scrollbar-thumb:hover,
+  .canvas-neutral-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(87, 83, 78, 0.55);
     background-clip: padding-box;
   }
   .scrollbar-fancy::-webkit-scrollbar-corner {

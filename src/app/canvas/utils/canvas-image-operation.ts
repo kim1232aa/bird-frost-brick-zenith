@@ -144,6 +144,10 @@ export function resolveStoryWorkflowImageOperation(
   );
   if (selected) return selected.capability.operation;
 
+  // 如果模型不支持参考图（如 Grok 纯文生图），优雅降级为纯文生图 generate 继续生成，绝不抛错阻断
+  const fallbackGenerate = checked.find(({ capability }) => capability.availability.state === "supported" && capability.operation === "generate");
+  if (fallbackGenerate) return fallbackGenerate.capability.operation;
+
   const reasons = checked.flatMap(({ capability, validation }) => [
     ...(capability.availability.state === "supported"
       ? []

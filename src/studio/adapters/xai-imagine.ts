@@ -227,10 +227,7 @@ export const xaiImagineAdapter: StudioAdapter = {
     } catch (err) {
       const message = err instanceof Error ? err.message : "失败";
       if (/404/i.test(message)) return { ok: false, message: `Imagine 生图 404：${message}` };
-      if (/401|invalid|unauthorized|model|quota|billing|parameter/i.test(message)) {
-        return { ok: true, message: `生图端点在，厂商返回：${message.slice(0, 160)}` };
-      }
-      return { ok: false, message };
+      return { ok: false, message: `xAI Imagine 校验失败：${message.slice(0, 160)}` };
     }
   },
 };

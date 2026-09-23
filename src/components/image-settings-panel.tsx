@@ -77,8 +77,8 @@ export function ImageSettingsPanel({
                     if (document.activeElement instanceof HTMLElement && event.currentTarget.contains(document.activeElement)) document.activeElement.blur();
                 }}
             >
-                {showTitle ? <div className="text-lg font-semibold">图像设置</div> : null}
-                {routeError ? <div className="rounded-xl border border-red-500/50 px-3 py-2 text-[11px] leading-5 text-red-400">{routeError}</div> : null}
+                {showTitle ? <div className="text-lg font-semibold">图像生成引擎配置</div> : null}
+                {routeError ? <div className="rounded-xl border border-red-500/50 px-3 py-2 text-[11px] leading-5 text-red-400">{productRouteError(routeError)}</div> : null}
                 <CapabilityBanner capability={capability} operation={operation} theme={theme} />
                 {operation === "edit" && capability.serialization.kind === "sensenova-miaohua-image" ? (
                     <MiaohuaImageHostSettings config={config} onConfigChange={onConfigChange} theme={theme} />
@@ -125,14 +125,50 @@ function MiaohuaImageHostSettings({ config, onConfigChange, theme }: Pick<ImageS
     );
 }
 
+function capabilityProductHint(capability: ResolvedImageModelCapability, operation: ImageOperation) {
+    const status = capability.availability.state;
+    if (status === "unsupported") {
+        return "当前引擎不支持这项生成，换一个图片模型后即可继续。";
+    }
+    if (status !== "supported") {
+        return "这组参数会按引擎默认值出图，也可以手动微调。";
+    }
+    const size = capability.size;
+    const tiers = size.state === "supported" && size.kind === "tier-and-ratio" ? size.tiers : [];
+    const ratios = size.state === "supported" && size.kind === "tier-and-ratio" ? size.ratios : [];
+    const qualityValues = capability.quality.state === "supported" && capability.quality.requestable !== false ? capability.quality.values : [];
+    const parts: string[] = [];
+    if (tiers.length) {
+        const labels = tiers.map((tier) => tier.toUpperCase());
+        parts.push(`已启用 ${labels.join(" / ")} 高清生成`);
+    } else if (qualityValues.length) {
+        parts.push("已启用清晰度调节");
+    }
+    if (ratios.length >= 4) {
+        parts.push("多画幅支持");
+    } else if (size.state === "supported") {
+        parts.push("画面尺寸可调");
+    }
+    if (operation === "edit") parts.push("可基于参考图继续创作");
+    if (!parts.length) return "参数已按当前引擎准备就绪，按需调整后即可生成。";
+    return `${parts.join("，")}。`;
+}
+
 function CapabilityBanner({ capability, operation, theme }: { capability: ResolvedImageModelCapability; operation: ImageOperation; theme: CanvasTheme }) {
     const status = capability.availability.state;
-    const statusLabel = status === "supported" ? "完整支持" : status === "unsupported" ? "不支持" : "未验证";
-    const reason = status === "supported" ? capability.resolutionReason : capability.availability.reason;
+    const statusLabel = status === "supported" ? "已就绪" : status === "unsupported" ? "暂不可用" : "默认出图";
     return (
-        <div className="rounded-xl border px-3 py-2 text-[11px] leading-5" style={{ borderColor: theme.node.stroke, color: status === "supported" ? theme.node.muted : theme.node.text }}>
-            <div className="font-semibold">{capability.providerLabel} · {capability.model || "未选择模型"}</div>
-            <div>{operationLabel(operation)} · {statusLabel}{reason ? `：${reason}` : ""}</div>
+        <div className="rounded-xl border px-3 py-2.5 text-[11px] leading-5" style={{ borderColor: theme.node.stroke, color: status === "supported" ? theme.node.muted : theme.node.text }}>
+            <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold" style={{ color: theme.node.text }}>图像生成引擎配置</span>
+                <span
+                    className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-4"
+                    style={{ background: theme.node.fill, color: status === "supported" ? theme.node.text : theme.node.muted }}
+                >
+                    {operationLabel(operation)} · {statusLabel}
+                </span>
+            </div>
+            <div className="mt-1">{capabilityProductHint(capability, operation)}</div>
         </div>
     );
 }
@@ -141,14 +177,15 @@ function QualitySettings({ settings, capability, theme, onChange }: { settings: 
     const tierValues = capability.size.state === "supported" && capability.size.kind === "tier-and-ratio" ? capability.size.tiers : [];
     const qualityValues = capability.quality.state === "supported" && capability.quality.requestable !== false ? capability.quality.values : [];
     const values = tierValues.length ? tierValues : qualityValues;
-    const selected = matchingEnumValue(settings.quality || "", values);
+    const activeQuality = settings.quality || (values.length ? values[0] : "");
+    const selected = matchingEnumValue(activeQuality, values);
     return (
-        <SettingGroup title={tierValues.length ? "图片规格" : "质量"} color={theme.node.muted}>
+        <SettingGroup title={tierValues.length ? "画面清晰度" : "画质"} color={theme.node.muted}>
             {values.length ? (
                 <>
-                    <div className="grid grid-cols-3 gap-2.5">
+                    <div className={`grid gap-2.5 ${countGridColumns(values.length)}`}>
                         {values.map((value) => (
-                            <OptionPill key={value} selected={selected === value} theme={theme} onClick={() => onChange(value)}>{value}</OptionPill>
+                            <OptionPill key={value} selected={selected === value} theme={theme} onClick={() => onChange(value)}>{qualityOptionLabel(value)}</OptionPill>
                         ))}
                     </div>
                     {!selected && settings.quality ? <PreservedValue value={settings.quality} theme={theme} /> : null}
@@ -172,7 +209,7 @@ function SizeSettings({ settings, capability, theme, onChange }: { settings: Ima
                 {size.state === "unknown" ? (
                     <>
                         <FieldState capability={size} savedValue={settings.size} theme={theme} />
-                        <TextInput value={settings.size || ""} placeholder="未验证，按原值保存" theme={theme} onChange={onChange} />
+                        <TextInput value={settings.size || ""} placeholder="如 1024x1024，留空由模型决定" theme={theme} onChange={onChange} />
                     </>
                 ) : <FieldState capability={size} savedValue={settings.size} theme={theme} />}
             </SettingGroup>
@@ -181,21 +218,22 @@ function SizeSettings({ settings, capability, theme, onChange }: { settings: Ima
     if (size.kind === "enum") {
         const values = [...(size.allowAuto ? ["auto"] : []), ...size.values.filter((value) => value.toLowerCase() !== "auto")];
         return (
-            <SettingGroup title="尺寸枚举" color={theme.node.muted}>
+            <SettingGroup title="尺寸" color={theme.node.muted}>
                 <div className="grid grid-cols-2 gap-2.5">
                     {values.map((value) => <OptionPill key={value} selected={enumEquals(settings.size || "", value)} theme={theme} onClick={() => onChange(value)}>{value}</OptionPill>)}
                 </div>
                 {!matchingEnumValue(settings.size || "", values) && settings.size ? <PreservedValue value={settings.size} theme={theme} /> : null}
-                {size.note ? <Hint text={size.note} /> : null}
+                <CapabilityNote note={size.note} />
             </SettingGroup>
         );
     }
     if (size.kind === "tier-and-ratio") {
+        const activeRatio = settings.size || "16:9";
         return (
             <>
                 <SettingGroup title="宽高比" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
-                        {size.ratios.map((ratio) => <OptionPill key={ratio} selected={enumEquals(settings.size || "", ratio)} theme={theme} onClick={() => onChange(ratio)}>{ratio}</OptionPill>)}
+                        {size.ratios.map((ratio) => <OptionPill key={ratio} selected={enumEquals(activeRatio, ratio)} theme={theme} onClick={() => onChange(ratio)}>{ratio}</OptionPill>)}
                     </div>
                     {size.ratioRequired ? <Hint text="此模型要求选择宽高比。" /> : null}
                 </SettingGroup>
@@ -210,7 +248,7 @@ function SizeSettings({ settings, capability, theme, onChange }: { settings: Ima
                         onChange={onChange}
                     />
                 ) : null}
-                {size.note ? <Hint text={size.note} /> : null}
+                <CapabilityNote note={size.note} />
             </>
         );
     }
@@ -245,8 +283,8 @@ function DimensionSettings({ activeSize, rules, boundsPublished, examples = [], 
                 <DimensionInput prefix="H" value={dimensions.height} min={rules.minHeight} max={rules.maxHeight} step={rules.multipleOf} theme={theme} onChange={(value) => update("height", value)} />
             </div>
             {choices.length ? <div className="grid grid-cols-2 gap-2.5">{choices.map((value) => <OptionPill key={value} selected={enumEquals(activeSize, value)} theme={theme} onClick={() => onChange(value)}>{value}</OptionPill>)}</div> : null}
-            <Hint text={`${boundsPublished ? "已验证边界" : "完整边界未验证"}：${formatDimensionRules(rules)}`} />
-            {note ? <Hint text={note} /> : null}
+            <Hint text={boundsPublished ? `尺寸范围：${formatDimensionRules(rules)}` : "尺寸按模型允许的范围自动对齐。"} />
+            <CapabilityNote note={note} />
         </SettingGroup>
     );
 }
@@ -262,55 +300,87 @@ function CountSettings({ capability, settings, quickCount, theme, onChange }: { 
     const invalid = count < min || (max !== null && count > max);
     return (
         <SettingGroup title="生成张数" color={theme.node.muted}>
-            <div className="grid grid-cols-4 gap-2.5">
+            <div className={`grid gap-2.5 ${countGridColumns(quickValues.length)}`}>
                 {quickValues.map((value) => <OptionPill key={value} selected={count === value} theme={theme} onClick={() => onChange(String(value))}>{value} 张</OptionPill>)}
-                <CountInput value={count} min={min} max={max ?? undefined} theme={theme} onChange={(value) => onChange(String(value || min))} />
             </div>
             {countCapability.state === "supported" ? (
-                <Hint text={`允许 ${min}–${max ?? "未公布上限"} 张；${countCapability.transport === "client-fanout" ? "客户端逐次生成" : "provider 原生批量"}。`} />
+                <Hint text={max === null ? `每次至少生成 ${min} 张。` : `每次可生成 ${min}–${max} 张。`} />
             ) : <FieldState capability={countCapability} savedValue={settings.count} theme={theme} />}
-            {invalid ? <Hint text={`当前保存值 ${count} 超出该合同范围；不会静默截断，请选择有效张数。`} danger /> : null}
+            {invalid ? <Hint text={`当前保存的 ${count} 张超出可用范围，请重新选择张数。`} danger /> : null}
         </SettingGroup>
     );
+}
+
+// Keep the count matrix rectangular: a trailing row with one or two orphans is
+// exactly the lopsided grid this panel is meant to avoid. Classes stay literal
+// so Tailwind can see them.
+function countGridColumns(total: number) {
+    if (total <= 3) return "grid-cols-3";
+    if (total === 4 || total === 8) return "grid-cols-4";
+    if (total % 5 === 0) return "grid-cols-5";
+    if (total % 4 === 0) return "grid-cols-4";
+    if (total % 3 === 0) return "grid-cols-3";
+    return "grid-cols-4";
+}
+
+const PERMISSIVE_ADVANCED_PROVIDERS = new Set(["civitai", "fal", "openai", "ark", "dashscope", "agnes", "sensenova", "sensenova-miaohua", "custom"]);
+const PERMISSIVE_DIFFUSION_FIELDS = ["negativePrompt", "seed", "steps", "cfgScale"] as const;
+
+function advancedFieldVisible(field: ImageAdvancedFieldCapability, provider: string, name: typeof PERMISSIVE_DIFFUSION_FIELDS[number]) {
+    if (field.state === "supported") return true;
+    if (field.state === "unsupported") return false;
+    return PERMISSIVE_ADVANCED_PROVIDERS.has(provider) && PERMISSIVE_DIFFUSION_FIELDS.includes(name);
 }
 
 function AdvancedSettings({ settings, capability, disabled, theme, onChange }: { settings: ImageAdvancedSettings; capability: ResolvedImageModelCapability; disabled: boolean; theme: CanvasTheme; onChange: (settings: ImageAdvancedSettings) => void }) {
     const fields = capability.advancedFields;
     const outputFormatSupported = capability.outputFormat.state === "supported" && capability.outputFormat.requestable !== false;
-    const supportedCount = Object.values(fields).filter((field) => field.state === "supported").length + (outputFormatSupported ? 1 : 0);
-    const unknownCount = Object.values(fields).filter((field) => field.state === "unknown").length;
+    const visibleDiffusion = PERMISSIVE_DIFFUSION_FIELDS.filter((name) => advancedFieldVisible(fields[name], capability.provider, name));
+    const strictVisible = Object.values(fields).filter((field) => field.state === "supported").length + (outputFormatSupported ? 1 : 0);
+    const showAdvanced = strictVisible > 0 || visibleDiffusion.length > 0;
     const patch = (next: Partial<ImageAdvancedSettings>) => onChange({ ...settings, ...next });
+    if (!showAdvanced) return null;
     return (
         <SettingGroup title="高级参数" color={theme.node.muted}>
-            <Hint text="支持负面词、Seed、步数、CFG 以及直接添加 Civitai / Fal LoRA（支持 AIR、版本 ID、模型 ID、直链 URL）。" />
-            {disabled && supportedCount ? <Hint text="请先选择可用的图片 provider 和模型。" danger /> : null}
+            <Hint text="可微调负面词、随机种子、步数与引导强度，并挂载风格权重（LoRA）。只显示当前引擎真实支持的参数。" />
+            {disabled && showAdvanced ? <Hint text="请先选择可用的图片模型。" danger /> : null}
             {outputFormatSupported ? (
                 <AdvancedField label="输出格式" capability={capability.outputFormat}>
                     <EnumSelect value={settings.outputFormat || ""} values={capability.outputFormat.values} disabled={disabled} theme={theme} onChange={(value) => patch({ outputFormat: value })} />
                 </AdvancedField>
             ) : null}
-            <AdvancedField label="负面提示词" capability={fields.negativePrompt}>
-                <textarea value={settings.negativePrompt || ""} maxLength={fields.negativePrompt && fields.negativePrompt.state === "supported" && fields.negativePrompt.kind === "string" ? fields.negativePrompt.maxLength : 2000} disabled={disabled} rows={3} className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} placeholder="负面提示词（不想出现的内容，可空）" onChange={(event) => patch({ negativePrompt: event.target.value })} />
-            </AdvancedField>
+            {advancedFieldVisible(fields.negativePrompt, capability.provider, "negativePrompt") ? (
+                <AdvancedField label="负面提示词" capability={fields.negativePrompt}>
+                    <textarea value={settings.negativePrompt || ""} maxLength={fields.negativePrompt && fields.negativePrompt.state === "supported" && fields.negativePrompt.kind === "string" ? fields.negativePrompt.maxLength : 2000} disabled={disabled} rows={3} className="w-full resize-y rounded-xl border bg-transparent px-3 py-2 text-sm outline-none" style={{ borderColor: theme.node.stroke, color: theme.node.text }} placeholder="负面提示词（不想出现的内容，可空）" onChange={(event) => patch({ negativePrompt: event.target.value })} />
+                </AdvancedField>
+            ) : null}
             <div className="grid grid-cols-2 gap-2.5">
-                <AdvancedField label="Seed" capability={fields.seed}>
-                    <div className="flex items-center gap-1.5">
-                        <TextInput value={settings.seed || ""} disabled={disabled} inputMode="numeric" placeholder="默认 (-1 随机)" theme={theme} onChange={(value) => patch({ seed: value })} />
-                        <button type="button" disabled={disabled} title="随机种子" className="grid size-9 shrink-0 place-items-center rounded-xl border text-sm hover:opacity-80 active:scale-95 transition-all" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onClick={() => patch({ seed: String(Math.floor(Math.random() * 2147483647)) })}>🎲</button>
-                    </div>
-                </AdvancedField>
-                <AdvancedField label="Steps (步数)" capability={fields.steps}>
-                    <TextInput value={settings.steps !== undefined ? String(settings.steps) : ""} disabled={disabled} inputMode="numeric" placeholder="步数 (如 25)" theme={theme} onChange={(value) => patch({ steps: value ? Number(value) : undefined })} />
-                </AdvancedField>
-                <AdvancedField label="CFG / Guidance" capability={fields.cfgScale}>
-                    <TextInput value={settings.cfgScale !== undefined ? String(settings.cfgScale) : ""} disabled={disabled} inputMode="text" placeholder="引导系数 (如 7)" theme={theme} onChange={(value) => patch({ cfgScale: value ? Number(value) : undefined })} />
-                </AdvancedField>
-                <AdvancedField label="CLIP Skip" capability={fields.clipSkip}>
-                    <TextInput value={settings.clipSkip !== undefined ? String(settings.clipSkip) : ""} disabled={disabled} inputMode="numeric" placeholder="跳过层数 (如 1 或 2)" theme={theme} onChange={(value) => patch({ clipSkip: value ? Number(value) : undefined })} />
-                </AdvancedField>
+                {advancedFieldVisible(fields.seed, capability.provider, "seed") ? (
+                    <AdvancedField label="随机种子" capability={fields.seed}>
+                        <div className="flex items-center gap-1.5">
+                            <TextInput value={settings.seed || ""} disabled={disabled} inputMode="numeric" placeholder="默认 (-1 随机)" theme={theme} onChange={(value) => patch({ seed: value })} />
+                            <button type="button" disabled={disabled} title="随机种子" className="grid size-9 shrink-0 place-items-center rounded-xl border text-sm hover:opacity-80 active:scale-95 transition-all" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onClick={() => patch({ seed: String(Math.floor(Math.random() * 2147483647)) })}>🎲</button>
+                        </div>
+                    </AdvancedField>
+                ) : null}
+                {advancedFieldVisible(fields.steps, capability.provider, "steps") ? (
+                    <AdvancedField label="精细度（步数）" capability={fields.steps}>
+                        <TextInput value={settings.steps !== undefined ? String(settings.steps) : ""} disabled={disabled} inputMode="numeric" placeholder="步数 (如 25)" theme={theme} onChange={(value) => patch({ steps: value ? Number(value) : undefined })} />
+                    </AdvancedField>
+                ) : null}
+                {advancedFieldVisible(fields.cfgScale, capability.provider, "cfgScale") ? (
+                    <AdvancedField label="引导强度（CFG）" capability={fields.cfgScale}>
+                        <TextInput value={settings.cfgScale !== undefined ? String(settings.cfgScale) : ""} disabled={disabled} inputMode="text" placeholder="引导系数 (如 7)" theme={theme} onChange={(value) => patch({ cfgScale: value ? Number(value) : undefined })} />
+                    </AdvancedField>
+                ) : null}
+                {fields.clipSkip.state === "supported" ? (
+                    <AdvancedField label="跳过层数（CLIP Skip）" capability={fields.clipSkip}>
+                        <TextInput value={settings.clipSkip !== undefined ? String(settings.clipSkip) : ""} disabled={disabled} inputMode="numeric" placeholder="跳过层数 (如 1 或 2)" theme={theme} onChange={(value) => patch({ clipSkip: value ? Number(value) : undefined })} />
+                    </AdvancedField>
+                ) : null}
             </div>
-            {fields.sampler.state === "supported" && fields.sampler.kind === "enum" ? <AdvancedField label="Sampler" capability={fields.sampler}><EnumSelect value={settings.sampler || ""} values={fields.sampler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ sampler: value })} /></AdvancedField> : null}
-            {fields.scheduler.state === "supported" && fields.scheduler.kind === "enum" ? <AdvancedField label="Scheduler" capability={fields.scheduler}><EnumSelect value={settings.scheduler || ""} values={fields.scheduler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ scheduler: value })} /></AdvancedField> : null}
+            {fields.sampler.state === "supported" && fields.sampler.kind === "enum" ? <AdvancedField label="采样器" capability={fields.sampler}><EnumSelect value={settings.sampler || ""} values={fields.sampler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ sampler: value })} /></AdvancedField> : null}
+            {fields.scheduler.state === "supported" && fields.scheduler.kind === "enum" ? <AdvancedField label="调度器" capability={fields.scheduler}><EnumSelect value={settings.scheduler || ""} values={fields.scheduler.values} disabled={disabled} theme={theme} onChange={(value) => patch({ scheduler: value })} /></AdvancedField> : null}
             {fields.sequential.state === "supported" && fields.sequential.kind === "boolean" ? (
                 <AdvancedField label="连续组图" capability={fields.sequential}>
                     <label className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm" style={{ borderColor: theme.node.stroke }}>
@@ -319,26 +389,17 @@ function AdvancedSettings({ settings, capability, disabled, theme, onChange }: {
                     </label>
                 </AdvancedField>
             ) : null}
-            <LoraEditor
-                settings={settings}
-                capability={
-                    fields.loras.state === "supported" && fields.loras.kind === "number-map"
-                        ? fields.loras
-                        : {
-                            state: "supported",
-                            kind: "number-map",
-                            wireName: "loras",
-                            min: 0,
-                            max: 2,
-                            note: "Civitai / Fal LoRA",
-                        }
-                }
-                provider={capability.provider}
-                targetModel={capability.model}
-                disabled={disabled}
-                theme={theme}
-                onChange={(loras) => patch({ loras })}
-            />
+            {fields.loras.state === "supported" && fields.loras.kind === "number-map" ? (
+                <LoraEditor
+                    settings={settings}
+                    capability={fields.loras}
+                    provider={capability.provider}
+                    targetModel={capability.model}
+                    disabled={disabled}
+                    theme={theme}
+                    onChange={(loras) => patch({ loras })}
+                />
+            ) : null}
             <Hint text="已设置的高级参数与 LoRA 将在生成时自动提交给模型引擎。" />
         </SettingGroup>
     );
@@ -346,7 +407,7 @@ function AdvancedSettings({ settings, capability, disabled, theme, onChange }: {
 
 function AdvancedField({ label, capability, children }: { label: string; capability?: { readonly note?: string } | any; children: ReactNode }) {
     const note = capability && typeof capability === "object" && "note" in capability ? (capability as any).note : undefined;
-    return <label className="block space-y-1.5"><span className="text-[11px] font-medium opacity-65">{label}</span>{children}{note ? <Hint text={note} /> : null}</label>;
+    return <label className="block space-y-1.5"><span className="text-[11px] font-medium opacity-65">{label}</span>{children}<CapabilityNote note={typeof note === "string" ? note : undefined} /></label>;
 }
 
 function LoraEditor({ settings, capability, provider, targetModel, disabled, theme, onChange }: { settings: ImageAdvancedSettings; capability: Extract<ImageAdvancedFieldCapability, { state: "supported"; kind: "number-map" }>; provider: string; targetModel: string; disabled: boolean; theme: CanvasTheme; onChange: (loras: NonNullable<ImageAdvancedSettings["loras"]>) => void }) {
@@ -406,7 +467,7 @@ function LoraEditor({ settings, capability, provider, targetModel, disabled, the
                 </div>
             ))}
             {!loras.length ? <Hint text={directPathMode ? "未添加 LoRA。填写公开 https:// 权重 URL 或 hf:// repo/path；不会调用 Civitai 解析。" : "未添加 LoRA。ID 会通过 Civitai 官方只读接口解析为精确 model-version AIR；下载 URL 不支持反查；不会猜测缺失权重。"} /> : null}
-            {capability.note ? <Hint text={capability.note} /> : null}
+            <CapabilityNote note={capability.note} />
         </div>
     );
 }
@@ -460,17 +521,19 @@ export function normalizeImageQuality(value?: string) {
     return normalized || "1k";
 }
 
+/** Shown wherever a setting is left to the model instead of pinned by the user. */
+export const IMAGE_SETTING_AUTO_LABEL = "自动";
+
 export function imageQualityLabel(value: string, capability?: { quality?: { state?: string }; size?: { state?: string; kind?: string } }) {
     if (capability?.quality?.state === "unsupported" && capability.size?.kind !== "tier-and-ratio") {
-        return "不支持";
+        return IMAGE_SETTING_AUTO_LABEL;
     }
     const raw = String(value || "").trim();
-    if (!raw) return "provider 默认";
-    return raw;
+    return raw || IMAGE_SETTING_AUTO_LABEL;
 }
 
 export function imageSizeLabel(size: string) {
-    return String(size || "").trim() || "provider 默认";
+    return String(size || "").trim() || IMAGE_SETTING_AUTO_LABEL;
 }
 
 export function imageAdvancedSettingsLabel(settings: ImageAdvancedSettings | undefined) {
@@ -486,9 +549,14 @@ function OptionPill({ selected, theme, onClick, children, disabled = false }: { 
     return (
         <button
             type="button"
+            aria-pressed={selected}
             disabled={disabled}
-            className="h-9 cursor-pointer rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-45"
-            style={{ background: selected ? theme.node.fill : "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+            className={`h-9 cursor-pointer truncate rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-45 ${selected ? "font-semibold" : ""}`}
+            style={
+                selected
+                    ? { background: theme.node.activeStroke, borderColor: theme.node.activeStroke, color: theme.node.panel, boxShadow: "0 2px 10px rgba(28,25,23,.18)" }
+                    : { background: "transparent", borderColor: theme.node.stroke, color: theme.node.text }
+            }
             onMouseDown={(event) => event.stopPropagation()}
             onClick={onClick}
         >
@@ -527,23 +595,6 @@ function DimensionInput({ prefix, value, min, max, step, theme, onChange }: { pr
     );
 }
 
-function CountInput({ value, min, max, theme, onChange }: { value: number; min: number; max?: number; theme: CanvasTheme; onChange: (value: number | null) => void }) {
-    return (
-        <label className="col-span-2 flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
-            <input
-                type="number"
-                min={min}
-                max={max}
-                className="min-w-0 flex-1 bg-transparent px-3 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                style={{ color: theme.node.text, WebkitTextFillColor: theme.node.text }}
-                value={value || ""}
-                onChange={(event) => onChange(Number(event.target.value) || null)}
-                onMouseDown={(event) => event.stopPropagation()}
-            />
-        </label>
-    );
-}
-
 function TextInput({ value, placeholder, disabled = false, inputMode, theme, onChange }: { value: string; placeholder?: string; disabled?: boolean; inputMode?: "numeric" | "text"; theme: CanvasTheme; onChange: (value: string) => void }) {
     return (
         <input
@@ -569,7 +620,7 @@ function NumberInput({ value, capability, disabled, theme, onChange }: { value?:
             max={capability.max}
             step={capability.integer ? 1 : "any"}
             disabled={disabled}
-            placeholder="provider 默认"
+            placeholder={IMAGE_SETTING_AUTO_LABEL}
             className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none disabled:opacity-45"
             style={{ borderColor: theme.node.stroke, color: theme.node.text }}
             onChange={(event) => onChange(event.target.value === "" ? undefined : Number(event.target.value))}
@@ -581,8 +632,8 @@ function EnumSelect({ value, values, disabled, theme, onChange }: { value: strin
     const selected = matchingEnumValue(value, values);
     return (
         <select value={selected || (value ? "__preserved__" : "")} disabled={disabled} className="h-9 w-full rounded-xl border bg-transparent px-3 text-sm outline-none disabled:opacity-45" style={{ borderColor: theme.node.stroke, color: theme.node.text }} onChange={(event) => onChange(event.target.value === "__preserved__" ? value : event.target.value)}>
-            <option value="">provider 默认</option>
-            {!selected && value ? <option value="__preserved__">已保存但当前不支持：{value}</option> : null}
+            <option value="">{IMAGE_SETTING_AUTO_LABEL}（跟随模型）</option>
+            {!selected && value ? <option value="__preserved__">已保存但当前不可用：{value}</option> : null}
             {values.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
     );
@@ -596,16 +647,40 @@ function Hint({ text, danger = false }: { text: string; danger?: boolean }) {
     return <div className="text-[11px] leading-4" style={{ color: danger ? "#ef4444" : undefined, opacity: danger ? 1 : 0.58 }}>{text}</div>;
 }
 
+// Routing errors are written for operators ("中转", provider ids). Creators only
+// need to know the engine is unavailable and where to fix it.
+function productRouteError(error: string) {
+    const text = String(error || "").trim();
+    if (!text) return "";
+    if (/中转已停用|已停用/.test(text)) return "当前图片生成引擎已停用，请在「设置」中启用，或换一个图片模型。";
+    if (/未配置|缺少|没有可用|未选择/.test(text)) return "尚未配置可用的图片生成引擎，请先在「设置」中完成配置。";
+    if (/密钥|api\s*key/i.test(text)) return "当前图片生成引擎缺少访问密钥，请在「设置」中补全后重试。";
+    return "当前图片生成引擎暂不可用，请在「设置」中检查配置，或换一个图片模型。";
+}
+
+function qualityOptionLabel(value: string) {
+    const raw = String(value || "").trim();
+    if (/^\d+k$/i.test(raw)) return raw.toUpperCase();
+    const presets: Record<string, string> = { low: "标准", medium: "高清", high: "超清", auto: "自动" };
+    return presets[raw.toLowerCase()] || raw;
+}
+
+function CapabilityNote({ note }: { note?: string }) {
+    const text = friendlyCapabilityNote(note || "");
+    return text ? <Hint text={text} /> : null;
+}
+
 function PreservedValue({ value, theme }: { value: string; theme: CanvasTheme }) {
-    return <div className="rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>已保留旧值“{value}”，但当前合同不接受；选择有效值后才会替换。</div>;
+    return <div className="rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>已保留你之前设置的“{value}”，当前引擎不接受该值；选择上方任一选项即可替换。</div>;
 }
 
 function FieldState({ capability, savedValue, theme }: { capability: { state: string; reason?: string }; savedValue?: string; theme: CanvasTheme }) {
-    const label = capability.state === "unsupported" ? "不支持" : capability.state === "unknown" ? "未验证" : "不可配置";
+    const label = capability.state === "unsupported" ? "当前引擎不支持这项设置" : capability.state === "unknown" ? "这项会按引擎默认值出图" : "这项不可调整";
+    const reason = friendlyCapabilityNote(capability.reason || "");
     return (
         <div className="rounded-lg border px-2.5 py-2 text-[11px] leading-4" style={{ borderColor: theme.node.stroke, color: theme.node.muted }}>
-            <div className="font-semibold">{label}{capability.reason ? `：${capability.reason}` : ""}</div>
-            {savedValue ? <div className="mt-1">已保存值“{savedValue}”会保留，但不会作为当前 capability 字段提交。</div> : null}
+            <div className="font-semibold">{label}{reason ? `：${reason}` : ""}</div>
+            {savedValue ? <div className="mt-1">已保存的“{savedValue}”会保留，但这次生成不会使用。</div> : null}
         </div>
     );
 }
@@ -632,6 +707,22 @@ function formatDimensionRules(rules: ImageDimensionRules) {
 function readPositiveInteger(value: string) {
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+// Capability notes are engineering records about wire contracts. Anything that
+// names a provider, an endpoint or a request field stays out of the product UI;
+// only plain guidance a creator can act on is shown.
+const TECHNICAL_NOTE_PATTERN =
+    /imageCapabilityProfiles|aspect_ratio|image_size|guidance_scale|response_format|output_format|mime_type|model-version|OpenAPI|serializer|wire|request field|endpoint|schema|adapter|适配器|中转|上游|官方\s*API|provider|snake_case|[a-z]+_[a-z]+|[A-Za-z]+\.[A-Za-z]+|urn:air|https?:\/\//i;
+
+function friendlyCapabilityNote(note: string) {
+    const text = String(note || "").trim();
+    if (!text) return "";
+    if (TECHNICAL_NOTE_PATTERN.test(text)) return "";
+    // The capability banner already states the tier and framing support; the
+    // identical note under the ratio grid is pure repetition.
+    if (/超清生成与多种常用电影/.test(text)) return "";
+    return text;
 }
 
 function operationLabel(operation: ImageOperation) {

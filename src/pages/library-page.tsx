@@ -95,8 +95,8 @@ function WorkCard({
           )
         ) : (
           <div className="shot-empty flex flex-col items-center justify-center gap-1.5 p-2 text-center" role="img" aria-label={`${item.title} 媒体不可用`}>
-            <span className="text-xs opacity-75">{broken ? "原图加载失败" : item.kind}</span>
-            {broken && rawUrl ? (
+            <span className="text-xs opacity-75">{broken ? (rawUrl.startsWith("http") ? "原图加载失败" : "历史文件未在服务器找到") : item.kind}</span>
+            {broken && rawUrl.startsWith("http") ? (
               <button
                 type="button"
                 onClick={() => {
@@ -212,7 +212,7 @@ export function LibraryPage() {
           prompt: sw.prompt || "",
           model: sw.model || "",
           providerId: sw.providerId,
-          urls: [sw.url].filter(Boolean),
+          urls: (Array.isArray(sw.urls) && sw.urls.length > 0 ? sw.urls : [sw.url].filter(Boolean)) as string[],
           createdAt: sw.createdAt || new Date().toISOString(),
           persistStatus: "saved",
         });

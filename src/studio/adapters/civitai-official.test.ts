@@ -587,6 +587,11 @@ test("Qwen 3.0 Pro sends required width/height and no LoRAs", () => {
   assert.equal(input.promptExtend, false);
 });
 
+test("Qwen 3.0 Pro honors promptExpansion from UI", () => {
+  const input = stepInput(planCivitaiImageRequest({ model: "qwen-3.0-pro", prompt: "p", promptExpansion: true }));
+  assert.equal(input.promptExtend, true);
+});
+
 test("Grok create includes official version v1.0", () => {
   const input = stepInput(planCivitaiImageRequest({ model: "civitai-grok", prompt: "p" }));
   assert.equal(input.version, "v1.0");

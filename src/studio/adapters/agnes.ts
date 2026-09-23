@@ -4,6 +4,10 @@ import { SAFE_IMAGE_REF_CAP, studioEndpoint } from "./contracts.ts";
 
 const AGNES_IMAGE_RATIOS = new Set(["1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9"]);
 const AGNES_VIDEO_V20_MODEL = "agnes-video-v2.0";
+/** Official `mode` values for Agnes Video V2.0. https://agnes-ai.com/en/docs/agnes-video-v20 */
+const AGNES_VIDEO_MODES = new Set(["ti2vid", "keyframes"]);
+/** Official resolution tiers for Agnes Video V2.0 (probed live 2026-09-23). */
+const AGNES_VIDEO_RESOLUTIONS = new Set(["480p", "720p", "1080p"]);
 const AGNES_VIDEO_DEFAULT_FRAME_RATE = 24;
 const AGNES_VIDEO_RECOMMENDED_FRAMES = new Map<number, number>([
   [3, 81],
@@ -54,10 +58,18 @@ function hasProvidedVideoValue(value: unknown) {
 }
 
 function rejectUnsupportedAgnesVideoFields(input: VideoCreateInput) {
-  const fields: ReadonlyArray<[string, unknown]> = [
+  // Official create-task fields: model, prompt, image, mode, height, width,
+  // num_frames, frame_rate, num_inference_steps, seed, negative_prompt, extra_body.
+  // https://agnes-ai.com/en/docs/agnes-video-v20
+  // `mode` accepts ti2vid or keyframes. Both are documented and accepted by the
+  // live API (probed 2026-09-23: mode=ti2vid returned 200), so only an
+  // undocumented value is rejected.
+  if (hasProvidedVideoValue(input.mode) && !AGNES_VIDEO_MODES.has(String(input.mode).trim().toLowerCase())) {
+    throw new Error(`Agnes V2.0 官方视频的 mode=${String(input.mode)} 不是官方取值（ti2vid / keyframes）；不会猜测该模式。`);
+  }
+  const ignoredFields: ReadonlyArray<[string, unknown]> = [
     ["audioMode", input.audioMode],
     ["quantity", input.quantity],
-    ["mode", input.mode],
     ["frameGuideStrength", input.frameGuideStrength],
     ["safetyChecker", input.safetyChecker],
     ["shift", input.shift],
@@ -66,9 +78,9 @@ function rejectUnsupportedAgnesVideoFields(input: VideoCreateInput) {
     ["scheduler", input.scheduler],
     ["usePro", input.usePro],
   ];
-  for (const [name, value] of fields) {
+  for (const [name, value] of ignoredFields) {
     if (hasProvidedVideoValue(value)) {
-      throw new Error(`Agnes V2.0 官方视频不支持 ${name}；不会静默丢弃该字段。`);
+      console.warn(`Agnes V2.0 官方视频未记录 ${name}，本次不发送，不阻断请求。`);
     }
   }
 }
@@ -108,6 +120,21 @@ export function buildAgnesImageBody(input: ImageGenInput): Record<string, unknow
     size,
   };
   if (AGNES_IMAGE_RATIOS.has(ratio)) body.ratio = ratio;
+  if (typeof input.n === "number" && Number.isFinite(input.n) && input.n > 0) {
+    body.n = input.n;
+  }
+  // Image 2.0/2.1 Flash request fields are model, prompt, size, ratio, image,
+  // return_base64, extra_body.response_format.
+  // https://agnes-ai.com/en/docs/agnes-image-21-flash
+  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
+    console.warn("Agnes Image 官方合同没有 seed，本次不发送。");
+  }
+  if (input.negativePrompt) {
+    console.warn("Agnes Image 官方合同没有 negative_prompt，本次不发送。");
+  }
+  if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
+    console.warn("Agnes Image 官方合同没有 num_inference_steps，本次不发送 steps。");
+  }
   if (refs.length) body.extra_body = { image: refs };
   return body;
 }
@@ -144,6 +171,15 @@ export function buildAgnesVideoBody(input: VideoCreateInput): Record<string, unk
   }
   if (typeof input.width === "number" && Number.isFinite(input.width) && input.width > 0) body.width = input.width;
   if (typeof input.height === "number" && Number.isFinite(input.height) && input.height > 0) body.height = input.height;
+  // Official tiers are 480p / 720p / 1080p. Probed live 2026-09-23:
+  // resolution=720p returned 200 and the service normalized the output size.
+  const resolution = String(input.resolution || "").trim();
+  if (resolution) {
+    if (!AGNES_VIDEO_RESOLUTIONS.has(resolution)) {
+      throw new Error(`Agnes V2.0 的 resolution 只接受 480p / 720p / 1080p，收到 ${resolution}。`);
+    }
+    body.resolution = resolution;
+  }
   if (typeof input.seed === "number" && Number.isFinite(input.seed)) body.seed = input.seed;
   if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
     if (!Number.isInteger(input.steps) || input.steps < 1) {
@@ -178,7 +214,16 @@ export function readAgnesVideoPoll(data: unknown): VideoPollResult {
   const record = data as Record<string, unknown>;
   const status = String(record.status || "").toLowerCase();
   const metadata = record.metadata && typeof record.metadata === "object" ? (record.metadata as Record<string, unknown>) : undefined;
-  const url = String(metadata?.url || "").trim();
+  // Verified 2026-09-23 on a real completed task: the result lives at the
+  // top-level `url` (e.g. https://platform-outputs.agnes-ai.space/videos/...mp4)
+  // and `metadata` comes back null. Reading only metadata.url reported a
+  // finished generation as "完成但无地址", so the top-level field comes first.
+  const url = firstNonEmptyString(
+    record.url,
+    record.video_url,
+    metadata?.url,
+    record.output,
+  );
   if (status === "completed") {
     return url ? { status: "completed", url } : { status: "failed", error: "Agnes 视频完成但无地址" };
   }

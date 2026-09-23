@@ -99,6 +99,7 @@ function isSuccessfulStoryOutput(
   return (
     typeof metadata?.content === "string" &&
     metadata.content.trim().length > 0 &&
+    !metadata.content.startsWith("blob:") &&
     metadata.status !== "loading" &&
     metadata.status !== "error"
   );

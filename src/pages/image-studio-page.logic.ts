@@ -319,6 +319,10 @@ export function resolveImageStudioFamily(selection: string, adapterType?: string
   return "generic";
 }
 
+function permissiveDiffusionField(field: { state: string }) {
+  return field.state === "supported" || field.state === "unknown";
+}
+
 function qualityOptionsForCapability(
   family: ImageStudioFamily,
   capability: ReturnType<typeof studioImageCapability>,
@@ -367,25 +371,25 @@ export function imageStudioParamState(
     // Seedream's official imageGen input accepts an int32 seed; only the Grok
     // engine lacks a seed field in the adapter body. 其他家族按能力合同开：
     // fal flux/seedream 等 profile 已把 seed 标记为 supported。
-    showSeed: (civitai && model !== "civitai-grok") || capability.advancedFields.seed.state === "supported",
-    showNegative: civitai
+    showSeed: family !== "gpt" && !isGrok && ((civitai && model !== "civitai-grok") || permissiveDiffusionField(capability.advancedFields.seed)),
+    showNegative: family !== "gpt" && !isGrok && (civitai
       ? CIVITAI_NEGATIVE_MODELS.has(model)
-      : capability.advancedFields.negativePrompt.state === "supported",
+      : permissiveDiffusionField(capability.advancedFields.negativePrompt)),
     showAspect: capability.size.state === "supported",
     showQuality: qualityOptions.length > 0,
     qualityOptions,
-    showSteps: isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || (capability.advancedFields.steps.state === "supported" && family !== "sensenova"),
+    showSteps: family !== "gpt" && !isGrok && (isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || (permissiveDiffusionField(capability.advancedFields.steps) && family !== "sensenova")),
     defaultSteps: isKrea ? 9 : model.includes("turbo") ? 8 : 25,
-    showCfgScale: isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || capability.advancedFields.cfgScale.state === "supported",
+    showCfgScale: family !== "gpt" && !isGrok && (isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || permissiveDiffusionField(capability.advancedFields.cfgScale)),
     defaultCfgScale: isKrea ? 1.0 : 7.0,
-    showOutputFormat: isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || (capability.outputFormat.state === "supported" && capability.outputFormat.requestable !== false),
+    showOutputFormat: !isGrok && (isCivitaiOrDiffusion || (civitai && model !== "civitai-grok") || (capability.outputFormat.state === "supported" && capability.outputFormat.requestable !== false)),
     defaultOutputFormat: "jpeg",
     outputFormatOptions: ["jpeg", "png", "webp"],
-    showSampler: (civitai && !isKrea && model !== "civitai-grok"),
+    showSampler: !isGrok && (civitai || isCivitaiOrDiffusion),
     samplerOptions: ["Euler", "Euler a", "DPM++ 2M Karras", "DPM++ SDE Karras", "DDIM"],
-    showScheduler: isCivitaiOrDiffusion && !isKrea,
+    showScheduler: !isGrok && (civitai || isCivitaiOrDiffusion),
     schedulerOptions: ["Karras", "sgm_uniform", "Normal", "Exponential"],
-    showDenoise: mode !== "t2i",
+    showDenoise: !isGrok && (mode !== "t2i"),
     defaultDenoise: 0.75,
     ...references,
   };
@@ -556,7 +560,7 @@ export function buildImageStudioRequest<TRelay>(input: {
     imageUrls: input.payload.imageUrls,
     negativePrompt: input.payload.negativePrompt,
     n: input.payload.n,
-    operation: input.mode === "t2i" ? "generate" as const : "edit" as const,
+    operation: input.mode === "t2i" || input.payload.imageUrls.length === 0 ? "generate" as const : "edit" as const,
     loras: input.payload.loras,
     checkpointAir: input.payload.checkpointAir,
     ...(input.payload.steps !== undefined ? { steps: input.payload.steps } : {}),

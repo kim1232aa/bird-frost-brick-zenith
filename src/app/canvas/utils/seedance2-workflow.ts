@@ -196,7 +196,10 @@ export function submittedSeedance2ResultRatio(input: {
   );
 }
 
-export const SEEDANCE2_PLACEHOLDER_FRAME_SIZE = { width: 1114, height: 668 } as const;
+export const SEEDANCE2_PLACEHOLDER_FRAME_SIZE = {
+  width: 560,
+  height: SEEDANCE2_PORTRAIT_MIN_SIZE.height,
+} as const;
 
 export function seedance2PlaceholderSize(value?: string) {
   switch (normalizeSeedance2AspectRatio(value || "9:16")) {
@@ -510,6 +513,11 @@ export function seedance2SourceRatioFromImageNode(sourceImageNode?: CanvasNodeDa
   const height = Number(sourceImageNode.metadata?.naturalHeight || sourceImageNode.height);
   return seedance2SourceRatioFromNaturalSize(width, height);
 }
+
+export {
+  placeSeedance2WorkflowBesideStoryDirector,
+  SEEDANCE2_WORKFLOW_UPSTREAM_GAP,
+} from "./seedance2-workflow-placement";
 
 export function buildSeedance2WorkflowNodes(
   options: Seedance2WorkflowBuildOptions,

@@ -1,7 +1,7 @@
-import type { ImageGenInput, StudioAdapter } from "./types";
-import { translateLorasForProvider, type UniversalLoraItem } from "@/services/api/universal-lora-adapter";
-import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import type { ImageGenInput, StudioAdapter } from "./types.ts";
+import { translateLorasForProvider, type UniversalLoraItem } from "../../services/api/universal-lora-adapter.ts";
+import { allImageUrls, firstImageUrl, studioProxyJson } from "../generate/proxy.ts";
+import { imageRefs } from "../image-refs.ts";
 
 /** International API-Inference. The wired token is from modelscope.ai, not .cn. */
 const MODELSCOPE_IMAGE_BASE = "https://api-inference.modelscope.ai/v1";
@@ -15,7 +15,7 @@ function modelscopeBase(raw?: string) {
 
 /**
  * Qwen-Image / Z-Image 官方支持的尺寸（ModelScope API-Inference 实测可用）。
- * 按宽高比选最近档位；不再把 4:3/3:4/3:2/2:3 粗暴折叠进三档。
+ * 按宽高比选最近档位；完整映射 4:3/3:4/3:2/2:3/16:9/9:16/1:1，不再粗暴阈值折叠。
  */
 const MODELSCOPE_SIZE_BY_ASPECT: Record<string, string> = {
   "1:1": "1328x1328",
@@ -27,23 +27,50 @@ const MODELSCOPE_SIZE_BY_ASPECT: Record<string, string> = {
   "2:3": "1056x1584",
 };
 
-function modelscopeImageSize(size?: string, aspectRatio?: string) {
+const MODELSCOPE_ASPECT_RATIOS: Array<{ ratio: number; size: string }> = [
+  { ratio: 16 / 9, size: "1664x928" },
+  { ratio: 3 / 2, size: "1584x1056" },
+  { ratio: 4 / 3, size: "1472x1140" },
+  { ratio: 1 / 1, size: "1328x1328" },
+  { ratio: 3 / 4, size: "1140x1472" },
+  { ratio: 2 / 3, size: "1056x1584" },
+  { ratio: 9 / 16, size: "928x1664" },
+];
+
+function closestModelScopeSize(w: number, h: number): string {
+  const target = w / h;
+  let best = MODELSCOPE_ASPECT_RATIOS[0]!;
+  let minDiff = Math.abs(best.ratio - target);
+  for (let i = 1; i < MODELSCOPE_ASPECT_RATIOS.length; i++) {
+    const candidate = MODELSCOPE_ASPECT_RATIOS[i]!;
+    const diff = Math.abs(candidate.ratio - target);
+    if (diff < minDiff) {
+      best = candidate;
+      minDiff = diff;
+    }
+  }
+  return best.size;
+}
+
+export function modelscopeImageSize(size?: string, aspectRatio?: string): string {
   const aspect = String(aspectRatio || "").trim();
   if (MODELSCOPE_SIZE_BY_ASPECT[aspect]) return MODELSCOPE_SIZE_BY_ASPECT[aspect];
   const value = String(size || "").trim();
-  if (!value) return "1664x928";
+  if (!value && !aspect) return "1328x1328";
+  if (!value) return "1328x1328";
   if (value === "1K" || value === "1:1" || value === "1024x1024" || value === "1328x1328") return "1328x1328";
   if (value === "9:16" || value === "720x1280" || value === "928x1664") return "928x1664";
-  if (value === "2K" || value === "3K" || value === "16:9" || value === "1280x720" || value === "1920x1080") return "1664x928";
+  if (value === "2K" || value === "3K" || value === "16:9" || value === "1280x720" || value === "1920x1080" || value === "1664x928") return "1664x928";
+  if (value === "4:3" || value === "1472x1140") return "1472x1140";
+  if (value === "3:4" || value === "1140x1472") return "1140x1472";
+  if (value === "3:2" || value === "1584x1056") return "1584x1056";
+  if (value === "2:3" || value === "1056x1584") return "1056x1584";
   if (/^\d+x\d+$/.test(value)) {
     const [w, h] = value.split("x").map(Number);
-    if (!w || !h) return "1664x928";
-    const ratio = w / h;
-    if (ratio > 1.3) return "1664x928";
-    if (ratio < 0.77) return "928x1664";
-    return "1328x1328";
+    if (!w || !h) return "1328x1328";
+    return closestModelScopeSize(w, h);
   }
-  return "1664x928";
+  return "1328x1328";
 }
 
 type ModelScopeImagePlanInput = Pick<
@@ -175,7 +202,7 @@ export const modelscopeAdapter: StudioAdapter = {
       const message = err instanceof Error ? err.message : "失败";
       if (/401|invalid|unauthorized|forbidden/i.test(message)) return { ok: false, message: `Token 被拒绝：${message.slice(0, 160)}` };
       if (/404|not found/i.test(message)) return { ok: false, message: `端点 404。Base 应为 ${MODELSCOPE_IMAGE_BASE}` };
-      return { ok: true, message: `端点在，厂商返回：${message.slice(0, 160)}` };
+      return { ok: false, message: `魔搭连接失败：${message.slice(0, 160)}` };
     }
   },
 };

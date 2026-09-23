@@ -1,7 +1,7 @@
-import type { StudioAdapter } from "./types";
-import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { collectImageRefs } from "@/studio/image-refs";
-import { huggingfaceImageSize } from "./huggingface";
+import type { StudioAdapter } from "./types.ts";
+import { allImageUrls, studioProxyJson } from "../generate/proxy.ts";
+import { collectImageRefs } from "../image-refs.ts";
+import { huggingfaceImageSize } from "./huggingface.ts";
 import {
   buildOpenAiOfficialImageBody,
   isOfficialOpenAiHost,
@@ -11,7 +11,7 @@ import {
   readOpenAiCompatPoll,
   SAFE_IMAGE_REF_CAP,
   studioEndpoint,
-} from "./contracts";
+} from "./contracts.ts";
 
 /**
  * NanoGPT 的 /v1/images/generations 只接受模型支持的具体分辨率值
@@ -65,6 +65,12 @@ export const openaiCompatAdapter: StudioAdapter = {
           ...(input.quality ? { quality: input.quality } : {}),
           ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
           ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+          ...(typeof input.steps === "number" && Number.isFinite(input.steps) ? { steps: input.steps, num_inference_steps: input.steps } : {}),
+          ...(typeof input.cfgScale === "number" && Number.isFinite(input.cfgScale)
+            ? { cfg_scale: input.cfgScale, guidance_scale: input.cfgScale }
+            : typeof input.guidance === "number" && Number.isFinite(input.guidance)
+              ? { cfg_scale: input.guidance, guidance_scale: input.guidance }
+              : {}),
           ...(editing
             ? {
                 images: refs.map((url) => ({ image_url: url })),
@@ -234,10 +240,7 @@ export const openaiCompatAdapter: StudioAdapter = {
     } catch (err) {
       const message = err instanceof Error ? err.message : "失败";
       if (/404|not found/i.test(message)) return { ok: false, message: `生图端点 404：${path}。换协议或改 images 路径。` };
-      if (/401|invalid|unauthorized|model|billing|quota|parameter/i.test(message)) {
-        return { ok: true, message: `生图端点在（${path}），厂商返回：${message.slice(0, 160)}` };
-      }
-      return { ok: false, message };
+      return { ok: false, message: `OpenAI 兼容端点校验失败（${path}）：${message.slice(0, 160)}` };
     }
   },
 };

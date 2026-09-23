@@ -94,6 +94,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
   const [steps, setSteps] = useState<number | undefined>(undefined);
   const [cfgScale, setCfgScale] = useState<number | undefined>(undefined);
   const [outputFormat, setOutputFormat] = useState<"jpeg" | "png" | "webp">("jpeg");
+  const [sampler, setSampler] = useState<string | undefined>(undefined);
+  const [scheduler, setScheduler] = useState<string | undefined>(undefined);
+  const [denoise, setDenoise] = useState<number | undefined>(undefined);
   const [dynamicParams, setDynamicParams] = useState<Record<string, unknown>>({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -154,6 +157,12 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     defaultCfgScale,
     showOutputFormat,
     outputFormatOptions,
+    showSampler,
+    samplerOptions,
+    showScheduler,
+    schedulerOptions,
+    showDenoise,
+    defaultDenoise,
   } = imageStudioParamState(
     family,
     studioModel,
@@ -210,6 +219,12 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
     dims,
     adapterType: selectedRelay?.adapterType,
     provider: selectedRelay,
+    steps,
+    cfgScale,
+    outputFormat,
+    sampler,
+    scheduler,
+    denoise,
   });
   const generateBlockReason = generatePreview.error || "";
 
@@ -259,6 +274,9 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       steps,
       cfgScale,
       outputFormat,
+      sampler,
+      scheduler,
+      denoise,
     });
     if (payload.error) {
       setError(payload.error);
@@ -360,17 +378,16 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
       <aside className="bp-left">
         <p className="studio-kicker">{card?.model || "生图"}</p>
         <h1>{card?.model || hero.title}</h1>
-        <div className="studio-seg">
-          <button type="button" className={mode === "t2i" ? "is-active" : undefined} onClick={() => goMode("t2i")}>
-            文生图
-          </button>
-          <button type="button" className={mode === "i2i" ? "is-active" : undefined} onClick={() => goMode("i2i")}>
-            按图出图
-          </button>
-          <button type="button" className={mode === "edit" ? "is-active" : undefined} onClick={() => goMode("edit")}>
-            改图
-          </button>
-        </div>
+        {mode !== "edit" ? (
+          <div className="studio-seg">
+            <button type="button" className={mode === "t2i" ? "is-active" : undefined} onClick={() => goMode("t2i")}>
+              文生图
+            </button>
+            <button type="button" className={mode === "i2i" ? "is-active" : undefined} onClick={() => goMode("i2i")}>
+              按图出图
+            </button>
+          </div>
+        ) : null}
         <div className="bp-model-fields">
           <StudioModelField kind="image" value={selection} onChange={setSelection} label={mode === "edit" ? "编辑模型" : "生图模型"} cards={models} />
           <StudioModelField kind="text" value={textModel} onChange={setTextModel} label="把句子写顺的模型" />
@@ -561,6 +578,51 @@ export function ImageStudioPage({ initialMode = "t2i" }: { initialMode?: ImageMo
                       </button>
                     ))}
                   </div>
+                </label>
+              ) : null}
+              {showSampler ? (
+                <label className="text-xs">
+                  <span className="block opacity-70 mb-1">采样器 (Sampler)</span>
+                  <select
+                    value={sampler || ""}
+                    onChange={(e) => setSampler(e.target.value || undefined)}
+                    className="w-full rounded border px-2 py-1 text-xs outline-none bg-inherit"
+                  >
+                    <option value="">默认 (推荐)</option>
+                    {(samplerOptions || ["Euler a", "Euler", "DPM++ 2M Karras", "DPM++ SDE Karras", "DPM++ 2M", "DDIM", "LCM"]).map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {showScheduler ? (
+                <label className="text-xs">
+                  <span className="block opacity-70 mb-1">调度器 (Scheduler)</span>
+                  <select
+                    value={scheduler || ""}
+                    onChange={(e) => setScheduler(e.target.value || undefined)}
+                    className="w-full rounded border px-2 py-1 text-xs outline-none bg-inherit"
+                  >
+                    <option value="">默认 (推荐)</option>
+                    {(schedulerOptions || ["karras", "exponential", "normal", "sgm_uniform", "simple", "ddim_uniform"]).map((sc) => (
+                      <option key={sc} value={sc}>{sc}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {showDenoise && mode !== "t2i" ? (
+                <label className="text-xs col-span-2">
+                  <span className="block opacity-70 mb-1">去噪幅度 (Denoise)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={denoise ?? defaultDenoise ?? 0.75}
+                    onChange={(e) => setDenoise(parseFloat(e.target.value) || undefined)}
+                    className="w-full rounded border px-2 py-1 text-xs outline-none"
+                    placeholder={`默认 ${defaultDenoise || 0.75}`}
+                  />
                 </label>
               ) : null}
             </div>

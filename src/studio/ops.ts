@@ -112,6 +112,13 @@ export const useOpsStore = create<OpsState>()(
           credits: { ...get().credits, [kind]: Math.max(0, have - cost) },
           ledger: [row, ...get().ledger].slice(0, 200),
         });
+        if (typeof window !== "undefined") {
+          void fetch("/client-api/membership", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind, delta: cost, model, reason: "generation" }),
+          }).catch(() => {});
+        }
         return row;
       },
       refund: (id) => {

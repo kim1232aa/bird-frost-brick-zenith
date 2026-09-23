@@ -25,14 +25,19 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StoryRouteImport } from './routes/story'
 import { Route as VideoRouteImport } from './routes/video'
-import { Route as WebdavProxyRouteImport } from './routes/webdav-proxy'
 import { Route as CanvasIndexRouteImport } from './routes/canvas/index'
 import { Route as CanvasHomeRouteImport } from './routes/canvas/home'
 import { Route as CanvasWorkspaceRouteImport } from './routes/canvas/workspace'
+import { Route as ClientApiAssetsRouteImport } from './routes/client-api/assets'
+import { Route as ClientApiCanvasProjectsRouteImport } from './routes/client-api/canvas-projects'
+import { Route as ClientApiCatalogRouteImport } from './routes/client-api/catalog'
+import { Route as ClientApiConfigVaultRouteImport } from './routes/client-api/config-vault'
 import { Route as ClientApiFetchUrlRouteImport } from './routes/client-api/fetch-url'
 import { Route as ClientApiHealthRouteImport } from './routes/client-api/health'
+import { Route as ClientApiMembershipRouteImport } from './routes/client-api/membership'
 import { Route as ClientApiUploadImageHostRouteImport } from './routes/client-api/upload-image-host'
 import { Route as ClientApiUploadWorkMediaRouteImport } from './routes/client-api/upload-work-media'
+import { Route as ClientApiWorksRouteImport } from './routes/client-api/works'
 import { Route as LocalRelayProxySplatRouteImport } from './routes/local-relay-proxy/$'
 import { Route as WorksSplatRouteImport } from './routes/works/$'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -117,11 +122,6 @@ const VideoRoute = VideoRouteImport.update({
   path: '/video',
   getParentRoute: () => rootRouteImport,
 } as any)
-const WebdavProxyRoute = WebdavProxyRouteImport.update({
-  id: '/webdav-proxy',
-  path: '/webdav-proxy',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const CanvasIndexRoute = CanvasIndexRouteImport.update({
   id: '/canvas/',
   path: '/canvas/',
@@ -137,6 +137,26 @@ const CanvasWorkspaceRoute = CanvasWorkspaceRouteImport.update({
   path: '/canvas/workspace',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ClientApiAssetsRoute = ClientApiAssetsRouteImport.update({
+  id: '/client-api/assets',
+  path: '/client-api/assets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientApiCanvasProjectsRoute = ClientApiCanvasProjectsRouteImport.update({
+  id: '/client-api/canvas-projects',
+  path: '/client-api/canvas-projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientApiCatalogRoute = ClientApiCatalogRouteImport.update({
+  id: '/client-api/catalog',
+  path: '/client-api/catalog',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientApiConfigVaultRoute = ClientApiConfigVaultRouteImport.update({
+  id: '/client-api/config-vault',
+  path: '/client-api/config-vault',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ClientApiFetchUrlRoute = ClientApiFetchUrlRouteImport.update({
   id: '/client-api/fetch-url',
   path: '/client-api/fetch-url',
@@ -145,6 +165,11 @@ const ClientApiFetchUrlRoute = ClientApiFetchUrlRouteImport.update({
 const ClientApiHealthRoute = ClientApiHealthRouteImport.update({
   id: '/client-api/health',
   path: '/client-api/health',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClientApiMembershipRoute = ClientApiMembershipRouteImport.update({
+  id: '/client-api/membership',
+  path: '/client-api/membership',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ClientApiUploadImageHostRoute =
@@ -159,6 +184,11 @@ const ClientApiUploadWorkMediaRoute =
     path: '/client-api/upload-work-media',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ClientApiWorksRoute = ClientApiWorksRouteImport.update({
+  id: '/client-api/works',
+  path: '/client-api/works',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LocalRelayProxySplatRoute = LocalRelayProxySplatRouteImport.update({
   id: '/local-relay-proxy/$',
   path: '/local-relay-proxy/$',
@@ -192,13 +222,18 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
-  '/webdav-proxy': typeof WebdavProxyRoute
   '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
+  '/client-api/assets': typeof ClientApiAssetsRoute
+  '/client-api/canvas-projects': typeof ClientApiCanvasProjectsRoute
+  '/client-api/catalog': typeof ClientApiCatalogRoute
+  '/client-api/config-vault': typeof ClientApiConfigVaultRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
+  '/client-api/membership': typeof ClientApiMembershipRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
+  '/client-api/works': typeof ClientApiWorksRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/works/$': typeof WorksSplatRoute
   '/canvas/': typeof CanvasIndexRoute
@@ -221,13 +256,18 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
-  '/webdav-proxy': typeof WebdavProxyRoute
   '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
+  '/client-api/assets': typeof ClientApiAssetsRoute
+  '/client-api/canvas-projects': typeof ClientApiCanvasProjectsRoute
+  '/client-api/catalog': typeof ClientApiCatalogRoute
+  '/client-api/config-vault': typeof ClientApiConfigVaultRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
+  '/client-api/membership': typeof ClientApiMembershipRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
+  '/client-api/works': typeof ClientApiWorksRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/works/$': typeof WorksSplatRoute
   '/canvas': typeof CanvasIndexRoute
@@ -251,13 +291,18 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/story': typeof StoryRoute
   '/video': typeof VideoRoute
-  '/webdav-proxy': typeof WebdavProxyRoute
   '/canvas/home': typeof CanvasHomeRoute
   '/canvas/workspace': typeof CanvasWorkspaceRoute
+  '/client-api/assets': typeof ClientApiAssetsRoute
+  '/client-api/canvas-projects': typeof ClientApiCanvasProjectsRoute
+  '/client-api/catalog': typeof ClientApiCatalogRoute
+  '/client-api/config-vault': typeof ClientApiConfigVaultRoute
   '/client-api/fetch-url': typeof ClientApiFetchUrlRoute
   '/client-api/health': typeof ClientApiHealthRoute
+  '/client-api/membership': typeof ClientApiMembershipRoute
   '/client-api/upload-image-host': typeof ClientApiUploadImageHostRoute
   '/client-api/upload-work-media': typeof ClientApiUploadWorkMediaRoute
+  '/client-api/works': typeof ClientApiWorksRoute
   '/local-relay-proxy/$': typeof LocalRelayProxySplatRoute
   '/works/$': typeof WorksSplatRoute
   '/canvas/': typeof CanvasIndexRoute
@@ -282,13 +327,18 @@ export interface FileRouteTypes {
     | '/settings'
     | '/story'
     | '/video'
-    | '/webdav-proxy'
     | '/canvas/home'
     | '/canvas/workspace'
+    | '/client-api/assets'
+    | '/client-api/canvas-projects'
+    | '/client-api/catalog'
+    | '/client-api/config-vault'
     | '/client-api/fetch-url'
     | '/client-api/health'
+    | '/client-api/membership'
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
+    | '/client-api/works'
     | '/local-relay-proxy/$'
     | '/works/$'
     | '/canvas/'
@@ -311,13 +361,18 @@ export interface FileRouteTypes {
     | '/settings'
     | '/story'
     | '/video'
-    | '/webdav-proxy'
     | '/canvas/home'
     | '/canvas/workspace'
+    | '/client-api/assets'
+    | '/client-api/canvas-projects'
+    | '/client-api/catalog'
+    | '/client-api/config-vault'
     | '/client-api/fetch-url'
     | '/client-api/health'
+    | '/client-api/membership'
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
+    | '/client-api/works'
     | '/local-relay-proxy/$'
     | '/works/$'
     | '/canvas'
@@ -340,13 +395,18 @@ export interface FileRouteTypes {
     | '/settings'
     | '/story'
     | '/video'
-    | '/webdav-proxy'
     | '/canvas/home'
     | '/canvas/workspace'
+    | '/client-api/assets'
+    | '/client-api/canvas-projects'
+    | '/client-api/catalog'
+    | '/client-api/config-vault'
     | '/client-api/fetch-url'
     | '/client-api/health'
+    | '/client-api/membership'
     | '/client-api/upload-image-host'
     | '/client-api/upload-work-media'
+    | '/client-api/works'
     | '/local-relay-proxy/$'
     | '/works/$'
     | '/canvas/'
@@ -370,13 +430,18 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   StoryRoute: typeof StoryRoute
   VideoRoute: typeof VideoRoute
-  WebdavProxyRoute: typeof WebdavProxyRoute
   CanvasHomeRoute: typeof CanvasHomeRoute
   CanvasWorkspaceRoute: typeof CanvasWorkspaceRoute
+  ClientApiAssetsRoute: typeof ClientApiAssetsRoute
+  ClientApiCanvasProjectsRoute: typeof ClientApiCanvasProjectsRoute
+  ClientApiCatalogRoute: typeof ClientApiCatalogRoute
+  ClientApiConfigVaultRoute: typeof ClientApiConfigVaultRoute
   ClientApiFetchUrlRoute: typeof ClientApiFetchUrlRoute
   ClientApiHealthRoute: typeof ClientApiHealthRoute
+  ClientApiMembershipRoute: typeof ClientApiMembershipRoute
   ClientApiUploadImageHostRoute: typeof ClientApiUploadImageHostRoute
   ClientApiUploadWorkMediaRoute: typeof ClientApiUploadWorkMediaRoute
+  ClientApiWorksRoute: typeof ClientApiWorksRoute
   LocalRelayProxySplatRoute: typeof LocalRelayProxySplatRoute
   WorksSplatRoute: typeof WorksSplatRoute
   CanvasIndexRoute: typeof CanvasIndexRoute
@@ -497,13 +562,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof VideoRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/webdav-proxy': {
-      id: '/webdav-proxy'
-      path: '/webdav-proxy'
-      fullPath: '/webdav-proxy'
-      preLoaderRoute: typeof WebdavProxyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/canvas/': {
       id: '/canvas/'
       path: '/canvas'
@@ -525,6 +583,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CanvasWorkspaceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/client-api/assets': {
+      id: '/client-api/assets'
+      path: '/client-api/assets'
+      fullPath: '/client-api/assets'
+      preLoaderRoute: typeof ClientApiAssetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-api/canvas-projects': {
+      id: '/client-api/canvas-projects'
+      path: '/client-api/canvas-projects'
+      fullPath: '/client-api/canvas-projects'
+      preLoaderRoute: typeof ClientApiCanvasProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-api/catalog': {
+      id: '/client-api/catalog'
+      path: '/client-api/catalog'
+      fullPath: '/client-api/catalog'
+      preLoaderRoute: typeof ClientApiCatalogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-api/config-vault': {
+      id: '/client-api/config-vault'
+      path: '/client-api/config-vault'
+      fullPath: '/client-api/config-vault'
+      preLoaderRoute: typeof ClientApiConfigVaultRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/client-api/fetch-url': {
       id: '/client-api/fetch-url'
       path: '/client-api/fetch-url'
@@ -539,6 +625,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ClientApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/client-api/membership': {
+      id: '/client-api/membership'
+      path: '/client-api/membership'
+      fullPath: '/client-api/membership'
+      preLoaderRoute: typeof ClientApiMembershipRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/client-api/upload-image-host': {
       id: '/client-api/upload-image-host'
       path: '/client-api/upload-image-host'
@@ -551,6 +644,13 @@ declare module '@tanstack/react-router' {
       path: '/client-api/upload-work-media'
       fullPath: '/client-api/upload-work-media'
       preLoaderRoute: typeof ClientApiUploadWorkMediaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/client-api/works': {
+      id: '/client-api/works'
+      path: '/client-api/works'
+      fullPath: '/client-api/works'
+      preLoaderRoute: typeof ClientApiWorksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/local-relay-proxy/$': {
@@ -594,13 +694,18 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   StoryRoute: StoryRoute,
   VideoRoute: VideoRoute,
-  WebdavProxyRoute: WebdavProxyRoute,
   CanvasHomeRoute: CanvasHomeRoute,
   CanvasWorkspaceRoute: CanvasWorkspaceRoute,
+  ClientApiAssetsRoute: ClientApiAssetsRoute,
+  ClientApiCanvasProjectsRoute: ClientApiCanvasProjectsRoute,
+  ClientApiCatalogRoute: ClientApiCatalogRoute,
+  ClientApiConfigVaultRoute: ClientApiConfigVaultRoute,
   ClientApiFetchUrlRoute: ClientApiFetchUrlRoute,
   ClientApiHealthRoute: ClientApiHealthRoute,
+  ClientApiMembershipRoute: ClientApiMembershipRoute,
   ClientApiUploadImageHostRoute: ClientApiUploadImageHostRoute,
   ClientApiUploadWorkMediaRoute: ClientApiUploadWorkMediaRoute,
+  ClientApiWorksRoute: ClientApiWorksRoute,
   LocalRelayProxySplatRoute: LocalRelayProxySplatRoute,
   WorksSplatRoute: WorksSplatRoute,
   CanvasIndexRoute: CanvasIndexRoute,

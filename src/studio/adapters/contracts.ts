@@ -1,6 +1,7 @@
 /** Official wire contracts. Register a new file here when adding an API. */
 
 import { buildAgnesVideoBody } from "./agnes.ts";
+import { planFalVideoRequest } from "./fal.ts";
 
 export function isXaiImagineVideoModel(model: string) {
   return /grok-imagine-video/i.test(model.trim());
@@ -106,6 +107,10 @@ export type XaiImagineVideoRequest = {
   profile?: XaiImagineVideoProfile;
 };
 
+function hasVideoPayloadValue(value: unknown) {
+  return value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()));
+}
+
 const XAI_OFFICIAL_VIDEO_ASPECT_RATIOS = new Set(["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"]);
 const XAI_OFFICIAL_VIDEO_RESOLUTIONS = new Set(["480p", "720p", "1080p"]);
 
@@ -122,9 +127,13 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
   if (duration !== undefined && (!Number.isFinite(duration) || !Number.isInteger(duration))) {
     throw new Error(`xAI 视频 duration 必须是整数，收到 ${String(duration)}；不会静默改值。`);
   }
-  const unsupportedFields: Array<[string, unknown]> = [
+  // Official POST /v1/videos/generations accepts prompt, model, duration,
+  // aspect_ratio, resolution, image, reference_images, generate_audio.
+  // https://docs.x.ai/developers/model-capabilities/video/generation
+  // seed and negative_prompt are not on that contract, but relays often
+  // forward them, so they stay off the official reject list.
+  const officialRejectedFields: Array<[string, unknown]> = [
     ["fps", input.fps],
-    ["negative_prompt", input.negative_prompt],
     ["watermark", input.watermark],
     ["promptExpansion", input.promptExpansion],
     ["returnLastFrame", input.returnLastFrame],
@@ -136,9 +145,12 @@ export function buildXaiImagineVideoBody(input: XaiImagineVideoRequest): Record<
     ["modelVariant", input.modelVariant],
     ...studioVideoExtensionFields(input),
   ];
-  for (const [name, value] of unsupportedFields) {
+  const fieldsToReject: Array<[string, unknown]> = profile === "official"
+    ? [["negative_prompt", input.negative_prompt], ...officialRejectedFields]
+    : officialRejectedFields;
+  for (const [name, value] of fieldsToReject) {
     if (value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()))) {
-      throw new Error(`xAI ${profile === "relay" ? "兼容 relay" : "官方"}视频不支持 ${name}；不会静默丢弃该字段。`);
+      throw new Error(`xAI ${profile === "relay" ? "兼容 relay" : "官方"}视频不支持 ${name}；该模型不支持此参数。`);
     }
   }
   if (profile === "official") {
@@ -266,15 +278,21 @@ export function buildArkImageGenerationBody(input: {
   image?: string[];
   watermark?: boolean;
   output_format?: string;
+  seed?: number;
+  negative_prompt?: string;
+  quality?: string;
 }): Record<string, unknown> {
   const n = typeof input.n === "number" && input.n > 1 ? input.n : undefined;
   return {
     model: input.model,
     prompt: input.prompt,
-    size: input.size || "2K",
-    watermark: input.watermark === true ? true : false,
+    ...(input.size ? { size: input.size } : {}),
+    ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
     output_format: input.output_format || "png",
     response_format: "url",
+    ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
+    ...(input.negative_prompt ? { negative_prompt: input.negative_prompt } : {}),
+    ...(input.quality ? { quality: input.quality } : {}),
     ...(n
       ? {
           sequential_image_generation: "auto",
@@ -427,10 +445,6 @@ function civitaiCustomerOperation(value: unknown): "text" | "image" | "firstLast
   throw new Error(`Civitai customer 视频 operation ${String(value)} 未经过官方合同验证，已停止提交`);
 }
 
-function hasVideoPayloadValue(value: unknown) {
-  return value !== undefined && value !== null && (typeof value !== "string" || Boolean(value.trim()));
-}
-
 function studioVideoExtensionFields(payload: {
   frames?: number;
   audioMode?: string;
@@ -462,7 +476,7 @@ function studioVideoExtensionFields(payload: {
 function rejectUnsupportedStudioVideoExtensions(label: string, payload: Parameters<typeof studioVideoExtensionFields>[0]) {
   for (const [name, value] of studioVideoExtensionFields(payload)) {
     if (hasVideoPayloadValue(value)) {
-      console.warn(`${label} 收到扩展参数 ${name}，若上游不支持将被自动忽略`);
+      throw new Error(`${label} 不支持 ${name}；该模型不支持此参数。`);
     }
   }
 }
@@ -800,7 +814,21 @@ export function toStudioVideoWire(
     });
   }
   if (adapter === "fal") {
-    throw new Error("Fal 视频未接线：Studio 已支持生图，视频未实现，不能按 openai-compat 发送 /videos。");
+    const planned = planFalVideoRequest({
+      model,
+      prompt: payload.prompt,
+      duration: payload.duration,
+      aspectRatio: (payload as any).aspectRatio || payload.ratio,
+      resolution: payload.resolution,
+      imageUrl: payload.first_frame || (payload.image_urls && payload.image_urls[0]),
+      lastFrameUrl: payload.last_frame,
+      imageUrls: payload.image_urls,
+      seed: payload.seed,
+      negativePrompt: (payload as any).negativePrompt || payload.negative_prompt,
+      guidance: (payload as any).guidance ?? (payload as any).cfgScale,
+      generateAudio: (payload as any).generateAudio ?? (payload as any).generate_audio,
+    });
+    return planned.body;
   }
   if (adapter === "openai-official" || openaiVideoWireKind(options?.baseUrl, options?.protocol) === "openai-official") {
     return buildOpenAiOfficialVideoBody({
@@ -1095,6 +1123,8 @@ export function buildDashscopeImageRequest(input: {
   watermark?: boolean;
   /** qwen-image 多模态 prompt_extend；不传则上游默认 true。 */
   promptExpansion?: boolean;
+  refStrength?: number;
+  refMode?: string;
 }): { path: string; async: boolean; body: Record<string, unknown> } {
   const model = input.model.trim();
   const refs = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
@@ -1141,7 +1171,7 @@ export function buildDashscopeImageRequest(input: {
           ...(negative ? { negative_prompt: negative } : {}),
         },
         parameters: {
-          ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : { prompt_extend: true }),
+          ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : {}),
           n,
           ...(seed !== undefined ? { seed } : {}),
         },
@@ -1154,19 +1184,26 @@ export function buildDashscopeImageRequest(input: {
     path: "/api/v1/services/aigc/text2image/image-synthesis",
     async: true,
     body: {
-      model,
       input: {
         prompt: input.prompt,
         ...(negative ? { negative_prompt: negative } : {}),
         ...(refs[0] && wanx ? { ref_image: refs[0] } : {}),
       },
+      model,
       parameters: {
         n,
         size: wanx ? wanxV1Size(input.size) : input.size === "3K" ? "1440*1440" : "1280*1280",
         ...(seed !== undefined ? { seed } : {}),
         ...(typeof input.watermark === "boolean" ? { watermark: input.watermark } : {}),
         ...(typeof input.promptExpansion === "boolean" ? { prompt_extend: input.promptExpansion } : {}),
-        ...(refs[0] && wanx ? { ref_strength: 0.7, ref_mode: "repaint" } : {}),
+        ...(refs[0] && wanx
+          ? {
+              ...(typeof input.refStrength === "number" && Number.isFinite(input.refStrength)
+                ? { ref_strength: input.refStrength }
+                : {}),
+              ...(input.refMode ? { ref_mode: input.refMode } : {}),
+            }
+          : {}),
       },
     },
   };
@@ -1209,16 +1246,13 @@ export function buildOpenAiOfficialVideoBody(input: {
   const first = String(input.first_frame || "").trim();
   const last = String(input.last_frame || "").trim();
   const extras = (input.image_urls || []).map((url) => String(url || "").trim()).filter(Boolean);
-  if (finiteNumber(input.fps) !== undefined) {
-    throw new Error("OpenAI 官方 Videos 不支持 fps；不会静默丢弃该字段。");
-  }
-  if (typeof input.generateAudio === "boolean") {
-    throw new Error("OpenAI 官方 Videos 不支持 generate_audio 音频开关；不会静默丢弃该字段。");
-  }
-  if (String(input.negative_prompt || "").trim()) {
-    throw new Error("OpenAI 官方 Videos 不支持 negative_prompt 负面提示词；不会静默丢弃该字段。");
-  }
-  const unsupportedFields: Array<[string, unknown]> = [
+  // Official POST /v1/videos accepts model, prompt, seconds, size, input_reference.
+  // https://developers.openai.com/api/reference/resources/videos/methods/create
+  // There is no relay profile on this builder; OpenAI-compatible relays use a different wire.
+  const officialRejectedFields: Array<[string, unknown]> = [
+    ["fps", finiteNumber(input.fps)],
+    ["generate_audio", typeof input.generateAudio === "boolean" ? input.generateAudio : undefined],
+    ["negative_prompt", String(input.negative_prompt || "").trim() || undefined],
     ["steps", input.steps],
     ["guidance", input.guidance],
     ["modelVariant", input.modelVariant],
@@ -1230,9 +1264,9 @@ export function buildOpenAiOfficialVideoBody(input: {
     ["height", input.height],
     ...studioVideoExtensionFields(input),
   ];
-  for (const [name, value] of unsupportedFields) {
+  for (const [name, value] of officialRejectedFields) {
     if (hasVideoPayloadValue(value)) {
-      throw new Error(`OpenAI 官方 Videos 不支持 ${name}；不会静默丢弃该字段。`);
+      throw new Error(`OpenAI 官方 Videos 不支持 ${name}；该模型不支持此参数。`);
     }
   }
   if (extras.length) {
@@ -1265,11 +1299,16 @@ export function buildOpenAiOfficialImageBody(input: {
   maskUrl?: string;
   operation?: "generate" | "edit";
 }): Record<string, unknown> {
-  if (typeof input.seed === "number" && Number.isFinite(input.seed)) {
-    throw new Error("OpenAI 官方 Images 不支持 seed；不会静默丢弃该字段。");
-  }
-  if (String(input.negativePrompt || "").trim()) {
-    throw new Error("OpenAI 官方 Images 不支持 negative_prompt；不会静默丢弃该字段。");
+  // Official Images generate/edit have no seed or negative_prompt.
+  // https://developers.openai.com/api/reference/resources/images
+  const officialRejectedFields: Array<[string, unknown]> = [
+    ["seed", typeof input.seed === "number" && Number.isFinite(input.seed) ? input.seed : undefined],
+    ["negative_prompt", String(input.negativePrompt || "").trim() || undefined],
+  ];
+  for (const [name, value] of officialRejectedFields) {
+    if (hasVideoPayloadValue(value)) {
+      throw new Error(`OpenAI 官方 Images 不支持 ${name}；该模型不支持此参数。`);
+    }
   }
   const refs = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
   const editing = input.operation === "edit" || refs.length > 0;

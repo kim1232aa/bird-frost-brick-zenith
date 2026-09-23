@@ -35,11 +35,31 @@ mock.module(textModuleUrl, {
   },
 });
 
-const { planStory, draftPlan } = await import("./plan.ts");
+const { planStory } = await import("./plan.ts");
 
 const relays: never[] = [];
+const ANALYSIS_FAILURE = "故事分析失败，上游未返回有效分镜";
 
-test("短答案不缺分镜：AI 只回 1 镜时也按本地草稿补齐到 5 镜", async () => {
+function fullBoard(logline: string) {
+  return {
+    logline,
+    characters: [
+      { id: "char_001", name: "林晚", look: "湿风衣" },
+      { id: "char_002", name: "线人", look: "连帽衫" },
+    ],
+    scenes: [{ id: "scene_001", name: "雨夜码头" }],
+    shots: [1, 2, 3, 4, 5].map((n) => ({
+      id: `shot_00${n}`,
+      index: n,
+      title: n === 1 ? "码头追踪" : `镜头 ${n}`,
+      prompt: `镜头 ${n} 的画面`,
+      camera: "50mm",
+      scene: "雨夜码头",
+    })),
+  };
+}
+
+test("镜头数不符直接失败：AI 只回 1 镜时不补本地草稿", async () => {
   behavior = async () => ({
     text: JSON.stringify({
       logline: "只有一镜的短答案",
@@ -57,29 +77,28 @@ test("短答案不缺分镜：AI 只回 1 镜时也按本地草稿补齐到 5 �
       ],
     }),
   });
-  const plan = await planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 });
-  assert.equal(plan.degraded, undefined);
-  assert.equal(plan.shots.length, 5, "分镜 2、3、4、5 不能被丢掉");
-  assert.equal(plan.shots[0].title, "码头追踪");
-  // Padded shots inherit the local draft so the board stays coherent.
-  for (let index = 1; index < 5; index += 1) {
-    assert.equal(plan.shots[index].index, index + 1);
-    assert.ok(plan.shots[index].prompt, `分镜 ${index + 1} 必须有提示词`);
-    assert.equal(plan.shots[index].status, "pending");
-  }
-  assert.equal(plan.cast.length, 1);
+  await assert.rejects(
+    () => planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, ANALYSIS_FAILURE);
+      return true;
+    },
+  );
 });
 
-test("分析失败退回本地分镜并标记降级，绝不悄悄变错结果", async () => {
+test("分析失败抛出明确错误，绝不返回降级假计划", async () => {
   behavior = async () => {
     throw new Error("上游 502: 模型不可用");
   };
-  const plan = await planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 });
-  assert.equal(plan.degraded, true);
-  assert.match(plan.degradedReason || "", /502/);
-  assert.equal(plan.shots.length, 5, "降级时本地草稿分镜一镜不能少");
-  assert.ok(plan.cast.length > 0, "降级时角色不能丢");
-  assert.ok(plan.logline.length > 0);
+  await assert.rejects(
+    () => planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, ANALYSIS_FAILURE);
+      return true;
+    },
+  );
 });
 
 test("修复链路：第一次 JSON 截断，修复后能拿到完整分镜", async () => {
@@ -87,36 +106,21 @@ test("修复链路：第一次 JSON 截断，修复后能拿到完整分镜", as
   behavior = async () => {
     calls += 1;
     if (calls === 1) return { text: '{"logline":"截断了",' };
-    return {
-      text: JSON.stringify({
-        logline: "修复后的完整分析",
-        characters: [
-          { id: "char_001", name: "林晚", look: "湿风衣" },
-          { id: "char_002", name: "线人", look: "连帽衫" },
-        ],
-        scenes: [{ id: "scene_001", name: "雨夜码头" }],
-        shots: [1, 2, 3, 4, 5].map((n) => ({
-          id: `shot_00${n}`,
-          index: n,
-          title: `镜头 ${n}`,
-          prompt: `镜头 ${n} 的画面`,
-          camera: "50mm",
-          scene: "雨夜码头",
-        })),
-      }),
-    };
+    return { text: JSON.stringify(fullBoard("修复后的完整分析")) };
   };
   const plan = await planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 });
   assert.equal(calls, 2, "第一次失败后必须走一次修复询问");
-  assert.equal(plan.degraded, undefined);
   assert.equal(plan.logline, "修复后的完整分析");
   assert.equal(plan.shots.length, 5);
   assert.equal(plan.cast.length, 2);
+  assert.equal("degraded" in plan, false);
 });
 
-test("本地草稿 draftPlan 自身就按数量出满分镜", () => {
-  const plan = draftPlan("雨夜码头，女警探林晚追踪一枚会发光的铜铃。", "电影感写实", 5);
+test("镜头数刚好时原样返回上游分镜", async () => {
+  behavior = async () => ({ text: JSON.stringify(fullBoard("完整分析")) });
+  const plan = await planStory({ relays, idea: "雨夜码头，女警探林晚追踪一枚会发光的铜铃。", shotCount: 5 });
   assert.equal(plan.shots.length, 5);
-  assert.ok(plan.cast.length > 0);
-  assert.equal(plan.degraded, undefined);
+  assert.equal(plan.shots[0].title, "码头追踪");
+  assert.equal(plan.cast.length, 2);
+  assert.equal("degraded" in plan, false);
 });

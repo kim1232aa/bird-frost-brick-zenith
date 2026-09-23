@@ -34,6 +34,7 @@ import {
     providerHasUsableCredential,
 } from "./api-relay-config-provider";
 import { resolveUniqueModelOwner } from "./api-relay-model-inference";
+import { PRESET_RELAY_ENDPOINTS } from "./api-relay-presets";
 
 export function enabledRelayModelOptionsForCapability(
     providers: readonly ApiRelayProvider[],
@@ -85,6 +86,24 @@ export function resolveProviderModelSelection(
         if (!canonical || !providerCanRunCapability(provider, capability)) continue;
         owners.push(provider);
         canonicalModels.set(provider.id, canonical);
+    }
+    if (owners.length > 1) {
+        const lowerModel = model.toLowerCase();
+        let preferredOwner: ApiRelayProvider | undefined;
+        if (lowerModel.startsWith("agnes-") || lowerModel.includes("agnes")) {
+            preferredOwner = owners.find((p) => p.id === "preset-agnes-ai" || p.adapterType === "agnes" || p.name.toLowerCase().includes("agnes"));
+        } else if (lowerModel.startsWith("sensenova-") || lowerModel.includes("sensenova")) {
+            preferredOwner = owners.find((p) => p.id === "preset-sensenova" || p.adapterType === "sensenova" || p.name.toLowerCase().includes("sensenova") || p.name.includes("商汤"));
+        } else if (lowerModel.startsWith("grok-") || lowerModel.includes("grok")) {
+            preferredOwner = owners.find((p) => p.id === "preset-grok-relay" || p.name.toLowerCase().includes("grok"));
+        }
+        if (preferredOwner) {
+            return {
+                status: "resolved",
+                selection: { providerId: preferredOwner.id, model: canonicalModels.get(preferredOwner.id) || model },
+                provider: preferredOwner,
+            };
+        }
     }
     const unique = resolveUniqueModelOwner(owners);
     if (unique.status === "ambiguous") {
@@ -203,7 +222,7 @@ export function resolveCapabilityRoute(
         : cleanPreferred
         ? resolveExplicitModelRoute(normalized.apiRelays, capability, cleanPreferred, label)
         : undefined;
-    const provider = explicitRoute?.provider || configuredProvider;
+    let provider = explicitRoute?.provider || configuredProvider;
 
     if (!provider) {
         if (route.providerId) throw new Error(`未找到${label}中转 API，请重新选择`);
@@ -213,7 +232,15 @@ export function resolveCapabilityRoute(
     if (!provider.capabilities.includes(capability)) throw new Error(`当前中转不支持${label}生成`);
     if (!providerCapabilityIsRunnable(provider, capability)) throw new Error(`当前中转的${label}能力尚未接线`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${label}中转填写 Base URL`);
-    if (!providerHasUsableCredential(provider)) throw new Error(`请为${label}中转填写 API Key`);
+    if (!providerHasUsableCredential(provider)) {
+        const providerId = provider.id;
+        const preset = PRESET_RELAY_ENDPOINTS.find((p) => p.id === providerId);
+        if (preset?.apiKey) {
+            provider = { ...provider, apiKey: preset.apiKey, hasApiKey: true };
+        } else {
+            throw new Error(`请为${label}中转填写 API Key`);
+        }
+    }
 
     const requestedModel = explicitRoute?.model || route.model.trim();
     if (!requestedModel) throw new Error(`请为${label}中转选择模型`);
@@ -254,13 +281,21 @@ export function resolveBoardCapabilityRoute(
         : undefined;
     if (!route.providerId && !explicitRoute) throw new Error(`未配置${boardLabel}板块中转 API，请到设置中添加`);
 
-    const provider = explicitRoute?.provider || configuredProvider;
+    let provider = explicitRoute?.provider || configuredProvider;
     if (!provider) throw new Error(`未找到${boardLabel}板块中转 API，请重新选择`);
     if (!provider.enabled) throw new Error(`当前选择的${boardLabel}板块中转已停用`);
     if (!provider.capabilities.includes(definition.capability)) throw new Error(`当前中转不支持${boardLabel}所需的${capabilityLabel}能力`);
     if (!providerCapabilityIsRunnable(provider, definition.capability)) throw new Error(`当前中转的${boardLabel}能力尚未接线`);
     if (!provider.baseUrl.trim()) throw new Error(`请为${boardLabel}板块中转填写 Base URL`);
-    if (!providerHasUsableCredential(provider)) throw new Error(`请为${boardLabel}板块中转填写 API Key`);
+    if (!providerHasUsableCredential(provider)) {
+        const providerId = provider.id;
+        const preset = PRESET_RELAY_ENDPOINTS.find((p) => p.id === providerId);
+        if (preset?.apiKey) {
+            provider = { ...provider, apiKey: preset.apiKey, hasApiKey: true };
+        } else {
+            throw new Error(`请为${boardLabel}板块中转填写 API Key`);
+        }
+    }
 
     const requestedModel = explicitRoute?.model || route.model.trim();
     if (!requestedModel) throw new Error(`请为${boardLabel}板块中转选择模型`);
@@ -299,6 +334,23 @@ function resolveExplicitModelRoute(
             providerCanRunCapability(provider, capability) &&
             Boolean(canonicalProviderModel(provider, capability, model)),
     );
+    if (owners.length > 1) {
+        const lowerModel = model.toLowerCase();
+        let preferredOwner: ApiRelayProvider | undefined;
+        if (lowerModel.startsWith("agnes-") || lowerModel.includes("agnes")) {
+            preferredOwner = owners.find((p) => p.id === "preset-agnes-ai" || p.adapterType === "agnes" || p.name.toLowerCase().includes("agnes"));
+        } else if (lowerModel.startsWith("sensenova-") || lowerModel.includes("sensenova")) {
+            preferredOwner = owners.find((p) => p.id === "preset-sensenova" || p.adapterType === "sensenova" || p.name.toLowerCase().includes("sensenova") || p.name.includes("商汤"));
+        } else if (lowerModel.startsWith("grok-") || lowerModel.includes("grok")) {
+            preferredOwner = owners.find((p) => p.id === "preset-grok-relay" || p.name.toLowerCase().includes("grok"));
+        }
+        if (preferredOwner) {
+            return {
+                provider: preferredOwner,
+                model: canonicalProviderModel(preferredOwner, capability, model) || model,
+            };
+        }
+    }
     const unique = resolveUniqueModelOwner(owners);
     if (unique.status === "empty") throw new Error(`显式${routeLabel}模型“${model}”没有可用中转，已阻止请求`);
     if (unique.status === "ambiguous") {

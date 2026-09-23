@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Check, Download, Image as ImageIcon, Pencil, Trash2, X } from "lucide-react";
-import Image from "next/image";
 import { useNavigate } from "@tanstack/react-router";
 import { Button, Input } from "antd";
 
@@ -41,6 +40,8 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
         stopEditing();
     };
     const coverSource = useMemo(() => getProjectCoverSource(project), [project]);
+    const nodeCount = project.detailLoaded === false ? project.nodeCount || 0 : project.nodes.length;
+    const connectionCount = project.detailLoaded === false ? project.connectionCount || 0 : project.connections.length;
     const [resolvedCover, setResolvedCover] = useState<{ storageKey: string; url: string } | null>(null);
     const persistedCoverFallback = coverSource?.content?.startsWith("blob:") ? "" : coverSource?.content || "";
     const coverUrl = coverSource?.storageKey ? (resolvedCover?.storageKey === coverSource.storageKey ? resolvedCover.url : persistedCoverFallback) : coverSource?.content || "";
@@ -80,7 +81,10 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
             </>
         ) : (
             <>
-                <Button type="text" size="small" shape="circle" icon={<Download className="size-4" />} onClick={() => void exportCanvasProjects([project], project.title || "无限画布")} aria-label="导出" title="导出" />
+                <Button type="text" size="small" shape="circle" icon={<Download className="size-4" />} onClick={() => void (async () => {
+                    const loaded = project.detailLoaded === false ? await useCanvasStore.getState().ensureProjectLoaded(project.id) : project;
+                    if (loaded) await exportCanvasProjects([loaded], loaded.title || "无限画布");
+                })()} aria-label="导出" title="导出" />
                 <Button type="text" size="small" shape="circle" icon={<Pencil className="size-4" />} onClick={() => startEditing(project.id, project.title)} aria-label="重命名" title="重命名" />
                 <Button type="text" size="small" shape="circle" icon={<Trash2 className="size-4" />} onClick={() => setDeleteIds([project.id])} aria-label="删除" title="删除" />
             </>
@@ -100,12 +104,12 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
                 {selectionCheckbox("size-4 shrink-0 accent-stone-950 dark:accent-stone-100")}
                 <div className="relative hidden h-16 w-24 shrink-0 overflow-hidden rounded-md bg-stone-100 sm:block">
                     {coverUrl ? (
-                        <Image src={coverUrl} alt={displayTitle} fill sizes="96px" unoptimized className="object-cover transition duration-300 group-hover:scale-[1.03]" />
+                        <img src={coverUrl} alt={displayTitle} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
                     ) : (
                         <div className="flex h-full w-full flex-col items-center justify-center gap-1 text-stone-400">
                             <ImageIcon className="size-5" />
                             <span className="text-xs font-medium">暂无预览</span>
-                            <span className="text-[11px]">{project.nodes.length ? `${project.nodes.length} 个节点，暂无图片封面` : "空白画布"}</span>
+                            <span className="text-[11px]">{nodeCount ? `${nodeCount} 个节点，暂无图片封面` : "空白画布"}</span>
                         </div>
                     )}
                 </div>
@@ -123,7 +127,7 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
                         >
                             <h2 className="truncate text-base font-semibold text-stone-900">{displayTitle}</h2>
                             <p className="mt-1 text-sm text-stone-500">
-                                {project.nodes.length} 个节点 · {project.connections.length} 条连线
+                                {nodeCount} 个节点 · {connectionCount} 条连线
                             </p>
                         </button>
                     )}
@@ -148,18 +152,18 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
         >
             <div className="relative aspect-video overflow-hidden bg-stone-100">
                 {coverUrl ? (
-                    <Image src={coverUrl} alt={displayTitle} fill sizes="(min-width: 1536px) 20vw, (min-width: 1280px) 25vw, (min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw" unoptimized className="object-cover transition duration-300 group-hover:scale-[1.03]" />
+                    <img src={coverUrl} alt={displayTitle} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" />
                 ) : (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-1.5 text-stone-500">
                         <div className="grid size-10 place-items-center rounded-md bg-stone-200 text-stone-500 shadow-sm">
                             <ImageIcon className="size-5" />
                         </div>
                         <span className="text-xs font-medium">暂无预览</span>
-                        <span className="text-[11px]">{project.nodes.length ? `${project.nodes.length} 个节点，暂无图片封面` : "空白画布"}</span>
+                        <span className="text-[11px]">{nodeCount ? `${nodeCount} 个节点，暂无图片封面` : "空白画布"}</span>
                     </div>
                 )}
                 <div className="absolute left-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
-                    {project.nodes.length} 节点
+                    {nodeCount} 节点
                 </div>
             </div>
 
@@ -179,7 +183,7 @@ export function CanvasProjectCard({ project, viewMode = "grid" }: CanvasProjectC
                         >
                             <h2 className="truncate text-base font-semibold text-stone-900">{displayTitle}</h2>
                             <p className="mt-1 text-xs text-stone-500">
-                                {project.nodes.length} 个节点 · {project.connections.length} 条连线
+                                {nodeCount} 个节点 · {connectionCount} 条连线
                             </p>
                         </button>
                     )}
@@ -214,6 +218,10 @@ function compactProjectTitle(value: string, maxLength: number) {
 }
 
 function getProjectCoverSource(project: CanvasProject) {
+    if (project.detailLoaded === false) {
+        if (!project.cover?.storageKey && !project.cover?.content) return null;
+        return { storageKey: project.cover.storageKey, content: project.cover.content };
+    }
     const node = project.nodes.find((item) => item.type === CanvasNodeType.Image && (item.metadata?.storageKey || item.metadata?.content));
     if (!node) return null;
     return {

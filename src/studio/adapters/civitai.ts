@@ -40,6 +40,7 @@ type Extra = {
   denoise?: number;
   engine?: string;
   comfy?: string;
+  outputFormat?: string;
 };
 
 export type CivitaiImagePlanInput = ImageGenInput & {
@@ -143,6 +144,19 @@ function requireCheckpointAir(label: string, extra?: Extra) {
   return air;
 }
 
+function civitaiCommonParams(extra?: Extra) {
+  return {
+    ...(typeof extra?.steps === "number" ? { steps: extra.steps } : {}),
+    ...(typeof extra?.cfgScale === "number" ? { cfgScale: extra.cfgScale } : {}),
+    ...(typeof extra?.guidance === "number" ? { cfgScale: extra.guidance } : {}),
+    ...(extra?.sampler ? { sampler: extra.sampler } : {}),
+    ...(extra?.scheduler ? { scheduler: extra.scheduler } : {}),
+    ...(typeof extra?.denoise === "number" ? { denoise: extra.denoise } : {}),
+    ...(extra?.comfy ? { comfy: extra.comfy } : {}),
+    ...(extra?.outputFormat ? { outputFormat: extra.outputFormat } : {}),
+  };
+}
+
 function comfyCheckpointBody(
   ecosystem: "flux1" | "sdxl",
   label: string,
@@ -168,6 +182,7 @@ function comfyCheckpointBody(
     ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
     ...(image ? { image } : {}),
     ...(image && typeof extra?.strength === "number" ? { denoiseStrength: extra.strength } : {}),
+    ...civitaiCommonParams(extra),
     ...loraMapPatch(extra),
   };
 }
@@ -187,6 +202,7 @@ function flux2Body(model: "klein" | "pro" | "dev", prompt: string, extra?: Extra
     ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
     ...(model === "klein" && extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
     ...(refs.length ? { images: refs } : {}),
+    ...civitaiCommonParams(extra),
     ...loras,
   };
 }
@@ -198,15 +214,7 @@ function flux2Body(model: "klein" | "pro" | "dev", prompt: string, extra?: Extra
  */
 function krea2Body(model: "turbo" | "raw", prompt: string, extra?: Extra) {
   const refs = extraRefs(extra);
-  const commonParams = {
-    ...(typeof extra?.steps === "number" ? { steps: extra.steps } : {}),
-    ...(typeof extra?.cfgScale === "number" ? { cfgScale: extra.cfgScale } : {}),
-    ...(typeof extra?.guidance === "number" ? { cfgScale: extra.guidance } : {}),
-    ...(extra?.sampler ? { sampler: extra.sampler } : {}),
-    ...(extra?.scheduler ? { scheduler: extra.scheduler } : {}),
-    ...(typeof extra?.denoise === "number" ? { denoise: extra.denoise } : {}),
-    ...(extra?.comfy ? { comfy: extra.comfy } : {}),
-  };
+  const commonParams = civitaiCommonParams(extra);
   if (refs.length) {
     if (refs.length > 2) throw new Error(`krea2-${model} 最多支持 2 张参考图`);
     const editRefs = refs.slice(0, 2);
@@ -390,7 +398,7 @@ export const CIVITAI_ENGINES: CivitaiEngine[] = [
         quantity: qty(extra, 6),
         // Official default is true and dominates latency (11s off vs 98s on for 3.0-pro).
         // https://developer.civitai.com/orchestration/recipes/qwen
-        promptExtend: false,
+        promptExtend: typeof extra?.promptExpansion === "boolean" ? extra.promptExpansion : false,
         ...(typeof extra?.seed === "number" ? { seed: extra.seed } : {}),
         ...(extra?.negativePrompt ? { negativePrompt: extra.negativePrompt } : {}),
         ...(refs.length ? { images: refs } : {}),
@@ -899,6 +907,7 @@ function imageExtra(input: CivitaiImagePlanInput): Extra {
     denoise: input.denoise,
     engine: input.engine,
     comfy: input.comfy,
+    promptExpansion: input.promptExpansion,
   };
 }
 

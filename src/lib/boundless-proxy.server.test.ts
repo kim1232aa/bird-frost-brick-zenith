@@ -92,7 +92,6 @@ const {
   proxyFetchUrl,
   proxyImageHostUpload,
   proxyLocalRelay,
-  proxyWebDav,
 } = await import("./boundless-proxy.server.ts");
 
 const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02, 0x03]);
@@ -140,7 +139,7 @@ test.afterEach(() => {
   delete process.env.XAI_API_KEY;
 });
 
-test("relay, WebDAV, fetch-url, and image-host reject private destinations", async () => {
+test("relay, fetch-url, and image-host reject private destinations", async () => {
   vaultById.set("private-relay", {
     apiKey: "vault-key",
     baseUrl: "https://127.0.0.1:8080",
@@ -162,16 +161,6 @@ test("relay, WebDAV, fetch-url, and image-host reject private destinations", asy
         "chat/completions",
       ),
     () =>
-      proxyWebDav(
-        new Request("http://boundless.test/webdav-proxy", {
-          method: "POST",
-          headers: {
-            "x-webdav-target": "http://127.0.0.1/files",
-            "x-webdav-method": "PROPFIND",
-          },
-        }),
-      ),
-    () =>
       proxyFetchUrl(
         new Request("http://boundless.test/client-api/fetch-url?url=" + encodeURIComponent("http://169.254.169.254/latest/meta-data/")),
       ),
@@ -191,21 +180,6 @@ test("relay, WebDAV, fetch-url, and image-host reject private destinations", asy
     const payload = await jsonOf(response);
     assert.match(String(payload.message), /受保护的网络|无效/);
   }
-  assert.equal(fetchCalls.length, 0);
-});
-
-test("WebDAV MOVE destination is re-checked before forwarding", async () => {
-  const response = await proxyWebDav(
-    new Request("http://boundless.test/webdav-proxy", {
-      method: "POST",
-      headers: {
-        "x-webdav-target": "http://203.0.113.10/src",
-        "x-webdav-method": "MOVE",
-        "x-webdav-destination": "http://127.0.0.1/dest",
-      },
-    }),
-  );
-  assert.equal(response.status, 400);
   assert.equal(fetchCalls.length, 0);
 });
 

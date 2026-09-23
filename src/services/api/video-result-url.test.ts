@@ -34,6 +34,13 @@ test("absolute public video URLs still go through fetch-url", () => {
     kind: "fetch-url",
     url: "https://cdn.example.com/out.mp4",
   });
+  assert.deepEqual(
+    resolveLocalVideoResultDownload("https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/video_123.mp4"),
+    {
+      kind: "fetch-url",
+      url: "https://platform-outputs.agnes-ai.space/videos/agnes-video-v2.0/video_123.mp4",
+    },
+  );
 });
 
 test("empty or opaque video URLs are invalid", () => {

@@ -1,9 +1,9 @@
 "use client";
 
-import { CheckCircle2, Clapperboard, FileText, Image as ImageIcon, Link2, ListChecks, LoaderCircle, Play, WandSparkles } from "lucide-react";
+import { CheckCircle2, Clapperboard, FileText, Image as ImageIcon, Link2, ListChecks, LoaderCircle, Play, WandSparkles, X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { Button, Input, Select } from "antd";
+import { Button, Select } from "antd";
 
 import { ModelIcon } from "@/components/model-icon";
 import { resolveImageSettingsContext } from "@/components/image-settings-panel";
@@ -140,7 +140,8 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
         <div
             ref={panelRef}
             data-story-director-panel
-            className={`${embedded ? "flex min-h-full min-w-0 w-full flex-col overflow-visible" : "flex w-[560px] flex-col"} rounded-2xl border p-4 shadow-2xl backdrop-blur`}
+            data-canvas-wheel-scroll="true"
+            className={`${embedded ? "flex min-h-0 min-w-0 w-full flex-col" : "flex w-[560px] flex-col"} rounded-2xl border px-4 pb-6 pt-4 shadow-2xl backdrop-blur`}
             style={{ background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.node.text }}
             onMouseDown={embedded ? undefined : (event) => event.stopPropagation()}
             onPointerDown={embedded ? undefined : (event) => event.stopPropagation()}
@@ -199,12 +200,14 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
             </div>
 
             <div className="shrink-0" data-canvas-no-drag>
-                <Input.TextArea
-                    className="thin-scrollbar !resize-y !overflow-y-auto !rounded-xl"
+                <textarea
+                    className="thin-scrollbar w-full resize-y overflow-y-auto rounded-xl border p-2.5 outline-none focus:ring-1 focus:ring-amber-500/50"
                     style={{ ...controlStyle, height: 128, minHeight: 128, overflowY: "auto" }}
                     value={storyText}
                     placeholder="粘贴小说、章节或剧情梗概。可包含角色、场景、对白和画风要求。"
-                    onChange={(event) => onConfigChange(node.id, { storyText: event.target.value, content: event.target.value })}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onChange={(event) => onConfigChange(node.id, { storyText: event.target.value, content: event.target.value, errorDetails: undefined })}
                 />
             </div>
 
@@ -212,45 +215,75 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 <DirectorAction
                     primary
                     icon={isAnalyzing || isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
-                    title="一键全流程"
-                    description={`分析故事 → 核心角色 → ${storyShotCount} 张分镜图`}
-                    disabled={isAnalyzing || isGenerating}
-                    onClick={() => onRunAll(node)}
+                    title={isAnalyzing ? "1/3 故事分析中…" : isGenerating ? "3/3 批量分镜生成中…" : "一键全流程"}
+                    description={
+                        isAnalyzing
+                            ? `正在深度提炼角色设定与 ${storyShotCount} 组镜头脚本`
+                            : isGenerating
+                            ? "正在逐镜高精渲染画面并自动对焦"
+                            : !storyText.trim()
+                            ? "请先在上方输入故事内容"
+                            : `分析故事 → 核心角色 → ${storyShotCount} 张分镜图`
+                    }
+                    disabled={!storyText.trim() || isAnalyzing || isGenerating}
+                    onClick={() => {
+                        onConfigChange(node.id, { errorDetails: undefined });
+                        onRunAll(node);
+                    }}
                 />
                 <div className="grid grid-cols-2 gap-2 [&>*]:min-w-0">
                 <DirectorAction
-                    icon={<FileText className="size-4" />}
-                    title="分析故事"
-                    description="只拆角色 / 场景 / 分镜，不生图"
-                    disabled={isAnalyzing || isGenerating}
-                    onClick={() => onAnalyzeStory(node)}
+                    icon={isAnalyzing ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}
+                    title={isAnalyzing ? "正在分析…" : "分析故事"}
+                    description={!storyText.trim() ? "需先输入故事" : "只拆角色 / 场景 / 分镜，不生图"}
+                    disabled={!storyText.trim() || isAnalyzing || isGenerating}
+                    onClick={() => {
+                        onConfigChange(node.id, { errorDetails: undefined });
+                        onAnalyzeStory(node);
+                    }}
                 />
                 <DirectorAction
                     icon={<ImageIcon className="size-4" />}
                     title="补齐缺失角色图"
                     description={hasAnalysis ? (missingCharacterCount ? `还缺 ${missingCharacterCount} 张角色图` : "角色图已齐全") : "需先分析故事"}
                     disabled={!hasAnalysis || !missingCharacterCount || isAnalyzing || isGenerating}
-                    onClick={() => onGenerateCharacters(node)}
+                    onClick={() => {
+                        onConfigChange(node.id, { errorDetails: undefined });
+                        onGenerateCharacters(node);
+                    }}
                 />
                 <DirectorAction
-                    icon={<ListChecks className="size-4" />}
+                    icon={isGenerating ? <LoaderCircle className="size-4 animate-spin" /> : <ListChecks className="size-4" />}
                     title={storyboardMode === "grid9" ? "生成9宫格" : "生成分镜图"}
-                    description={storyboardMode === "grid9" ? "每 9 镜一张图" : "按镜头各生成一张图"}
+                    description={!shots.length ? "需先分析故事" : storyboardMode === "grid9" ? "每 9 镜一张图" : `按镜头各生成一张 (${shots.length} 镜)`}
                     disabled={!shots.length || isAnalyzing || isGenerating}
-                    onClick={() => onGenerateShots(node)}
+                    onClick={() => {
+                        onConfigChange(node.id, { errorDetails: undefined });
+                        onGenerateShots(node);
+                    }}
                 />
                 </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2" data-canvas-no-drag>
-                <Button className="!rounded-xl" disabled={isAnalyzing || isGenerating} onClick={() => onCreateCharacterConfig(node)}>
-                    旁边加一块角色图设置
-                </Button>
-                <Button className="!rounded-xl" disabled={isAnalyzing || isGenerating} onClick={() => onCreateShotConfig(node)}>
-                    旁边加一块分镜图设置
-                </Button>
+                <button
+                    type="button"
+                    className="flex h-9 items-center justify-center rounded-xl border border-stone-500/20 bg-stone-500/10 px-3 text-xs font-medium text-current transition hover:bg-stone-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isAnalyzing || isGenerating}
+                    onClick={() => onCreateCharacterConfig(node)}
+                >
+                    添加独立角色配置
+                </button>
+                <button
+                    type="button"
+                    className="flex h-9 items-center justify-center rounded-xl border border-stone-500/20 bg-stone-500/10 px-3 text-xs font-medium text-current transition hover:bg-stone-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={isAnalyzing || isGenerating}
+                    onClick={() => onCreateShotConfig(node)}
+                >
+                    添加独立分镜配置
+                </button>
             </div>
 
-            <div data-story-director-config-area className="thin-scrollbar mt-auto max-h-[240px] shrink-0 overflow-y-auto pt-3">
+            <div data-story-director-config-area className="mt-auto shrink-0 pt-3">
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-canvas-no-drag>
                     <LabeledControl label="画风预设">
                         <Select
@@ -286,14 +319,16 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                         />
                     </LabeledControl>
                     <LabeledControl label="镜头数">
-                        <Input
-                            className="!w-full"
+                        <input
+                            className="w-full rounded-lg border px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-500/50"
                             style={controlStyle}
                             type="number"
                             min={storyboardMode === "grid9" ? 9 : 1}
                             max={storyboardMode === "grid9" ? 99 : 100}
                             step={storyboardMode === "grid9" ? 9 : 1}
                             value={storyShotCount}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
                             onChange={(event) => {
                                 const raw = Math.max(1, Math.min(100, Number(event.target.value) || 1));
                                 onConfigChange(node.id, { storyShotCount: storyboardMode === "grid9" ? nearestGrid9ShotCount(raw) : raw });
@@ -333,11 +368,13 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 {isCustomStyle ? (
                     <div className="mt-2" data-canvas-no-drag>
                         <LabeledControl label="自定义画风">
-                            <Input
-                                className="!w-full"
+                            <input
+                                className="w-full rounded-lg border px-2.5 py-1 text-xs outline-none focus:ring-1 focus:ring-amber-500/50"
                                 style={controlStyle}
                                 value={customStyle}
                                 placeholder="输入自定义画风，生成角色图和分镜图时会使用这里的画风"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onMouseDown={(e) => e.stopPropagation()}
                                 onChange={(event) => onConfigChange(node.id, { storyStyleMode: "custom", storyCustomStyle: event.target.value, storyStyle: event.target.value })}
                             />
                         </LabeledControl>
@@ -399,12 +436,14 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                     ) : null}
                 </div>
 
-                <StoryDirectorLoraSection
-                    nodeId={node.id}
-                    advancedSettings={(node as any).metadata?.imageAdvancedSettings || (node as any).imageAdvancedSettings}
-                    theme={theme}
-                    onConfigChange={onConfigChange}
-                />
+                {selectedImageCapability?.advancedFields?.loras?.state === "supported" ? (
+                    <StoryDirectorLoraSection
+                        nodeId={node.id}
+                        advancedSettings={(node as any).metadata?.imageAdvancedSettings || (node as any).imageAdvancedSettings}
+                        theme={theme}
+                        onConfigChange={onConfigChange}
+                    />
+                ) : null}
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
                     <SummaryTile label="角色" value={`${importantCharacters.length} 个 / 缺 ${missingCharacterCount}`} />
@@ -422,7 +461,19 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                 </section>
                 {!hasAnalysis ? <div className="mt-2 text-xs leading-5 opacity-55">角色/场景/镜头会在“分析故事”成功后回填；没有上游参考图也可以直接按文案生成。</div> : null}
 
-                {node.metadata?.errorDetails ? <div className="mt-3 rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">{node.metadata.errorDetails}</div> : null}
+                {node.metadata?.errorDetails && !node.metadata.errorDetails.includes("无法恢复") && !node.metadata.errorDetails.includes("本地缓存") ? (
+                    <div className="mt-3 flex items-center justify-between rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-200">
+                        <span className="flex-1">{node.metadata.errorDetails}</span>
+                        <button
+                            type="button"
+                            className="ml-2 inline-flex size-5 shrink-0 items-center justify-center rounded-md text-red-300 hover:bg-red-500/20"
+                            onClick={() => onConfigChange(node.id, { errorDetails: undefined })}
+                            title="关闭提示"
+                        >
+                            <X className="size-3.5" />
+                        </button>
+                    </div>
+                ) : null}
 
                 {node.metadata?.storyAnalysisRenderedText && node.metadata.storyAnalysisRenderedText.trim() !== storyText.trim() ? (
                     <section className="mt-3 rounded-xl border p-3" style={{ borderColor: theme.node.stroke, background: theme.node.fill }}>
@@ -452,6 +503,7 @@ export function CanvasStoryDirectorPanel({ node, embedded = false, storyDirector
                         </div>
                     </section>
                 ) : null}
+                <div aria-hidden className="h-4 shrink-0" />
             </div>
         </div>
     );
@@ -593,15 +645,24 @@ function nearestGrid9ShotCount(value: number) {
 
 function DirectorAction({ icon, title, description, disabled, onClick, primary = false }: { icon: ReactNode; title: string; description: string; disabled?: boolean; onClick: () => void; primary?: boolean }) {
     return (
-        <Button type={primary ? "primary" : "default"} className="!flex !h-auto !min-h-[72px] !w-full !justify-start !rounded-xl !px-3 !py-2.5 text-left" disabled={disabled} onClick={onClick}>
+        <button
+            type="button"
+            className={`flex h-auto min-h-[72px] w-full justify-start rounded-xl px-3 py-2.5 text-left border transition ${
+                primary
+                    ? "bg-orange-500 hover:bg-orange-600 text-white border-orange-600/50 shadow-sm"
+                    : "bg-stone-500/10 hover:bg-stone-500/20 text-current border-stone-500/20"
+            } ${disabled ? "opacity-70 cursor-not-allowed" : "cursor-pointer"}`}
+            disabled={disabled}
+            onClick={onClick}
+        >
             <span className="flex min-w-0 items-start gap-2">
                 <span className="mt-0.5 shrink-0">{icon}</span>
                 <span className="min-w-0">
                     <span className="block text-xs font-semibold">{title}</span>
-                    <span className="mt-1 block whitespace-normal text-[11px] leading-4 opacity-60">{description}</span>
+                    <span className="mt-1 block whitespace-normal text-[11px] leading-4 opacity-80">{description}</span>
                 </span>
             </span>
-        </Button>
+        </button>
     );
 }
 

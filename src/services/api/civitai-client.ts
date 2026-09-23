@@ -1,6 +1,5 @@
 import axios from "axios";
 
-import { shouldUseDesktopLoopback } from "@/services/desktop-api-url";
 import { routedLocalApiUrl, type ApiRequestRoute } from "@/services/api/ai-routing";
 import { buildCivitaiWorkflowQuery, civitaiAllowsMatureContent, isCivitaiAdapterType, readCivitaiWorkflowState, type CivitaiWorkflowState } from "@/services/api/civitai-orchestration";
 import { resolveCivitaiVideoMediaContractForIntent } from "@/services/api/civitai-video-media-contract.mjs";
@@ -17,7 +16,6 @@ import {
     type CivitaiGenerationServicePage,
 } from "@/services/api/civitai-services";
 import { buildLocalRelayProxyHeaders, buildLocalRelayProxyUrl, selectRelayCredential, resolveRelayCredentialId } from "@/services/api/relay-proxy";
-import { FetchCivitaiServices as fetchCivitaiServicesNative } from "../../../wailsjs/go/main/App";
 
 type LocalApiRequestRoute = Extract<ApiRequestRoute, { readonly mode: "local" }>;
 
@@ -371,42 +369,25 @@ async function loadCivitaiGenerationServices(apiKey: string, scope?: CivitaiCata
 
 async function loadCivitaiServicesPage(apiKey: string, offset: number, scope?: CivitaiCatalogCacheScope): Promise<CivitaiGenerationServicePage> {
     let payload: unknown;
-    if (shouldUseDesktopLoopback(typeof window === "undefined" ? "" : window.location.protocol)) {
-        let response;
-        try {
-            const proxyUrl = scope?.proxyMode === "custom" ? String(scope.proxyUrl || "").trim() : "";
-            response = await fetchCivitaiServicesNative(apiKey, offset, proxyUrl);
-        } catch (error) {
-            throw new CivitaiCatalogUnavailableError("Civitai /v2/services 网络请求失败", { cause: error });
-        }
-        if (response.status) assertCivitaiCatalogStatus(response.status);
-        if (response.message) throw new CivitaiCatalogUnavailableError("Civitai /v2/services 网络请求失败");
-        try {
-            payload = JSON.parse(response.body);
-        } catch {
-            throw new CivitaiCatalogContractError("Civitai /v2/services 返回了无效 JSON");
-        }
-    } else {
-        try {
-            const response = await axios.get<unknown>(buildLocalRelayProxyUrl("/services"), {
-                headers: buildLocalRelayProxyHeaders({
-                    id: String(scope?.providerId || "").trim() || "civitai-service-catalog",
-                    // Catalog is a sibling of /v2/consumer, not nested under the workflow base.
-                    baseUrl: CIVITAI_CATALOG_BASE_URL,
-                    apiKey,
-                    apiKeyId: scope?.credentialId,
-                    proxyMode: scope?.proxyMode,
-                    proxyUrl: scope?.proxyUrl,
-                }, undefined, apiKey, scope?.credentialId),
-                params: { limit: CIVITAI_CATALOG_PAGE_LIMIT, offset },
-                timeout: 20_000,
-            });
-            payload = response.data;
-        } catch (error) {
-            const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-            if (status !== undefined) assertCivitaiCatalogStatus(status);
-            throw new CivitaiCatalogUnavailableError("Civitai /v2/services 网络请求失败", { cause: error });
-        }
+    try {
+        const response = await axios.get<unknown>(buildLocalRelayProxyUrl("/services"), {
+            headers: buildLocalRelayProxyHeaders({
+                id: String(scope?.providerId || "").trim() || "civitai-service-catalog",
+                // Catalog is a sibling of /v2/consumer, not nested under the workflow base.
+                baseUrl: CIVITAI_CATALOG_BASE_URL,
+                apiKey,
+                apiKeyId: scope?.credentialId,
+                proxyMode: scope?.proxyMode,
+                proxyUrl: scope?.proxyUrl,
+            }, undefined, apiKey, scope?.credentialId),
+            params: { limit: CIVITAI_CATALOG_PAGE_LIMIT, offset },
+            timeout: 20_000,
+        });
+        payload = response.data;
+    } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        if (status !== undefined) assertCivitaiCatalogStatus(status);
+        throw new CivitaiCatalogUnavailableError("Civitai /v2/services 网络请求失败", { cause: error });
     }
     return parseCivitaiGenerationServicePage(payload);
 }

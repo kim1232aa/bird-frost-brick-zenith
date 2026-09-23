@@ -1,6 +1,6 @@
 import type { ImageGenInput, StudioAdapter, VideoCreateInput, VideoPollResult } from "./types.ts";
 import { collectImageRefs } from "../image-refs.ts";
-import { huggingfaceImageSize } from "./huggingface.ts";
+import { huggingfaceImageSize } from "./image-size.ts";
 
 /** Official fal.run endpoint ids for wiring short names. */
 const FAL_T2I: Record<string, string> = {
@@ -79,14 +79,32 @@ type FalParamProfile = {
   loras?: boolean;
 };
 
+const FAL_ENDPOINT_PROFILES: Record<string, FalParamProfile> = {
+  "fal-ai/nano-banana": { kind: "banana" },
+  "fal-ai/nano-banana/edit": { kind: "banana" },
+  "fal-ai/nano-banana-pro": { kind: "banana" },
+  "fal-ai/nano-banana-pro/edit": { kind: "banana" },
+  "fal-ai/flux-2/lora": { kind: "flux2", steps: true, guidance: true, loras: true },
+  "fal-ai/flux-2-pro": { kind: "flux2" },
+  "fal-ai/flux-2-pro/edit": { kind: "flux2" },
+  "fal-ai/flux-2-flex": { kind: "flux2" },
+  "fal-ai/flux-2-flex/edit": { kind: "flux2" },
+  "fal-ai/flux-2/flash": { kind: "flux2" },
+  "fal-ai/flux-2/flash/edit": { kind: "flux2" },
+  "fal-ai/flux/schnell": { kind: "flux1", steps: true },
+  "fal-ai/flux-lora": { kind: "flux1", steps: true, guidance: true, loras: true },
+  "fal-ai/flux/dev": { kind: "flux1", steps: true, guidance: true },
+  "fal-ai/flux/dev/image-to-image": { kind: "flux1", steps: true, guidance: true },
+  "fal-ai/flux-pro": { kind: "flux1", steps: true, guidance: true },
+  "fal-ai/bytedance/seedream/v4.5/text-to-image": { kind: "seedream" },
+  "fal-ai/bytedance/seedream/v4.5/edit": { kind: "seedream" },
+};
+
 function falParamProfile(endpoint: string): FalParamProfile {
-  if (/nano-banana/i.test(endpoint)) return { kind: "banana" };
-  if (/flux-2\/lora/i.test(endpoint)) return { kind: "flux2", steps: true, guidance: true, loras: true };
-  if (/flux-2/i.test(endpoint)) return { kind: "flux2" };
-  if (/flux\/schnell/i.test(endpoint)) return { kind: "flux1", steps: true };
-  if (/flux-lora/i.test(endpoint)) return { kind: "flux1", steps: true, guidance: true, loras: true };
-  if (/flux/i.test(endpoint)) return { kind: "flux1", steps: true, guidance: true };
-  if (/seedream/i.test(endpoint)) return { kind: "seedream" };
+  const normalized = endpoint.replace(/^\//, "").toLowerCase();
+  const profile = FAL_ENDPOINT_PROFILES[normalized];
+  if (profile) return profile;
+  console.warn(`Fal 端点 "${endpoint}" 未在参数档案注册表中，按 generic 透传已知字段，不猜测 steps/guidance/lora。`);
   return { kind: "generic" };
 }
 
@@ -139,11 +157,13 @@ export function planFalImageRequest(
       });
     body.loras = loraEntries;
   }
-  if (profile.steps && typeof input.steps === "number" && Number.isFinite(input.steps)) {
-    body.num_inference_steps = input.steps;
+  if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
+    if (profile.steps) body.num_inference_steps = input.steps;
+    else console.warn(`Fal 端点 ${endpoint} 的参数档案未标注 steps，不发送 num_inference_steps。`);
   }
-  if (profile.guidance && typeof input.guidance === "number" && Number.isFinite(input.guidance)) {
-    body.guidance_scale = input.guidance;
+  if (typeof input.guidance === "number" && Number.isFinite(input.guidance)) {
+    if (profile.guidance) body.guidance_scale = input.guidance;
+    else console.warn(`Fal 端点 ${endpoint} 的参数档案未标注 guidance，不发送 guidance_scale。`);
   }
   if (refs.length) {
     if (/(?:^|\/)edit(?:\/|$)/i.test(endpoint)) {
@@ -207,6 +227,7 @@ type FalVideoProfile = {
   promptOptimizer?: boolean;
   seed?: boolean;
   safetyChecker?: boolean;
+  multiImageField?: string;
 };
 
 const FAL_VIDEO_PROFILES: Record<string, FalVideoProfile> = {
@@ -292,8 +313,10 @@ export function planFalVideoRequest(input: Pick<
   const profile = falVideoProfileForModel(input.model);
   const first = String(input.imageUrl || "").trim();
   const last = String(input.lastFrameUrl || "").trim();
-  const extras = (input.imageUrls || []).map((url) => String(url || "").trim()).filter(Boolean);
-  if (extras.length) {
+  const extras = (input.imageUrls || [])
+    .map((url) => String(url || "").trim())
+    .filter((u) => Boolean(u) && u !== first && u !== last);
+  if (extras.length && !profile.multiImageField) {
     throw new Error(`Fal 模型 ${input.model} 只吃${profile.lastFrameField ? "首帧+尾帧" : "首帧"}，多出的 ${extras.length} 张参考图已拒绝提交（别硬塞）。`);
   }
   if (last && !profile.lastFrameField) {
@@ -411,6 +434,20 @@ export const falAdapter: StudioAdapter = {
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 Fal Key" };
-    return { ok: true, message: "已保存 Fal Key。生成时走 fal.run（视频走 queue.fal.run 队列），Authorization: Key。" };
+    try {
+      const { studioProxyJson } = await import("../generate/proxy.ts");
+      await studioProxyJson({
+        provider: ctx.provider,
+        baseUrl: "https://rest.alpha.fal.ai",
+        path: "/models",
+        method: "GET",
+        authScheme: "Key",
+        timeoutMs: 15_000,
+      });
+      return { ok: true, message: "Fal API 鉴权成功" };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "连接失败";
+      return { ok: false, message: `Fal 连接失败：${message}` };
+    }
   },
 };

@@ -239,7 +239,7 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "127.0.0.1",
     port: 8081,
     strictPort: true,
-    allowedHosts: ["deeix.alibb123.ccwu.cc"],
+    allowedHosts: [],
   },
   define: {
     "process.env.NEXT_PUBLIC_APP_VERSION": JSON.stringify("1.1.0"),
@@ -247,6 +247,7 @@ export default defineConfig(({ command, isPreview }) => ({
     "process.env.NEXT_PUBLIC_DEV_BACKEND": JSON.stringify(""),
   },
   resolve: {
+    extensions: [".tsx", ".ts", ".jsx", ".js", ".mjs", ".mts", ".json"],
     tsconfigPaths: true,
     alias: {
       "@": resolve(__dirname, "src"),
@@ -279,4 +280,26 @@ export default defineConfig(({ command, isPreview }) => ({
       : []),
     viteReact(),
   ],
+  build: {
+    rolldownOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          const normalized = id.replaceAll("\\", "/");
+          if (
+            normalized.includes("/node_modules/antd/") ||
+            normalized.includes("/node_modules/@ant-design/") ||
+            /\/node_modules\/rc-[^/]+\//.test(normalized)
+          ) {
+            return "antd";
+          }
+          if (normalized.includes("/node_modules/@electric-sql/pglite/")) return "pglite";
+          if (normalized.includes("/node_modules/lucide-react/")) return "lucide";
+          if (normalized.includes("/node_modules/framer-motion/") || normalized.includes("/node_modules/motion/")) {
+            return "motion";
+          }
+        },
+      },
+    },
+  },
 }));

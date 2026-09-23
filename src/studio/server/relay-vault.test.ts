@@ -208,6 +208,7 @@ test("env seed maps Civitai/Fal/Grok/OpenAI-compat without leaking empty templat
   process.env.CIVITAI_API_KEY = "synthetic-civitai";
   process.env.FAL_KEY = "synthetic-fal";
   process.env.GROK_RELAY_API_KEY = "synthetic-grok";
+  process.env.GROK_RELAY_BASE_URL = "https://grok.example.test/v1";
   process.env.OPENAI_COMPAT_API_KEY = "synthetic-openai-compat";
   process.env.OPENAI_COMPAT_BASE_URL = "https://compat.example.test/v1";
   const seeds = envSeededRelays();
@@ -226,9 +227,11 @@ test("env seed maps Civitai/Fal/Grok/OpenAI-compat without leaking empty templat
   ]);
   assert.equal(seeds.find((item) => item.id === "preset-fal")?.authScheme, "Key");
   const grokBaseUrl = seeds.find((item) => item.id === "preset-grok-relay")?.baseUrl;
-  const wiredGrokBaseUrl = studioRelays().find((item) => item.id === "preset-grok-relay")?.baseUrl;
-  assert.equal(grokBaseUrl, wiredGrokBaseUrl);
+  assert.equal(grokBaseUrl, "https://grok.example.test/v1");
   assert.equal(new URL(String(grokBaseUrl)).protocol, "https:");
+
+  // 未配置任何环境变量时，seeds 必须为空，未配置即 disabled
+  assert.deepEqual(envSeededRelays(), []);
 });
 
 test("env seed upgrades HTTP Grok endpoints and rejects invalid endpoints", async () => {

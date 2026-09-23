@@ -7,7 +7,7 @@ import {
   type VideoWireFormatSnapshot,
 } from "@/stores/video-generation-settings";
 import type { CanvasNodeData, CanvasNodeMetadata } from "../types";
-import { isVideoTaskSnapshotLocked } from "./canvas-video-task-edit-lock";
+import { hasVideoTaskHistory } from "./canvas-video-task-edit-lock";
 import { resolveWorkflowVideoOperationSelection } from "./canvas-video-operation-selection";
 
 export function isMigratableStoryVideoPlaceholder(
@@ -18,7 +18,7 @@ export function isMigratableStoryVideoPlaceholder(
     node.type === "video" &&
     node.metadata?.seedanceWorkflowRole === "placeholder" &&
     node.metadata?.seedanceWorkflowNodeId === workflowId &&
-    !isVideoTaskSnapshotLocked(node.metadata)
+    !hasVideoTaskHistory(node.metadata)
   );
 }
 

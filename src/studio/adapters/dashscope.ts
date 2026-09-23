@@ -1,6 +1,6 @@
-import type { StudioAdapter } from "./types";
-import { allImageUrls, firstImageUrl, studioProxyJson } from "@/studio/generate/proxy";
-import { collectImageRefs } from "@/studio/image-refs";
+import type { StudioAdapter } from "./types.ts";
+import { allImageUrls, firstImageUrl, studioProxyJson } from "../generate/proxy.ts";
+import { collectImageRefs } from "../image-refs.ts";
 import {
   buildDashscopeImageRequest,
   buildDashscopeVideoBody,
@@ -8,8 +8,8 @@ import {
   DASHSCOPE_TASK_POLL_WINDOW_MS,
   dashscopeNativeApiHost,
   studioEndpoint,
-} from "./contracts";
-import { buildDashscopeAudioRequest, readDashscopeAudioResult } from "./dashscope-audio";
+} from "./contracts.ts";
+import { buildDashscopeAudioRequest, readDashscopeAudioResult } from "./dashscope-audio.ts";
 
 function isQwenImage(model: string) {
   return /qwen[-_]?image/i.test(model);
@@ -77,19 +77,21 @@ function parsePixelSize(value: string) {
 }
 
 export function qwenImagePixelSize(model: string, size?: string, ratio?: string) {
-  const raw = String(size || "2K").trim() || "2K";
-  const aspect = String(ratio || "1:1").trim() || "1:1";
+  const raw = String(size || "").trim();
+  const aspect = String(ratio || "").trim();
+  if (!raw && !aspect) return undefined;
   const pixels = parsePixelSize(raw);
   if (pixels) {
     const area = pixels.width * pixels.height;
     if (area >= 512 * 512 && area <= 2048 * 2048) return `${pixels.width}*${pixels.height}`;
   }
+  const effectiveAspect = aspect || "1:1";
   if (!isQwenImage20or30(model)) {
-    return QWEN_PLUS[aspect] || "1328*1328";
+    return QWEN_PLUS[effectiveAspect] || "1328*1328";
   }
-  const tier = raw.toUpperCase();
-  if (tier === "1K") return QWEN20_1K[aspect] || "1024*1024";
-  return QWEN20_2K[aspect] || "2048*2048";
+  const tier = raw ? raw.toUpperCase() : "2K";
+  if (tier === "1K") return QWEN20_1K[effectiveAspect] || "1024*1024";
+  return QWEN20_2K[effectiveAspect] || "2048*2048";
 }
 
 function dashscopeImageSize(model: string, size?: string, ratio?: string) {
@@ -157,6 +159,19 @@ export const dashscopeAdapter: StudioAdapter = {
       watermark: input.watermark,
       promptExpansion: input.promptExpansion,
     });
+    // Qwen/Wan image contracts publish negative_prompt, size, n, seed, watermark.
+    // They do not publish steps, cfg/guidance, or sampler.
+    // https://help.aliyun.com/en/model-studio/qwen-image-api
+    if (typeof input.steps === "number" && Number.isFinite(input.steps)) {
+      console.warn(`DashScope ${input.model} 图像接口未记录 steps，本次不发送。`);
+    }
+    const cfg = input.cfgScale ?? input.guidance;
+    if (typeof cfg === "number" && Number.isFinite(cfg)) {
+      console.warn(`DashScope ${input.model} 图像接口未记录 cfg/guidance，本次不发送。`);
+    }
+    if (String(input.sampler || "").trim()) {
+      console.warn(`DashScope ${input.model} 图像接口未记录 sampler，本次不发送。`);
+    }
 
     const created = await studioProxyJson<Record<string, unknown>>({
       provider: ctx.provider,
@@ -273,6 +288,19 @@ export const dashscopeAdapter: StudioAdapter = {
   },
   async testConnection(ctx) {
     if (!ctx.provider.apiKey && !ctx.provider.hasApiKey) return { ok: false, message: "缺少 DashScope Key" };
-    return { ok: true, message: "已保存 DashScope Key。生成时走官方异步端点。" };
+    try {
+      const data = await studioProxyJson<{ data?: Array<{ id?: string }> }>({
+        provider: ctx.provider,
+        baseUrl: ctx.provider.baseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        path: "/models",
+        method: "GET",
+        timeoutMs: 15_000,
+      });
+      const count = Array.isArray(data?.data) ? data.data.length : 0;
+      return { ok: true, message: `DashScope 连接正常（${count} 个模型可用）` };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "连接失败";
+      return { ok: false, message: `DashScope 连接失败：${message}` };
+    }
   },
 };

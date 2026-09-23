@@ -1,8 +1,6 @@
 import localforage from "localforage";
 import type { StateStorage } from "zustand/middleware";
 
-import { getDesktopState, removeDesktopState, setDesktopState } from "@/services/desktop-storage";
-
 localforage.config({
     name: "infinite-canvas",
     storeName: "app_state",
@@ -12,65 +10,38 @@ const INDEXED_DB_READ_TIMEOUT_MS = 15_000;
 const INDEXED_DB_TIMEOUT = "__indexed_db_read_timeout__";
 
 export const localForageStorage: StateStorage = {
-    getItem: (name) => readStateItem(name, false),
+    getItem: async (name) => {
+        if (typeof window === "undefined") return null;
+        return readLegacyValue(name);
+    },
     setItem: async (name, value) => {
         if (typeof window === "undefined") return;
         try {
-            await setDesktopState(name, value);
-            await clearLegacyValue(name);
-        } catch (desktopError) {
-            if (isDesktopStateStorageRequired()) throw desktopError;
             cacheLegacyLocalStorage(name, value);
-            try {
-                await localforage.setItem(name, value);
-            } catch {
-                // Standalone Vite development can continue with localStorage.
-            }
+            await localforage.setItem(name, value);
+        } catch (err) {
+            console.error(`[LocalForageStorage] 本地存储保存失败 "${name}":`, err);
+            throw new Error(`本地数据保存失败: ${err instanceof Error ? err.message : String(err)}`);
         }
     },
     removeItem: async (name) => {
         if (typeof window === "undefined") return;
         try {
-            await removeDesktopState(name);
-        } finally {
             await clearLegacyValue(name);
+        } catch (err) {
+            console.error(`[LocalForageStorage] 本地存储删除失败 "${name}":`, err);
+            throw err;
         }
     },
 };
 
-
 export function getStrictLocalForageItem(name: string) {
-    const desktopRequired = isDesktopStateStorageRequired();
-    return readStateItem(name, desktopRequired);
+    if (typeof window === "undefined") return Promise.resolve(null);
+    return readLegacyValue(name);
 }
 
 export function isDesktopStateStorageRequired() {
-    if (typeof window === "undefined") return false;
-    const protocol = window.location.protocol.trim().toLowerCase();
-    const hostname = window.location.hostname.trim().toLowerCase();
-    // Wails uses the custom scheme on macOS/Linux, but Windows WebView2 is
-    // hosted at http://wails.localhost/. Both are packaged desktop runtimes and
-    // must propagate native-state read failures instead of accepting defaults.
-    return protocol === "wails:" || hostname === "wails.localhost";
-}
-
-async function readStateItem(name: string, propagateDesktopError: boolean) {
-    if (typeof window === "undefined") return null;
-    try {
-        const desktopValue = await getDesktopState(name);
-        if (desktopValue !== null) return desktopValue;
-        const legacyValue = await readLegacyValue(name);
-        if (legacyValue !== null) {
-            await setDesktopState(name, legacyValue);
-            await clearLegacyValue(name);
-        }
-        return legacyValue;
-    } catch (desktopError) {
-        if (propagateDesktopError) throw desktopError;
-        const legacyValue = await readLegacyValue(name);
-        if (legacyValue !== null) return legacyValue;
-        return null;
-    }
+    return false;
 }
 
 async function readLegacyValue(name: string) {

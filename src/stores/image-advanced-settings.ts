@@ -151,6 +151,8 @@ export function normalizeImageAdvancedSettings(value: unknown): ImageAdvancedSet
     }
     if (typeof value.checkpointAir === "string") normalized.checkpointAir = value.checkpointAir.trim();
     if (isFiniteNumber(value.strength)) normalized.strength = value.strength;
+    else if (isFiniteNumber((value as any).denoise)) normalized.strength = (value as any).denoise;
+    if (isFiniteNumber(value.clipSkip)) normalized.clipSkip = value.clipSkip;
     if (typeof value.vaeAir === "string") normalized.vaeAir = value.vaeAir.trim();
     if (Array.isArray(value.embeddings)) normalized.embeddings = value.embeddings.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
     if (value.uCache === "off" || value.uCache === "normal") normalized.uCache = value.uCache;
@@ -313,10 +315,10 @@ export function imageAdvancedSettingsToRequest(
         loras?: Record<string, number>;
         clipSkip?: number;
     } = {};
-    if (capabilities.negativePrompt.state === "supported" && capabilities.negativePrompt.kind === "string" && settings.negativePrompt?.trim()) request.negativePrompt = settings.negativePrompt;
-    if (capabilities.seed.state === "supported" && capabilities.seed.kind === "int64" && settings.seed?.trim()) request.seed = settings.seed.trim();
-    if (capabilities.steps.state === "supported" && capabilities.steps.kind === "number" && isFiniteNumber(settings.steps)) request.steps = settings.steps;
-    if (capabilities.cfgScale.state === "supported" && capabilities.cfgScale.kind === "number" && isFiniteNumber(settings.cfgScale)) request.cfgScale = settings.cfgScale;
+    if (forwardPermissiveDiffusionField(capabilities.negativePrompt) && settings.negativePrompt?.trim()) request.negativePrompt = settings.negativePrompt;
+    if (forwardPermissiveDiffusionField(capabilities.seed) && settings.seed?.trim()) request.seed = settings.seed.trim();
+    if (forwardPermissiveDiffusionField(capabilities.steps) && isFiniteNumber(settings.steps)) request.steps = settings.steps;
+    if (forwardPermissiveDiffusionField(capabilities.cfgScale) && isFiniteNumber(settings.cfgScale)) request.cfgScale = settings.cfgScale;
     if (capabilities.sampler.state === "supported" && capabilities.sampler.kind === "enum" && settings.sampler?.trim()) request.sampler = settings.sampler;
     if (capabilities.scheduler.state === "supported" && capabilities.scheduler.kind === "enum" && settings.scheduler?.trim()) request.scheduler = settings.scheduler;
     if (capabilities.clipSkip.state === "supported" && capabilities.clipSkip.kind === "number" && isFiniteNumber(settings.clipSkip)) request.clipSkip = settings.clipSkip;
@@ -427,6 +429,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === "number" && Number.isFinite(value);
+}
+
+/** Supported fields always forward. Unknown diffusion fields forward too so unverified relays can still send seed/steps/CFG/negative prompt. Explicit unsupported stays off the wire. */
+function forwardPermissiveDiffusionField(capability: { readonly state: string }) {
+    return capability.state === "supported" || capability.state === "unknown";
 }
 
 function isCivitaiLoraResourceKind(value: unknown): value is CivitaiLoraResourceKind {

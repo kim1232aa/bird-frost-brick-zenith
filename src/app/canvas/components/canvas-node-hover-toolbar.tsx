@@ -7,7 +7,6 @@ import { Download, Ellipsis, FolderPlus, Image as ImageIcon, Info, MessageSquare
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, getDataUrlByteSize } from "@/lib/image-utils";
 import { useCopyText } from "@/hooks/use-copy-text";
-import { getDesktopSetting, removeDesktopSetting, setDesktopSetting } from "@/services/desktop-storage";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasNodeType, type CanvasNodeData, type ViewportTransform } from "../types";
 import { formatCanvasGenerationError } from "../utils/canvas-errors";
@@ -93,16 +92,18 @@ export function CanvasNodeHoverToolbar({
 
     useEffect(() => {
         let active = true;
-        void getDesktopSetting(IMAGE_QUICK_TOOLS_STORAGE_KEY).then(async (stored) => {
-            if (!active || !stored) return;
-            try {
-                const config = readImageQuickToolsConfig(JSON.parse(stored) as unknown);
-                setQuickImageToolIds(config.ids);
-                setShowImageToolLabels(config.showLabels);
-            } catch {
-                await removeDesktopSetting(IMAGE_QUICK_TOOLS_STORAGE_KEY);
+        try {
+            const stored = typeof window !== "undefined" ? window.localStorage.getItem(IMAGE_QUICK_TOOLS_STORAGE_KEY) : null;
+            if (active && stored) {
+                try {
+                    const config = readImageQuickToolsConfig(JSON.parse(stored) as unknown);
+                    setQuickImageToolIds(config.ids);
+                    setShowImageToolLabels(config.showLabels);
+                } catch {
+                    window.localStorage.removeItem(IMAGE_QUICK_TOOLS_STORAGE_KEY);
+                }
             }
-        });
+        } catch {}
         return () => { active = false; };
     }, []);
 
@@ -186,7 +187,9 @@ export function CanvasNodeHoverToolbar({
         const config = { ids: draftImageToolIds, showLabels: draftShowImageToolLabels };
         setQuickImageToolIds(config.ids);
         setShowImageToolLabels(config.showLabels);
-        void setDesktopSetting(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
+        try {
+            window.localStorage.setItem(IMAGE_QUICK_TOOLS_STORAGE_KEY, JSON.stringify(config));
+        } catch {}
         closeImageToolSettings();
     };
 

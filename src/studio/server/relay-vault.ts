@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { sha256HexSync } from "@/lib/sha256";
 import { createServerFn, createServerOnlyFn } from "@tanstack/react-start";
 import { getSql } from "@/lib/db";
@@ -406,13 +407,24 @@ export const loadImageHostCredential = createServerFn({ method: "GET" })
   });
 
 export const saveRelayVault = createServerFn({ method: "POST" })
-  .validator((value: { relays: RelayVaultInput[]; hiddenPresetIds?: string[] }) => ({
+  .validator((value: { relays: RelayVaultInput[]; hiddenPresetIds?: string[]; imageHost?: RawImageHostCredential | null }) => ({
     relays: Array.isArray(value?.relays)
       ? value.relays.filter((relay): relay is RelayVaultInput => Boolean(relay && typeof relay === "object" && typeof relay.id === "string"))
       : [],
     hiddenPresetIds: Array.isArray(value?.hiddenPresetIds) ? value.hiddenPresetIds.filter((id) => typeof id === "string") : [],
+    imageHost: value?.imageHost ?? undefined,
   }))
-  .handler(async ({ data, context }) => writeRelayVault(await vaultUserIdFromContext(context as VaultHandlerContext), data));
+  .handler(async ({ data, context }) => {
+    const userId = await vaultUserIdFromContext(context as VaultHandlerContext);
+    const saved = await writeRelayVault(userId, data);
+    if (data.imageHost !== undefined) {
+      await writeImageHostCredential(
+        userId,
+        (data.imageHost ?? { baseUrl: "", apiKey: "" }) as ImageHostCredentialInput,
+      );
+    }
+    return saved;
+  });
 
 export const saveImageHostCredential = createServerFn({ method: "POST" })
   .validator((value: Partial<ImageHostCredentialInput>) => ({
@@ -428,10 +440,30 @@ type EnvSeededRelay = {
   readonly authScheme?: ApiRelayProvider["authScheme"];
   readonly imageModels?: readonly string[];
   readonly models?: readonly string[];
+  readonly textModels?: readonly string[];
+  readonly videoModels?: readonly string[];
 };
 
 function envText(name: string) {
-  return String(process.env[name] || "").trim();
+  const direct = String(process.env[name] || "").trim();
+  if (direct) return direct;
+  // In production container with mounted /app/data, load persisted env file if not in process.env
+  if (process.env.NODE_ENV === "production") {
+    try {
+      const p = "/app/data/.env";
+      if (existsSync(p)) {
+        const lines = readFileSync(p, "utf-8").split("\n");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith(`${name}=`)) {
+            const val = trimmed.slice(name.length + 1).trim();
+            if (val) return val;
+          }
+        }
+      }
+    } catch {}
+  }
+  return "";
 }
 
 function isHttpsEndpoint(value: unknown): value is string {
@@ -450,7 +482,7 @@ function defaultGrokRelayBaseUrl() {
 
 function normalizeEnvRelayBaseUrl(value: string) {
   const raw = value.trim();
-  if (!raw) return defaultGrokRelayBaseUrl();
+  if (!raw) return "";
   try {
     const url = new URL(raw);
     if (url.protocol === "http:") url.protocol = "https:";
@@ -466,15 +498,20 @@ export function envSeededRelays(): EnvSeededRelay[] {
   const civitai = envText("CIVITAI_API_KEY") || envText("CIVITAI_TOKEN");
   const fal = envText("FAL_KEY");
   const openaiCompat = envText("OPENAI_COMPAT_API_KEY");
-  const volcengineKey = envText("VOLCENGINE_API_KEY") || envText("ARK_API_KEY") || envText("SUB_API_KEY");
-  const volcengineBaseUrl = normalizeEnvRelayBaseUrl(envText("VOLCENGINE_BASE_URL") || "https://sub.alibb123.ccwu.cc/v1");
+  const volcengineKey = envText("VOLCENGINE_API_KEY") || envText("ARK_API_KEY");
+  const volcengineBaseUrl = normalizeEnvRelayBaseUrl(envText("VOLCENGINE_BASE_URL") || "https://ark.cn-beijing.volces.com/api/plan/v3");
   const nanogptKey = envText("NANOGPT_API_KEY");
   const hfKey = envText("HF_TOKEN") || envText("HUGGINGFACE_API_KEY");
   const modelscopeKey = envText("MODELSCOPE_API_KEY");
   const modelscopeCnKey = envText("MODELSCOPE_CN_API_KEY");
 
+  const sensenovaKey = envText("SENSENOVA_API_KEY");
+  const sensenovaBaseUrl = normalizeEnvRelayBaseUrl(envText("SENSENOVA_BASE_URL") || "https://token.sensenova.cn/v1");
+  const agnesKey = envText("AGNES_API_KEY");
+  const agnesBaseUrl = normalizeEnvRelayBaseUrl(envText("AGNES_BASE_URL") || "https://apihub.agnes-ai.com/v1");
+
   const seeded: EnvSeededRelay[] = [];
-  const grokBaseUrl = normalizeEnvRelayBaseUrl(envText("GROK_RELAY_BASE_URL") || "https://sub.alibb123.ccwu.cc/v1");
+  const grokBaseUrl = normalizeEnvRelayBaseUrl(envText("GROK_RELAY_BASE_URL"));
   if (grokRelay && grokBaseUrl) {
     seeded.push({
       id: "preset-grok-relay",
@@ -483,28 +520,23 @@ export function envSeededRelays(): EnvSeededRelay[] {
     });
   }
   if (volcengineKey && volcengineBaseUrl) {
-    const arkTextEp = ["ark", "8c2c51f6", "b302-48fc-8f26-207f83bd8129-b50b0"].join("-");
-    const arkImageEp = ["ark", "7dba6482", "ede8-4905-b858-cc9a558ce1d0-45616"].join("-");
-    const arkSeedream5LiteEp = ["ark", "8965f7dc", "a069-4b32-a536-605c1cf8ff4c-de941"].join("-");
     seeded.push({
       id: "preset-volcengine-plan",
       apiKey: volcengineKey,
       baseUrl: volcengineBaseUrl,
       models: [
-        arkSeedream5LiteEp,
         "doubao-seedream-5.0-lite",
         "doubao-seedream-5.0",
-        arkTextEp,
-        arkImageEp,
         "doubao-seedream-5-0-260128",
         "doubao-seedance-2-0-260128",
+        "doubao-seedance-1.5-pro",
+        "doubao-pro-32k",
+        "doubao-1-5-pro-32k",
+        "doubao-lite-32k",
       ],
       imageModels: [
-        arkSeedream5LiteEp,
         "doubao-seedream-5.0-lite",
         "doubao-seedream-5.0",
-        arkTextEp,
-        arkImageEp,
         "doubao-seedream-5-0-260128",
       ],
     });
@@ -519,12 +551,54 @@ export function envSeededRelays(): EnvSeededRelay[] {
   if (modelscopeKey) seeded.push({ id: "preset-modelscope", apiKey: modelscopeKey });
   if (modelscopeCnKey) seeded.push({ id: "preset-modelscope-cn", apiKey: modelscopeCnKey });
   if (openaiCompat) {
+    const compatBaseUrl = normalizeEnvRelayBaseUrl(envText("OPENAI_COMPAT_BASE_URL"));
+    if (compatBaseUrl) {
+      seeded.push({
+        id: "preset-custom-compat",
+        apiKey: openaiCompat,
+        baseUrl: compatBaseUrl,
+        imageModels: ["gpt-image-2", "auto"],
+        models: ["gpt-image-2", "auto"],
+      });
+    }
+  }
+  // Credentials come from the environment only, like every other seeded relay.
+  // Never inline a key here: this repository is public.
+  const effectiveSenseNovaKey = sensenovaKey;
+  const effectiveSenseNovaBaseUrl = sensenovaBaseUrl;
+  const effectiveAgnesKey = agnesKey;
+  const effectiveAgnesBaseUrl = agnesBaseUrl;
+
+  if (effectiveSenseNovaKey && effectiveSenseNovaBaseUrl) {
     seeded.push({
-      id: "preset-custom-compat",
-      apiKey: openaiCompat,
-      baseUrl: envText("OPENAI_COMPAT_BASE_URL") || "https://birdsun.click/v1",
-      imageModels: ["gpt-image-2", "auto"],
-      models: ["gpt-image-2", "auto"],
+      id: "preset-sensenova",
+      apiKey: effectiveSenseNovaKey,
+      baseUrl: effectiveSenseNovaBaseUrl,
+      models: ["sensenova-6.8-flash-lite", "deepseek-v4-flash", "deepseek-v4.1-flash", "glm-5.2", "kimi-k3", "sensenova-u1-fast", "sensenova-u1.5-lite"],
+      imageModels: ["sensenova-u1-fast", "sensenova-u1.5-lite"],
+      textModels: ["sensenova-6.8-flash-lite", "deepseek-v4-flash", "glm-5.2"],
+    });
+  }
+  if (effectiveAgnesKey && effectiveAgnesBaseUrl) {
+    seeded.push({
+      id: "preset-agnes-ai",
+      apiKey: effectiveAgnesKey,
+      baseUrl: effectiveAgnesBaseUrl,
+      models: [
+        "agnes-3.0-flash",
+        "agnes-2.5-flash",
+        "agnes-2.5-pro",
+        "agnes-2.0-flash",
+        "agnes-image-2.1-flash",
+        "agnes-image-2.0-flash",
+        "agnes-image-2.5-flash",
+        "agnes-video-v2.0",
+        "agnes-video-2.5-flash",
+        "agnes-video-2.5",
+      ],
+      imageModels: ["agnes-image-2.1-flash", "agnes-image-2.0-flash", "agnes-image-2.5-flash"],
+      videoModels: ["agnes-video-v2.0", "agnes-video-2.5-flash", "agnes-video-2.5"],
+      textModels: ["agnes-3.0-flash", "agnes-2.5-flash", "agnes-2.5-pro"],
     });
   }
   return seeded;

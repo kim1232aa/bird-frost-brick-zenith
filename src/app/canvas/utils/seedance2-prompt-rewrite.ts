@@ -34,6 +34,10 @@ export type Seedance2RewrittenShot = {
   shotId: string;
   shotIndex: number;
   prompt: string;
+  /** True when upstream rewriting failed and the shot kept its original prompt. */
+  rewriteFallback?: boolean;
+  /** Safe, non-blocking reason for keeping the original prompt. */
+  rewriteWarning?: string;
 };
 
 export type Seedance2BatchRewriteRequest = {
@@ -153,10 +157,12 @@ export function buildSeedance2BatchRewriteRequest(
   };
 }
 
-export function parseSeedance2BatchRewriteResponse(
+type Seedance2BatchRewriteMatch = { prompt: string; matched: boolean };
+
+function collectSeedance2BatchRewriteMatches(
   raw: string,
   expectedShots: Seedance2PromptRewriteShotInput[],
-): Seedance2RewrittenShot[] {
+): Seedance2BatchRewriteMatch[] {
   const text = String(raw || "").trim();
   const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   const jsonText = fenced?.[1] || text;
@@ -181,21 +187,52 @@ export function parseSeedance2BatchRewriteResponse(
       const shotIndex = Number(shot.shotIndex);
       return (shotId && shotId === expected.shotId) || shotIndex === expected.shotIndex;
     });
-    if (responseIndex < 0) {
-      throw new Error(`Seedance2 整批提示词缺少 ${expected.shotId || `第 ${expected.shotIndex} 镜`}`);
-    }
+    if (responseIndex < 0) return { prompt: "", matched: false };
     usedIndexes.add(responseIndex);
     const responseShot = shots[responseIndex] as Record<string, unknown>;
     const prompt = typeof responseShot.prompt === "string" ? responseShot.prompt.trim() : "";
-    if (!prompt) {
-      throw new Error(`Seedance2 整批提示词中 ${expected.shotId || `第 ${expected.shotIndex} 镜`} 的 prompt 为空`);
-    }
+    return { prompt, matched: true };
+  });
+}
+
+export function parseSeedance2BatchRewriteResponse(
+  raw: string,
+  expectedShots: Seedance2PromptRewriteShotInput[],
+): Seedance2RewrittenShot[] {
+  const matches = collectSeedance2BatchRewriteMatches(raw, expectedShots);
+  return expectedShots.map((expected, index) => {
+    const match = matches[index];
+    const label = expected.shotId || `第 ${expected.shotIndex} 镜`;
+    if (!match?.matched) throw new Error(`Seedance2 整批提示词缺少 ${label}`);
+    if (!match.prompt) throw new Error(`Seedance2 整批提示词中 ${label} 的 prompt 为空`);
     return {
       shotId: expected.shotId,
       shotIndex: expected.shotIndex,
-      prompt,
+      prompt: match.prompt,
     };
   });
+}
+
+/** Session cancellation must abort the whole run; upstream failures must not. */
+export function seedance2RewriteCancelled(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return message.includes("工作区已切换");
+}
+
+/** The shot's own prompt, used when upstream rewriting fails. */
+export function seedance2ShotFallbackPrompt(shot: Seedance2PromptRewriteShotInput): string {
+  const candidates = [
+    shot.currentPrompt,
+    shot.storyContext?.finalPrompt,
+    shot.storyContext?.imagePrompt,
+    shot.storyContext?.visualContent,
+    shot.storyContext?.action,
+  ];
+  for (const candidate of candidates) {
+    const text = typeof candidate === "string" ? candidate.trim() : "";
+    if (text) return text;
+  }
+  return "";
 }
 
 export async function rewriteSeedance2BatchPrompts(
@@ -206,6 +243,7 @@ export async function rewriteSeedance2BatchPrompts(
   if (!input.shots.length) throw new Error("Seedance2 整批改写没有可用分镜");
   const checkpointShots = validCheckpointShots(input, options);
   const rewritten: Seedance2RewrittenShot[] = [...checkpointShots];
+  let degraded = false;
   for (
     let offset = checkpointShots.length;
     offset < input.shots.length;
@@ -216,22 +254,50 @@ export async function rewriteSeedance2BatchPrompts(
       offset + SEEDANCE2_PROMPT_REWRITE_MAX_SHOTS_PER_REQUEST,
     );
     const batchInput = { ...input, shots };
+    const first = shots[0]?.shotIndex || offset + 1;
+    const last = shots.at(-1)?.shotIndex || offset + shots.length;
+    const range = first === last ? `第 ${first} 镜` : `第 ${first}–${last} 镜`;
+    let matches: Seedance2BatchRewriteMatch[] = [];
+    let batchFailure = "";
     try {
       const raw = await request(buildSeedance2BatchRewriteRequest(batchInput));
-      rewritten.push(...parseSeedance2BatchRewriteResponse(raw, shots));
-      if (options.fingerprintDigest && options.onCheckpoint) {
-        await options.onCheckpoint({
-          schema: "seedance2-prompt-rewrite-checkpoint/v1",
-          fingerprintDigest: options.fingerprintDigest,
-          completedShots: rewritten.map((shot) => ({ ...shot })),
-        });
-      }
+      matches = collectSeedance2BatchRewriteMatches(raw, shots);
     } catch (error) {
-      const first = shots[0]?.shotIndex || offset + 1;
-      const last = shots.at(-1)?.shotIndex || offset + shots.length;
-      const range = first === last ? `第 ${first} 镜` : `第 ${first}–${last} 镜`;
-      const details = error instanceof Error ? error.message : String(error || "未知错误");
-      throw new Error(`Seedance2 ${range}提示词改写失败：${details}`);
+      if (seedance2RewriteCancelled(error)) throw error;
+      batchFailure = error instanceof Error ? error.message : String(error || "未知错误");
+    }
+
+    for (const [index, shot] of shots.entries()) {
+      const prompt = matches[index]?.prompt || "";
+      if (prompt) {
+        rewritten.push({ shotId: shot.shotId, shotIndex: shot.shotIndex, prompt });
+        continue;
+      }
+      const shotLabel = shot.shotId || `第 ${shot.shotIndex} 镜`;
+      const details = batchFailure || `返回结果缺少 ${shotLabel} 的有效 prompt`;
+      const fallbackPrompt = seedance2ShotFallbackPrompt(shot);
+      if (!fallbackPrompt) {
+        throw new Error(`Seedance2 ${range}提示词改写失败：${details}，且 ${shotLabel} 没有可用的原提示词`);
+      }
+      degraded = true;
+      rewritten.push({
+        shotId: shot.shotId,
+        shotIndex: shot.shotIndex,
+        prompt: fallbackPrompt,
+        rewriteFallback: true,
+        rewriteWarning: safeSeedance2PromptRewriteError(
+          new Error(`Seedance2 ${range}提示词改写失败：${details}；已保留原提示词`),
+        ),
+      });
+    }
+
+    // 一旦出现降级就停止记录检查点，让重试仍能从第一个失败批次重新改写。
+    if (!degraded && options.fingerprintDigest && options.onCheckpoint) {
+      await options.onCheckpoint({
+        schema: "seedance2-prompt-rewrite-checkpoint/v1",
+        fingerprintDigest: options.fingerprintDigest,
+        completedShots: rewritten.map((shot) => ({ ...shot })),
+      });
     }
   }
   return rewritten;

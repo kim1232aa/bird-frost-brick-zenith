@@ -209,6 +209,10 @@ function seedance2VisibleSlotCapacity(value) {
 }
 function seedance2ConnectedImageValue(node) {
   const metadata = node.metadata;
+  const backend = [metadata?.backendUrl, metadata?.content, metadata?.backendRel]
+    .map(seedance2UsableReferenceValue)
+    .find((v) => v && (v.startsWith("/works/") || v.startsWith("works/") || /^https?:\/\//i.test(v)));
+  if (backend) return backend;
   const localStorageKey = seedance2UsableReferenceValue(metadata?.storageKey);
   if (localStorageKey.startsWith("image:")) return localStorageKey;
   return [metadata?.backendUrl, metadata?.content, metadata?.backendRel, metadata?.storageKey].map(seedance2UsableReferenceValue).find(Boolean) || "";

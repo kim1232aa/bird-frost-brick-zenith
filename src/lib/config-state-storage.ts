@@ -1,10 +1,8 @@
 import localforage from "localforage";
 import type { StateStorage } from "zustand/middleware";
 
-import { getDesktopState, removeDesktopState, setDesktopState } from "@/services/desktop-storage";
-import { getStrictLocalForageItem, isDesktopStateStorageRequired } from "@/lib/localforage-storage";
+import { getStrictLocalForageItem } from "@/lib/localforage-storage";
 import { browserConfigFallbackAction, browserSafeConfigEnvelope } from "@/lib/config-secret-redaction";
-import { assertNativeConfigReadable, writeConfigCopies } from "@/lib/config-copy-storage";
 
 export const CONFIG_RECOVERY_SUFFIX = ":recovery";
 
@@ -15,54 +13,17 @@ function recoveryKey(name: string) {
     return `${name}${CONFIG_RECOVERY_SUFFIX}`;
 }
 
-/**
- * Configuration gets a second durable copy because an application update can
- * restart the WebView while Zustand is still restoring its asynchronous
- * storage. A missing/temporarily unavailable primary must never be interpreted
- * as permission to persist the in-memory defaults over the user's API routes.
- */
 export const recoverableConfigStorage: StateStorage = {
     async getItem(name) {
-        const desktopRequired = isDesktopStateStorageRequired();
-        // SQLite (desktop state) takes priority over IndexedDB.
-        // Read the direct state key first (external repair scripts write to this).
-        // Then fall back to the recovery copy (:recovery suffix).
-        let primaryNativeError: unknown;
-        try {
-            const direct = await getDesktopState(name);
-            if (isPersistedConfigEnvelope(direct)) {
-                const browserValue = browserSafeConfigEnvelope(direct);
-                await replaceBrowserConfigCopies(name, browserValue);
-                return browserValue;
-            }
-        } catch (error) {
-            primaryNativeError = error;
-        }
-
-        let recoveryNativeError: unknown;
-        try {
-            const nativeRecovery = await getDesktopState(recoveryKey(name));
-            if (isPersistedConfigEnvelope(nativeRecovery)) {
-                const browserValue = browserSafeConfigEnvelope(nativeRecovery);
-                await replaceBrowserConfigCopies(name, browserValue);
-                return browserValue;
-            }
-        } catch (error) {
-            recoveryNativeError = error;
-        }
-
-        assertNativeConfigReadable(desktopRequired, primaryNativeError, recoveryNativeError);
-
+        // 优先读取本地持久化与恢复副本
         const recovered = await readRecoveryValue(name);
-        const restoredRecovery = await restoreBrowserConfigCandidate(name, recovered, desktopRequired);
+        const restoredRecovery = await restoreBrowserConfigCandidate(name, recovered, false);
         if (restoredRecovery) return restoredRecovery;
 
         let primaryError: unknown;
         try {
-            const primary = desktopRequired
-                ? await readBrowserPrimaryValue(name)
-                : await getStrictLocalForageItem(name);
-            const restored = await restoreBrowserConfigCandidate(name, primary, desktopRequired);
+            const primary = await getStrictLocalForageItem(name);
+            const restored = await restoreBrowserConfigCandidate(name, primary, false);
             if (restored) return restored;
         } catch (error) {
             primaryError = error;
@@ -75,22 +36,36 @@ export const recoverableConfigStorage: StateStorage = {
     setItem(name, value) {
         pendingConfigSnapshots.set(name, value);
         return enqueueConfigWrite(async () => {
-            const desktopRequired = isDesktopStateStorageRequired();
             const browserValue = browserSafeConfigEnvelope(value);
-            await writeConfigCopies(
-                name,
-                recoveryKey(name),
-                value,
-                browserValue,
-                {
-                    setNative: setDesktopState,
-                    setBrowser: async (key, nextValue) => {
-                        if (key === recoveryKey(name)) await writeBrowserRecovery(name, nextValue);
-                        else await writeBrowserPrimary(name, nextValue);
-                    },
-                },
-                desktopRequired,
-            );
+            await writeBrowserRecovery(name, browserValue);
+            await writeBrowserPrimary(name, browserValue);
+
+            // 同步提交至真实 Web 服务端凭据库 /client-api/config-vault
+            if (typeof window !== "undefined" && typeof fetch === "function") {
+                try {
+                    const parsed = JSON.parse(value) as { state?: { config?: any } };
+                    const cfg = parsed?.state?.config;
+                    if (cfg && (cfg.apiRelaySettings || cfg.apiRelayKeys || cfg.relays)) {
+                        const relays = cfg.apiRelaySettings || cfg.relays || [];
+                        const hiddenPresetIds = cfg.hiddenPresetIds || [];
+                        const res = await fetch("/client-api/config-vault", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ relays, hiddenPresetIds, imageHost: cfg.imageHostConfig }),
+                        });
+                        if (!res.ok) {
+                            const errData = (await res.json().catch(() => ({}))) as { error?: string };
+                            const errMsg = errData.error || `服务端配置保存失败 HTTP ${res.status}`;
+                            console.error("[ConfigStorage] 服务端配置保存失败:", errMsg);
+                            throw new Error(errMsg);
+                        }
+                    }
+                } catch (vaultErr) {
+                    console.error("[ConfigStorage] 凭据库同步失败:", vaultErr);
+                    throw vaultErr;
+                }
+            }
+
             clearPendingConfigSnapshot(name, value);
         });
     },
@@ -99,8 +74,6 @@ export const recoverableConfigStorage: StateStorage = {
         pendingConfigSnapshots.delete(name);
         return enqueueConfigWrite(async () => {
             await Promise.allSettled([
-                removeDesktopState(name),
-                removeDesktopState(recoveryKey(name)),
                 removeBrowserPrimary(name),
                 removeBrowserRecovery(name),
             ]);
@@ -110,17 +83,10 @@ export const recoverableConfigStorage: StateStorage = {
 
 export function flushRecoverableConfig(name: string, value?: string) {
     if (value !== undefined) pendingConfigSnapshots.set(name, value);
-    // Queue behind earlier Zustand writes, then commit the latest snapshot to
-    // native desktop storage and redacted browser primary/recovery copies.
     return enqueueConfigWrite(async () => {
         const pendingValue = pendingConfigSnapshots.get(name);
         if (pendingValue === undefined) return;
-        const desktopRequired = isDesktopStateStorageRequired();
         const browserValue = browserSafeConfigEnvelope(pendingValue);
-        if (desktopRequired) {
-            await setDesktopState(name, pendingValue);
-            await setDesktopState(recoveryKey(name), pendingValue);
-        }
         await writeBrowserRecovery(name, browserValue);
         await writeBrowserPrimary(name, browserValue);
         clearPendingConfigSnapshot(name, pendingValue);
@@ -167,11 +133,7 @@ async function restoreBrowserConfigCandidate(name: string, value: string | null,
     const action = browserConfigFallbackAction(value, desktopRequired);
     if (action === "reject") return null;
     const browserValue = browserSafeConfigEnvelope(value);
-    if (action === "migrate") {
-        await migrateBrowserConfigToNative(name, value);
-    } else {
-        await replaceBrowserConfigCopies(name, browserValue);
-    }
+    await replaceBrowserConfigCopies(name, browserValue);
     return browserValue;
 }
 
@@ -179,25 +141,6 @@ function replaceBrowserConfigCopies(name: string, value: string) {
     return enqueueConfigWrite(async () => {
         await writeBrowserRecovery(name, value);
         await writeBrowserPrimary(name, value);
-    });
-}
-
-function migrateBrowserConfigToNative(name: string, value: string) {
-    return enqueueConfigWrite(async () => {
-        await writeConfigCopies(
-            name,
-            recoveryKey(name),
-            value,
-            browserSafeConfigEnvelope(value),
-            {
-                setNative: setDesktopState,
-                setBrowser: async (key, nextValue) => {
-                    if (key === recoveryKey(name)) await writeBrowserRecovery(name, nextValue);
-                    else await writeBrowserPrimary(name, nextValue);
-                },
-            },
-            true,
-        );
     });
 }
 

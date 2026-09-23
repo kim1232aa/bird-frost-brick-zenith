@@ -23,6 +23,9 @@ function pathnameFromVideoResultUrl(raw: string) {
  * relay path produces `/v1/v1/videos/...` and a 404.
  */
 export function localRelayVideoDownloadPath(url: string) {
+  const raw = String(url || "").trim();
+  if (/\.(mp4|webm|mov|mkv)(?:[?#].*)?$/i.test(raw)) return "";
+
   const pathname = pathnameFromVideoResultUrl(url).replace(/\/+$/, "");
   if (!pathname) return "";
   const stripped = pathname.replace(/^\/v1(?=\/|$)/i, "") || pathname;

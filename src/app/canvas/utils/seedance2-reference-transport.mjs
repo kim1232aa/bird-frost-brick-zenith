@@ -8,7 +8,7 @@ export function seedance2ReferenceTransportSource(value) {
   if (!raw || LOADABLE_REFERENCE_VALUE_PATTERN.test(raw)) return null;
   if (raw.startsWith("image:")) return { storageKey: raw };
   if (raw.startsWith("blob:")) return { url: raw };
-  if (IMAGE_BACKEND_PATH_PATTERN.test(raw)) {
+  if (raw.startsWith("/works/") || raw.startsWith("works/") || IMAGE_BACKEND_PATH_PATTERN.test(raw)) {
     return { url: raw.startsWith("/") ? raw : `/${raw}` };
   }
   if (!hasUrlScheme(raw) && IMAGE_FILE_EXTENSION_PATTERN.test(raw)) {
@@ -25,7 +25,12 @@ export async function resolveSeedance2ReferenceTransportValue(
   if (!raw) return "";
   const source = seedance2ReferenceTransportSource(raw);
   if (!source) return raw;
-  return String(await resolveLocalImage(source)).trim();
+  try {
+    const resolved = String(await resolveLocalImage(source)).trim();
+    return resolved || raw;
+  } catch (error) {
+    return raw;
+  }
 }
 
 export async function hydrateSeedance2CustomerReferencesForTransport(

@@ -812,20 +812,36 @@ export function VideoStudioPage({ initialMode = "t2v" }: { initialMode?: VideoMo
             </label>
           </div>
         ) : (
-          <label className="dropzone">
-            <span>可选首帧 · 上传后切到图生视频{firstFrameInputDisabled ? "（当前模型不支持）" : ""}</span>
-            <input
-              className="sr-only"
-              type="file"
-              accept="image/*"
-              disabled={firstFrameInputDisabled}
-              aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
-              onChange={(event) => {
-                void pickImage(event.target.files, "first").then(() => goMode("i2v"));
-              }}
-            />
-            <small>{firstFrameInputDisabled ? referenceControls.firstFrameReason : "不上传则走文生视频"}</small>
-          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="dropzone dropzone-mini">
+              <span>可选首帧 · 上传后切到图生视频{firstFrameInputDisabled ? "（不支持）" : ""}</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                disabled={firstFrameInputDisabled}
+                aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+                onChange={(event) => {
+                  void pickImage(event.target.files, "first").then(() => goMode("i2v"));
+                }}
+              />
+              <small>{firstFrameInputDisabled ? referenceControls.firstFrameReason : "不传则走文生视频"}</small>
+            </label>
+            <label className="dropzone dropzone-mini">
+              <span>可选尾帧 · 形成过渡{lastFrameInputDisabled ? "（不支持）" : ""}</span>
+              <input
+                className="sr-only"
+                type="file"
+                accept="image/*"
+                disabled={lastFrameInputDisabled}
+                aria-describedby={modeCapabilityNotice ? "video-mode-capability-hint" : undefined}
+                onChange={(event) => {
+                  void pickImage(event.target.files, "last").then(() => goMode("flf"));
+                }}
+              />
+              <small>{lastFrameInputDisabled ? referenceControls.lastFrameReason : "与首帧搭配生成过渡视频"}</small>
+            </label>
+          </div>
         )}
         {firstFrameInputDisabled && firstFrame ? (
           <button type="button" className="studio-ghost" onClick={() => setFirstFrame("")}>清除已保留首帧</button>

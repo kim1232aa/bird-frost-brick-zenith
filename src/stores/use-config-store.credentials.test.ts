@@ -90,7 +90,6 @@ mock.module(new URL("../studio/server/relay-vault.ts", import.meta.url).href, {
 
 const {
   defaultConfig,
-  defaultWebdavSyncConfig,
   flushConfigStore,
   hydrateImageHostCredential,
   persistApiSettingsBeforeClose,
@@ -100,7 +99,6 @@ const {
 
 const PRIMARY_SECRET = "synthetic-relay-secret-alpha";
 const POOLED_SECRET = "synthetic-relay-secret-beta";
-const WEBDAV_SECRET = "synthetic-webdav-password";
 
 function setPendingCredentials(apiKey = PRIMARY_SECRET, apiKeys = [POOLED_SECRET]) {
   const template = defaultConfig.apiRelays[0];
@@ -120,7 +118,6 @@ function setPendingCredentials(apiKey = PRIMARY_SECRET, apiKeys = [POOLED_SECRET
         hasApiKey: false,
       }],
     },
-    webdav: { ...defaultWebdavSyncConfig, password: WEBDAV_SECRET },
   });
 }
 
@@ -139,7 +136,6 @@ test("flush saves pending relay credentials to the vault and persists only redac
   const browserSnapshot = flushedValues[0] || "";
   assert.equal(browserSnapshot.includes(PRIMARY_SECRET), false);
   assert.equal(browserSnapshot.includes(POOLED_SECRET), false);
-  assert.equal(browserSnapshot.includes(WEBDAV_SECRET), false);
   const persisted = JSON.parse(browserSnapshot) as {
     state: { config: { apiRelays: Array<{ id: string; name: string; baseUrl: string; apiKey: string; apiKeyId?: string; apiKeys?: string[]; apiKeyIds?: string[]; hasApiKey?: boolean }> } };
   };
@@ -180,7 +176,6 @@ test("flush saves an image-host Key to the server vault and persists only its pu
       imageHostApiKey: imageHostSecret,
       imageHostHasApiKey: false,
     },
-    webdav: defaultWebdavSyncConfig,
   });
   useConfigHydrationRuntimeStore.setState({ imageHostCredentialError: "旧的图床密钥库错误" });
 
@@ -212,7 +207,6 @@ test("image-host vault failure leaves the pending Key in memory and never writes
       imageHostApiKey: imageHostSecret,
       imageHostHasApiKey: false,
     },
-    webdav: defaultWebdavSyncConfig,
   });
   useConfigHydrationRuntimeStore.setState({ imageHostCredentialError: null });
 
@@ -238,7 +232,6 @@ test("image-host vault hydrate failure is captured visibly without erasing the l
       imageHostApiKey: "",
       imageHostHasApiKey: true,
     },
-    webdav: defaultWebdavSyncConfig,
   });
 
   try {
@@ -284,7 +277,6 @@ test("vault failure never passes pending credentials to browser persistence", as
     for (const browserSnapshot of persistedWrites) {
       assert.equal(browserSnapshot.includes(PRIMARY_SECRET), false);
       assert.equal(browserSnapshot.includes(POOLED_SECRET), false);
-      assert.equal(browserSnapshot.includes(WEBDAV_SECRET), false);
     }
   } finally {
     vaultError = undefined;
@@ -402,7 +394,6 @@ test("same-version raw relay credentials are redacted before entering live Zusta
   const HYDRATION_POOL_SECRET = "synthetic-hydration-pool-secret";
   const HYDRATION_GLOBAL_SECRET = "synthetic-hydration-global-secret";
   const HYDRATION_IMAGE_HOST_SECRET = "synthetic-hydration-image-host-secret";
-  const HYDRATION_WEBDAV_SECRET = "synthetic-hydration-webdav-secret";
   const template = defaultConfig.apiRelays[0];
   assert.ok(template);
 
@@ -422,7 +413,6 @@ test("same-version raw relay credentials are redacted before entering live Zusta
           hasApiKey: false,
         }],
       },
-      webdav: { ...defaultWebdavSyncConfig, password: HYDRATION_WEBDAV_SECRET },
     },
     version: 0,
   });
@@ -437,14 +427,12 @@ test("same-version raw relay credentials are redacted before entering live Zusta
     assert.equal(relay.hasApiKey, true);
     assert.equal(state.config.apiKey, "");
     assert.equal(state.config.imageHostApiKey, "");
-    assert.equal(state.webdav.password, "");
     const liveState = JSON.stringify(state);
     for (const secret of [
       HYDRATION_PRIMARY_SECRET,
       HYDRATION_POOL_SECRET,
       HYDRATION_GLOBAL_SECRET,
       HYDRATION_IMAGE_HOST_SECRET,
-      HYDRATION_WEBDAV_SECRET,
     ]) {
       assert.equal(liveState.includes(secret), false, `live Zustand state must not contain ${secret}`);
     }

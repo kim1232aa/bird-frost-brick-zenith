@@ -17,7 +17,6 @@ import {
     type ResolvedImageModelCapability,
 } from "@/services/api/image-model-capabilities";
 import { toRelayModelDiscoveryError } from "@/services/api/relay-errors";
-import { shouldUseDesktopLoopback } from "@/services/desktop-api-url";
 import { describeTextTransportError, detectTextApiResponseError } from "@/services/api/text-response-errors";
 import type { ApiBoardRouteKey, ApiRelayProvider } from "@/stores/api-relay-config";
 import {
@@ -681,7 +680,7 @@ function resolveImageAdvancedOptions(
           }
         : {};
     const merged: ImageAdvancedOptions = { ...stored, ...operationSpecificStored };
-    for (const field of ["outputFormat", "negativePrompt", "seed", "steps", "cfgScale", "sampler", "scheduler", "sequential", "loras", "checkpointAir", "strength", "vaeAir", "embeddings", "uCache", "background", "inputFidelity", "moderation", "outputCompression", "partialImages", "responseFormat"] as const) {
+    for (const field of ["outputFormat", "negativePrompt", "seed", "steps", "cfgScale", "sampler", "scheduler", "sequential", "loras", "checkpointAir", "clipSkip", "strength", "vaeAir", "embeddings", "uCache", "background", "inputFidelity", "moderation", "outputCompression", "partialImages", "responseFormat"] as const) {
         if (explicit[field] !== undefined) Object.assign(merged, { [field]: explicit[field] });
     }
     if (explicit.onNativeTaskSubmitted) merged.onNativeTaskSubmitted = explicit.onNativeTaskSubmitted;
@@ -1036,6 +1035,13 @@ export async function resolveImageRequestCapability(
  * Authoritative, side-effect-free request preflight. It may resolve the
  * read-only Civitai service catalogue, but never submits or creates paid work.
  */
+export function normalizeImageRequestOperation(
+    operation: ImageRequestOperation,
+    referenceCount: number,
+): ImageRequestOperation {
+    return operation === "edit" && referenceCount === 0 ? "generate" : operation;
+}
+
 export async function preflightImageRequest(
     config: AiConfig,
     operation: ImageRequestOperation,
@@ -1045,11 +1051,12 @@ export async function preflightImageRequest(
     boardRouteKey?: ApiBoardRouteKey,
     options: ImageRequestPreflightOptions = {},
 ): Promise<ImageRequestPreflight> {
-    const resolved = await resolveImageRequestCapability(config, operation, boardRouteKey);
+    const effectiveOperation = normalizeImageRequestOperation(operation, references.length);
+    const resolved = await resolveImageRequestCapability(config, effectiveOperation, boardRouteKey);
     const scope = {
         providerId: resolved.route.mode === "local" ? resolved.route.provider.id : resolved.route.mode,
         model: resolved.route.model,
-        operation,
+        operation: effectiveOperation,
     };
     const scoped = readScopedImageGenerationSettings(config.imageAdvancedSettingsByScope, scope);
     const basic = {
@@ -1057,7 +1064,7 @@ export async function preflightImageRequest(
         ...explicitImageRequestBasicSettings(config),
     };
     const outputCount = requestedImageOutputCount(basic.count || "");
-    const advanced = resolveImageAdvancedOptions(config, resolved.route, resolved.capability, operation, options);
+    const advanced = resolveImageAdvancedOptions(config, resolved.route, resolved.capability, effectiveOperation, options);
     const settings = prepareImageSettings(
         resolved.capability,
         {
@@ -1067,13 +1074,13 @@ export async function preflightImageRequest(
         },
         advanced.outputFormat,
     );
-    const labelledPrompt = operation === "edit" && options.useReferenceLabels !== false
+    const labelledPrompt = effectiveOperation === "edit" && options.useReferenceLabels !== false
         ? buildImageReferencePromptText(prompt, references as ReferenceImage[])
         : prompt;
-    const wirePrompt = operation === "generate" || operation === "edit" ? withSystemPrompt(config, labelledPrompt) : labelledPrompt;
+    const wirePrompt = effectiveOperation === "generate" || effectiveOperation === "edit" ? withSystemPrompt(config, labelledPrompt) : labelledPrompt;
     const plan = requireValidImageRequest(
         resolved.capability,
-        imageValidationInput(operation, outputCount, references.length, Boolean(mask), settings, advanced, wirePrompt),
+        imageValidationInput(effectiveOperation, outputCount, references.length, Boolean(mask), settings, advanced, wirePrompt),
     );
     assertScopedImageBasicSettings(basic, settings, resolved.capability, { sequential: advanced.sequential === true });
     if (resolved.capability.serialization.kind === "openai-images-variation") {
@@ -1081,7 +1088,7 @@ export async function preflightImageRequest(
         const hydrated = { ...references[0], dataUrl: await imageToDataUrl(references[0]) };
         assertLegacyVariationPng(dataUrlToFile(hydrated), hydrated.dataUrl);
     }
-    return { ...resolved, operation, prompt: wirePrompt, settings, advanced, plan };
+    return { ...resolved, operation: effectiveOperation, prompt: wirePrompt, settings, advanced, plan };
 }
 
 function assertHydratedImageTransportReferences(
@@ -1401,6 +1408,34 @@ async function requestImageBatch(context: ImageBatchContext): Promise<GeneratedI
     return images;
 }
 
+function permissiveOpenAiCompatDiffusionFields(context: ImageBatchContext) {
+    if (isOfficialOpenAiImageRoute(context)) return {};
+    const seed = typeof context.advanced.seed === "number" && Number.isFinite(context.advanced.seed)
+        ? context.advanced.seed
+        : typeof context.advanced.seed === "string" && /^-?\d+$/.test(context.advanced.seed.trim())
+            ? Number(context.advanced.seed)
+            : undefined;
+    return {
+        ...(context.advanced.negativePrompt ? { negative_prompt: context.advanced.negativePrompt } : {}),
+        ...(seed !== undefined && Number.isFinite(seed) ? { seed } : {}),
+        ...(typeof context.advanced.steps === "number" && Number.isFinite(context.advanced.steps)
+            ? { steps: context.advanced.steps, num_inference_steps: context.advanced.steps }
+            : {}),
+        ...(typeof context.advanced.cfgScale === "number" && Number.isFinite(context.advanced.cfgScale)
+            ? { cfg_scale: context.advanced.cfgScale, guidance_scale: context.advanced.cfgScale }
+            : {}),
+    };
+}
+
+function isOfficialOpenAiImageRoute(context: ImageBatchContext) {
+    if (context.route.mode !== "local") return false;
+    try {
+        return new URL(String(context.route.provider.baseUrl || "").trim()).hostname.toLowerCase() === "api.openai.com";
+    } catch {
+        return false;
+    }
+}
+
 async function requestOpenAIGenerationBatch(context: ImageBatchContext) {
     const payload = {
         model: context.route.model,
@@ -1410,6 +1445,7 @@ async function requestOpenAIGenerationBatch(context: ImageBatchContext) {
         ...(context.settings.size ? { size: context.settings.size } : {}),
         ...(context.settings.outputFormat ? { output_format: context.settings.outputFormat } : {}),
         ...(context.capability.serialization.responseEncodingField ? { response_format: "b64_json" } : {}),
+        ...permissiveOpenAiCompatDiffusionFields(context),
     };
     return postImageJson(context, imageSerializerPath(context.capability), payload, "图片生成失败（OpenAI Images）");
 }

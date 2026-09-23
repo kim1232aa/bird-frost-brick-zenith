@@ -3,7 +3,6 @@
 import localforage from "localforage";
 
 import { cacheAuthStorageScope, clearCachedAuthStorageScope } from "@/lib/user-storage-scope";
-import { createDesktopObjectStorage } from "@/services/desktop-storage";
 
 export type AuthRole = "admin" | "user";
 
@@ -24,7 +23,7 @@ const legacyAuthStorage = localforage.createInstance({
   name: "chatgpt2api",
   storeName: "auth",
 });
-const authStorage = createDesktopObjectStorage("chatgpt2api/auth", legacyAuthStorage);
+const authStorage = legacyAuthStorage;
 
 function normalizeSession(value: unknown, fallbackKey = ""): StoredAuthSession | null {
   if (!value || typeof value !== "object") {

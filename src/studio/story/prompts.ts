@@ -70,31 +70,16 @@ export function characterSheetPrompt(character: StoryCast, style: string, hasRef
   const referenceLine = hasReference
     ? "参考图只用于统一整体画风、质感、世界观和色彩标准；不要复制参考图中的构图、背景、人物数量、道具或无关主体。"
     : "";
-  const animal = /猫|狗|狐|狼|虎|豹|鸟|兽|灵兽|妖兽|dragon|cat|dog|fox|wolf|tiger|leopard|bird|beast|animal/i.test(
-    `${character.name} ${character.look} ${character.appearance || ""} ${character.visualPrompt || ""}`,
-  );
-  const subjectRule = animal
-    ? "如果角色本体是动物，只画该动物角色的正面、侧面、背面和头部特写；不要加入人类形态、主人、桌椅、城市、室内场景或其它动物。"
-    : "角色必须是单一人类角色；不要出现动物、宠物、猫、狗、桌椅、房间、城市街景、额外人物或剧情场景。";
-  return `生成角色设定图，16:9 横版，纯白背景，${style}。
-
-最高优先级统一模板：
-- 本故事所有角色图必须像同一套角色资产表，使用完全一致的模板、白底、棚拍光线、镜头距离、色彩风格和渲染质感。
-- 画面是 production character sheet / turnaround reference sheet，不是剧情插画、电影截图、写真、海报或场景图。
-- 纯白无缝背景，柔和均匀棚拍光，不要任何室内、城市、自然、夜景、桌面、窗户、墙面、地面透视或复杂阴影。
-- 固定四区布局，从左到右依次为：正面全身站姿、侧面全身站姿、背面全身站姿、右侧上半身面部特写。
-- 四个区域必须是同一个角色、同一套服装、同一发型、同一脸型和同一材质表现；全身视图比例统一，站姿中性。
-- 视觉关键词只用于角色身份、外貌、服装和气质；忽略其中的背景、灯光、构图、道具、宠物、场景和剧情动作。
-- ${subjectRule}
+  return `生成角色设定图，${style}。
 
 角色：${character.name}
 身份：${character.roleType || character.importance}
 外貌：${character.appearance || character.look}
 性格：${character.personality || "按故事气质表现"}
-视觉关键词：${character.visualPrompt || character.look}
+视觉呈现：${character.visualPrompt || character.look}
 ${referenceLine}
 
-不要出现文字、水印、logo、编号、标签、边框线、拼贴说明。${character.negativePrompt ? `\n避免：${character.negativePrompt}` : ""}`;
+要求：清晰展现角色的面容五官、体型轮廓、发型和标志性服装细节，保持画面主体明确、质感细腻。避免多余的水印、文字、logo。${character.negativePrompt ? `\n避免：${character.negativePrompt}` : ""}`;
 }
 
 export function shotImagePrompt(input: {

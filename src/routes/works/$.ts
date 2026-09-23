@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createFileRoute } from "@tanstack/react-router";
-import { createReadStream, existsSync, statSync } from "node:fs";
+import { createReadStream, existsSync, statSync, readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { extname, join } from "node:path";
 import { worksStorageDirs } from "@/studio/server/works-path";
 
@@ -48,8 +49,9 @@ export const Route = createFileRoute("/works/$")({
           const start = parseInt(parts[0], 10) || 0;
           const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
           const chunksize = end - start + 1;
-          const stream = createReadStream(filePath, { start, end });
-          return new Response(stream as any, {
+          const fullBuffer = readFileSync(filePath);
+          const chunk = fullBuffer.subarray(start, end + 1);
+          return new Response(chunk, {
             status: 206,
             headers: {
               "Content-Range": `bytes ${start}-${end}/${stat.size}`,
@@ -60,8 +62,8 @@ export const Route = createFileRoute("/works/$")({
           });
         }
 
-        const stream = createReadStream(filePath);
-        return new Response(stream as any, {
+        const buffer = readFileSync(filePath);
+        return new Response(buffer, {
           status: 200,
           headers: {
             "Content-Length": String(stat.size),

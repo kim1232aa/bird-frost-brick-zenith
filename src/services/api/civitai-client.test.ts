@@ -24,9 +24,6 @@ export async function resolve(specifier, context, nextResolve) {
 `;
 register(`data:text/javascript,${encodeURIComponent(aliasLoader)}`, import.meta.url);
 
-mock.module("@/services/desktop-api-url", {
-  namedExports: { shouldUseDesktopLoopback: () => false },
-});
 mock.module("@/services/api/ai-routing", {
   namedExports: { routedLocalApiUrl: (_route: unknown, path: string) => path },
 });

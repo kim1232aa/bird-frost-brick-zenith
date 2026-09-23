@@ -6,13 +6,12 @@ import { App, Button } from "antd";
 import { Download, FileUp, LayoutGrid, List, Plus } from "lucide-react";
 
 import { readZip } from "@/lib/zip";
-import { getDesktopSetting, setDesktopSetting } from "@/services/desktop-storage";
 import { findCatalog } from "@/studio/catalog";
 import { liveCard } from "@/studio/ops";
 import { preferredImageKey, preferredTextKey, preferredVideoKey } from "@/studio/model-select";
 import { useCurrentModels } from "@/studio/current-models-store";
 import { useStudioSession } from "@/studio/session";
-import { setMediaBlob, deleteStoredMedia, getAllStoredMediaKeys } from "@/services/file-storage";
+import { setMediaBlob, deleteStoredMedia, getAllStoredMediaKeys, uploadMediaFile } from "@/services/file-storage";
 import { setImageBlob, deleteStoredImages, getAllStoredImageKeys } from "@/services/image-storage";
 import { CanvasDeleteProjectsDialog } from "../components/canvas-delete-projects-dialog";
 import { CanvasProjectCard } from "../components/canvas-project-card";
@@ -32,6 +31,11 @@ type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Media served by this app's own `/works/` disk store rather than a browser cache. */
+function isServerMediaKey(value: string) {
+    return value.startsWith("/works/") || value.startsWith("/gallery/") || /^https?:\/\//i.test(value);
 }
 
 function isCanvasExportAsset(value: unknown) {
@@ -123,15 +127,18 @@ export default function CanvasPage() {
 
     useEffect(() => {
         let active = true;
-        void getDesktopSetting(CANVAS_HOME_VIEW_STORAGE_KEY).then((savedViewMode) => {
+        try {
+            const savedViewMode = window.localStorage.getItem(CANVAS_HOME_VIEW_STORAGE_KEY);
             if (active && (savedViewMode === "grid" || savedViewMode === "list")) setViewMode(savedViewMode);
-        });
+        } catch {}
         return () => { active = false; };
     }, []);
 
     const changeViewMode = (nextViewMode: CanvasHomeViewMode) => {
         setViewMode(nextViewMode);
-        void setDesktopSetting(CANVAS_HOME_VIEW_STORAGE_KEY, nextViewMode);
+        try {
+            window.localStorage.setItem(CANVAS_HOME_VIEW_STORAGE_KEY, nextViewMode);
+        } catch {}
     };
 
     const createAndEnter = () => {
@@ -147,6 +154,12 @@ export default function CanvasPage() {
             const data = JSON.parse(await projectFile.text());
             const importedProjectCount = await importValidatedCanvasArchive(zip, data, {
                 writeMedia: async (storageKey, blob) => {
+                    // Server-hosted media is re-uploaded so an imported canvas opens
+                    // from any browser, not only the one that ran the import.
+                    if (isServerMediaKey(storageKey)) {
+                        const uploaded = await uploadMediaFile(blob, blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "image");
+                        return uploaded.storageKey;
+                    }
                     if (storageKey.startsWith("image:")) await setImageBlob(storageKey, blob);
                     else await setMediaBlob(storageKey, blob);
                 },
@@ -222,8 +235,17 @@ export default function CanvasPage() {
                             disabled={!hydrated || !projects.length}
                             icon={<Download className="size-4" />}
                             onClick={() => {
-                                const downloadProjects = selectedIds.length ? projects.filter((project) => selectedIds.includes(project.id)) : projects;
-                                void exportCanvasProjects(downloadProjects, selectedIds.length ? `无限画布-${selectedIds.length}个项目` : "无限画布-全部项目");
+                                const picked = selectedIds.length ? projects.filter((project) => selectedIds.includes(project.id)) : projects;
+                                void (async () => {
+                                    const downloadProjects = await Promise.all(
+                                        picked.map(async (project) =>
+                                            project.detailLoaded === false
+                                                ? (await useCanvasStore.getState().ensureProjectLoaded(project.id)) || project
+                                                : project,
+                                        ),
+                                    );
+                                    await exportCanvasProjects(downloadProjects, selectedIds.length ? `无限画布-${selectedIds.length}个项目` : "无限画布-全部项目");
+                                })();
                             }}
                             title={selectedIds.length ? `导出选中的 ${selectedIds.length} 个画布` : "导出全部画布"}
                         >

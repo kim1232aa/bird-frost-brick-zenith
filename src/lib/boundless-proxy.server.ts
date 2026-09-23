@@ -317,7 +317,21 @@ async function attachVaultKey(headers: Headers, relayId: string, credentialId?: 
     throw new Error(`密钥库读取失败：${error instanceof Error ? error.message : String(error)}`);
   }
 
-  if (!secret?.apiKey) throw relayRequestError(401, "密钥库中转不存在或没有可用 Key");
+  if (!secret?.apiKey) {
+    const userFallbackKey = (headers.get("x-user-api-key") || headers.get("x-relay-api-key") || "").trim();
+    if (userFallbackKey) {
+      secret = {
+        baseUrl: secret?.baseUrl || (headers.get("x-local-relay-base-url") || "").trim(),
+        apiKey: userFallbackKey,
+        authScheme: ((headers.get("x-auth-scheme") || "").trim() as any) || "Bearer",
+      };
+    }
+  }
+  headers.delete("x-user-api-key");
+  headers.delete("x-relay-api-key");
+  headers.delete("x-auth-scheme");
+
+  if (!secret?.apiKey) throw relayRequestError(401, "密钥库中转不存在或没有可用 Key。请在接线面板保存 Key 后再试。");
   const baseUrl = normalizeHttpUrl(secret.baseUrl);
   if (!baseUrl) throw relayRequestError(400, "密钥库中转缺少有效的 Base URL");
   if (new URL(baseUrl).protocol !== "https:" && !isLocalRelayHttpUrl(baseUrl)) {
@@ -413,58 +427,6 @@ export async function proxyLocalRelay(request: Request, splat: string) {
   }
 }
 
-export async function proxyWebDav(request: Request) {
-  const rawTarget = normalizeHttpUrl(request.headers.get("x-webdav-target") || "");
-  if (!rawTarget) return jsonError(400, "WebDAV 目标地址无效");
-  let targetUrl: URL;
-  try {
-    targetUrl = await assertSafeOutboundUrl(rawTarget);
-  } catch (error) {
-    return proxyErrorResponse(error, "WebDAV 目标地址无效或指向受保护的网络", 400);
-  }
-
-  const method = (request.headers.get("x-webdav-method") || request.method || "GET").toUpperCase();
-  const allowed = new Set(["GET", "HEAD", "PUT", "DELETE", "MKCOL", "PROPFIND", "MOVE", "COPY"]);
-  if (!allowed.has(method)) return jsonError(400, "不支持的 WebDAV 请求方法");
-  const headers = stripHeaders(request.headers);
-  const mappings: Record<string, string> = {
-    "x-webdav-authorization": "Authorization",
-    "x-webdav-depth": "Depth",
-    "x-webdav-destination": "Destination",
-    "x-webdav-overwrite": "Overwrite",
-    "x-webdav-content-type": "Content-Type",
-  };
-  for (const [source, dest] of Object.entries(mappings)) {
-    const value = request.headers.get(source);
-    if (value) headers.set(dest, value);
-  }
-  const destination = headers.get("Destination");
-  if (destination) {
-    try {
-      await assertSafeOutboundUrl(new URL(destination, targetUrl));
-    } catch (error) {
-      return proxyErrorResponse(error, "WebDAV 目标地址无效或指向受保护的网络", 400);
-    }
-  }
-
-  const init: RequestInit = {
-    method,
-    headers,
-    redirect: "manual",
-    signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
-  };
-  if (method !== "GET" && method !== "HEAD") {
-    init.body = request.body;
-    (init as RequestInit & { duplex?: string }).duplex = "half";
-  }
-  try {
-    const upstream = await fetchSafeRedirecting(targetUrl, init, { maxRedirects: 5 });
-    return await toClientResponse(upstream);
-  } catch (error) {
-    return proxyErrorResponse(error, "无法连接 WebDAV 服务，请检查地址和网络后重试", 502);
-  }
-}
-
 export async function proxyFetchUrl(request: Request) {
   if (request.method !== "GET") return jsonError(405, "不支持的请求方法");
   const raw = new URL(request.url).searchParams.get("url") || "";
@@ -477,7 +439,10 @@ export async function proxyFetchUrl(request: Request) {
 
   // This endpoint downloads public media only. Never forward a caller's
   // Authorization header to an arbitrary URL selected by its query string.
-  const headers = new Headers();
+  const headers = new Headers({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "image/*,video/*,application/octet-stream,*/*;q=0.8",
+  });
 
   try {
     const upstream = await fetchSafeRedirecting(

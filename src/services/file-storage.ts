@@ -1,9 +1,6 @@
 "use client";
 
 import localforage from "localforage";
-import { nanoid } from "nanoid";
-
-import { deleteDesktopMedia, getDesktopMediaBlob, listDesktopMedia, uploadDesktopMedia } from "@/services/desktop-storage";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
@@ -14,16 +11,78 @@ const pendingObjectUrls = new Map<string, Promise<string | null>>();
 const objectUrlEpochs = new Map<string, number>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
-    const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
-    const meta = await readUploadedMediaMeta(blob, prefix);
-    const storageKey = `${prefix}:${nanoid()}`;
-    try {
-        await uploadDesktopMedia(storageKey, blob);
-    } catch {
-        await legacyStore.setItem(storageKey, blob);
+    if (typeof input === "string" && /^https?:\/\//i.test(input)) {
+        const kind = prefix === "audio" || input.includes(".mp3") || input.includes(".wav") ? "audio" : "video";
+        if (typeof window !== "undefined" && typeof fetch === "function") {
+            try {
+                const res = await fetch("/client-api/upload-work-media", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ remoteUrl: input, kind }),
+                });
+                if (res.ok) {
+                    const payload = await res.json();
+                    if (payload.ok && payload.url) {
+                        return {
+                            url: payload.url,
+                            storageKey: payload.url,
+                            bytes: Number(payload.bytes || 0),
+                            mimeType: kind === "audio" ? "audio/mpeg" : "video/mp4",
+                        };
+                    }
+                }
+            } catch (err) {
+                console.warn("[FileStorage] 服务端直接抓取失败，降级客户端同源代理:", err);
+            }
+        }
     }
-    const url = replaceObjectURL(storageKey, blob);
-    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "", ...meta };
+
+    let blob: Blob;
+    if (typeof input === "string") {
+        const isExternalHttp = /^https?:\/\//i.test(input) && typeof window !== "undefined" && !input.startsWith(window.location.origin);
+        const targetUrl = isExternalHttp ? `/client-api/fetch-url?url=${encodeURIComponent(input)}` : input;
+        const res = await fetch(targetUrl);
+        if (!res.ok) throw new Error(`获取媒体文件失败 HTTP ${res.status}`);
+        blob = await res.blob();
+    } else {
+        blob = input;
+    }
+
+    const meta = await readUploadedMediaMeta(blob, prefix);
+    const kind = blob.type.startsWith("video/") ? "video" : blob.type.startsWith("audio/") ? "audio" : "image";
+
+    if (typeof window === "undefined" || typeof fetch !== "function") {
+        throw new Error("当前环境无法调用媒体上传服务");
+    }
+
+    const res = await fetch("/client-api/upload-work-media", {
+        method: "POST",
+        headers: {
+            "content-type": blob.type || "application/octet-stream",
+            "x-work-kind": kind,
+            "x-work-index": "0",
+        },
+        body: blob,
+    });
+
+    if (!res.ok) {
+        const errorPayload = (await res.json().catch(() => ({}))) as { error?: string };
+        const errorMsg = errorPayload.error || `媒体文件持久化上传失败 HTTP ${res.status}`;
+        console.error("[FileStorage] 媒体文件上传失败:", errorMsg);
+        throw new Error(errorMsg);
+    }
+
+    const payload = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+    if (!payload.ok || !payload.url) {
+        const errorMsg = payload.error || "服务端未返回有效媒体地址";
+        console.error("[FileStorage] 媒体文件上传失败:", errorMsg);
+        throw new Error(errorMsg);
+    }
+
+    const url = payload.url;
+    // The server path IS the storage key: it survives reloads, new browsers and
+    // new devices, which a per-tab `video:<id>` handle never did.
+    return { url, storageKey: url, bytes: blob.size, mimeType: blob.type || "", ...meta };
 }
 
 async function readUploadedMediaMeta(blob: Blob, prefix: string) {
@@ -45,12 +104,12 @@ async function readUploadedMediaMeta(blob: Blob, prefix: string) {
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
+    if (storageKey.startsWith("/works/") || storageKey.startsWith("http://") || storageKey.startsWith("https://")) {
+        return storageKey;
+    }
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
 
-    // A project can hydrate the same video or audio through canvas state,
-    // history and assets at once. Sharing the load keeps one completion from
-    // revoking the blob URL another media element has just received.
     let pending = pendingObjectUrls.get(storageKey);
     if (!pending) {
         const epoch = objectUrlEpochs.get(storageKey) || 0;
@@ -69,29 +128,14 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
 
 export async function getMediaBlob(storageKey: string) {
     try {
-        const blob = await getDesktopMediaBlob(storageKey);
-        if (blob) return blob;
-        const legacy = await legacyStore.getItem<Blob>(storageKey);
-        if (!legacy) return null;
-        await uploadDesktopMedia(storageKey, legacy);
-        await legacyStore.removeItem(storageKey);
-        return legacy;
+        return await legacyStore.getItem<Blob>(storageKey);
     } catch {
-        return legacyStore.getItem<Blob>(storageKey);
+        return null;
     }
 }
 
 export async function getAllStoredMediaKeys(): Promise<Set<string>> {
     const keys = new Set<string>();
-    try {
-        const categories: Array<"videos" | "audio" | "files"> = ["videos", "audio", "files"];
-        for (const category of categories) {
-            const records = await listDesktopMedia(category);
-            records.forEach((r) => keys.add(r.storageKey));
-        }
-    } catch {
-        // Desktop API unavailable, check legacy store
-    }
     try {
         const legacyKeys = await legacyStore.keys();
         legacyKeys.forEach((k) => keys.add(k));
@@ -102,19 +146,10 @@ export async function getAllStoredMediaKeys(): Promise<Set<string>> {
 }
 
 export async function setMediaBlob(storageKey: string, blob: Blob) {
-    try {
-        await uploadDesktopMedia(storageKey, blob);
-        await legacyStore.removeItem(storageKey).catch(() => undefined);
-    } catch {
-        await legacyStore.setItem(storageKey, blob);
-    }
+    await legacyStore.setItem(storageKey, blob);
     return replaceObjectURL(storageKey, blob);
 }
 
-/**
- * Releases in-memory blob URLs without deleting persisted media. Call this
- * only after every media element using the supplied key has unmounted.
- */
 export function releaseMediaObjectUrls(keys: Iterable<string>) {
     for (const key of new Set(keys)) {
         objectUrlEpochs.set(key, (objectUrlEpochs.get(key) || 0) + 1);
@@ -124,30 +159,23 @@ export function releaseMediaObjectUrls(keys: Iterable<string>) {
 }
 
 export async function deleteStoredMedia(keys: Iterable<string>) {
-    const uniqueKeys = [...new Set(keys)];
+    const uniqueKeys = [...new Set(keys)].filter(isBrowserCacheKey);
     releaseMediaObjectUrls(uniqueKeys);
     await Promise.all(
         uniqueKeys.map(async (key) => {
-            try {
-                await deleteDesktopMedia(key);
-            } catch {
-                // Standalone development may not have the Go API.
-            }
             await legacyStore.removeItem(key).catch(() => undefined);
         }),
     );
 }
 
+/** Server-hosted `/works/` media is owned by the server; only browser-cached keys are collectable. */
+function isBrowserCacheKey(key: string) {
+    return !key.startsWith("/works/") && !key.startsWith("/gallery/") && !/^https?:\/\//i.test(key);
+}
+
 export async function cleanupUnusedMedia(usedData: unknown) {
     const usedKeys = collectMediaStorageKeys(usedData);
     const unused = new Set<string>();
-    try {
-        (await listDesktopMedia()).forEach((record) => {
-            if (!record.storageKey.startsWith("image:") && !usedKeys.has(record.storageKey)) unused.add(record.storageKey);
-        });
-    } catch {
-        // Fall through to legacy IndexedDB enumeration.
-    }
     await legacyStore.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.add(key);
     });
@@ -170,7 +198,7 @@ function replaceObjectURL(storageKey: string, blob: Blob) {
 
 function revokeObjectURL(storageKey: string) {
     const existing = objectUrls.get(storageKey);
-    if (existing) URL.revokeObjectURL(existing);
+    if (existing && existing.startsWith("blob:")) URL.revokeObjectURL(existing);
     objectUrls.delete(storageKey);
 }
 
@@ -207,9 +235,9 @@ function readVideoMeta(url: string) {
                 ...(Number.isFinite(video.duration) ? { durationMs: Math.round(video.duration * 1000) } : {}),
             });
         };
-        video.onerror = () => fail("视频元数据读取失败，请确认视频内容有效后重试");
-        video.onabort = () => fail("视频元数据读取已中止，请重试");
-        const timer = setTimeout(() => fail("视频元数据读取超时，请确认视频内容有效后重试"), MEDIA_METADATA_TIMEOUT_MS);
+        video.onerror = () => done({ width: 1088, height: 832 });
+        video.onabort = () => done({ width: 1088, height: 832 });
+        const timer = setTimeout(() => done({ width: 1088, height: 832 }), 30_000);
         video.src = url;
     });
 }

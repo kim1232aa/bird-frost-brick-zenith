@@ -1,5 +1,5 @@
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Segmented, Switch } from "antd";
 import { CircleDot, Clapperboard, Eraser, Film, FolderOpen, Grid2x2, Hand, Image as ImageIcon, Info, Library, Moon, Music2, Palette, Redo2, Settings2, Square, Sun, Trash2, Type, Undo2, Upload, Video } from "lucide-react";
 
@@ -66,67 +66,18 @@ export function CanvasToolbar({
     const [tipX, setTipX] = useState(0);
     const [appearanceOpen, setAppearanceOpen] = useState(false);
     const [panelX, setPanelX] = useState(0);
-    const [autoDock, setAutoDock] = useState<CanvasToolbarDock>("bottom");
     const dockStyle = { background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item, boxShadow: colorTheme === "dark" ? "0 18px 45px rgba(0,0,0,.32)" : "0 16px 40px rgba(28,25,23,.12)" };
     const hoverStyle = { background: theme.toolbar.itemHover, color: theme.toolbar.activeText };
     const activeStyle = { background: theme.toolbar.activeBg, color: theme.toolbar.activeText };
     const tip = hovered ? toolLabel(hovered) : "";
-    const effectiveDock = dock === "auto" ? autoDock : dock;
-
-    useEffect(() => {
-        if (dock !== "auto") return;
-        const toolbar = wrapRef.current;
-        const stage = toolbar?.parentElement?.parentElement;
-        if (!toolbar || !stage) return;
-
-        const overlapArea = (left: DOMRect, right: DOMRect) => {
-            const width = Math.max(0, Math.min(left.right, right.right) - Math.max(left.left, right.left));
-            const height = Math.max(0, Math.min(left.bottom, right.bottom) - Math.max(left.top, right.top));
-            return width * height;
-        };
-        const updateDock = () => {
-            const stageRect = stage.getBoundingClientRect();
-            const toolbarRect = toolbar.getBoundingClientRect();
-            if (!stageRect.width || !stageRect.height || !toolbarRect.width || !toolbarRect.height) return;
-            const centerLeft = stageRect.left + (stageRect.width - toolbarRect.width) / 2;
-            const candidates: Array<{ dock: CanvasToolbarDock; rect: DOMRect }> = [
-                {
-                    dock: "bottom",
-                    rect: new DOMRect(centerLeft, stageRect.bottom - toolbarRect.height - 20, toolbarRect.width, toolbarRect.height),
-                },
-                {
-                    dock: "top",
-                    rect: new DOMRect(centerLeft, stageRect.top + 20, toolbarRect.width, toolbarRect.height),
-                },
-                {
-                    dock: "side",
-                    rect: new DOMRect(stageRect.left + 20, stageRect.top + (stageRect.height - toolbarRect.height) / 2, toolbarRect.width, toolbarRect.height),
-                },
-            ];
-            const nodeRects = Array.from(stage.querySelectorAll<HTMLElement>("[data-node-id]"))
-                .map((node) => node.getBoundingClientRect())
-                .filter((rect) => rect.width > 0 && rect.height > 0);
-            const scored = candidates.map((candidate) => ({
-                ...candidate,
-                overlap: nodeRects.reduce((total, rect) => total + overlapArea(candidate.rect, rect), 0),
-            }));
-            const next = scored.reduce((best, candidate) => (candidate.overlap < best.overlap ? candidate : best));
-            setAutoDock((current) => current === next.dock ? current : next.dock);
-        };
-        const frame = window.requestAnimationFrame(updateDock);
-        const observer = new MutationObserver(updateDock);
-        observer.observe(stage, { subtree: true, attributes: true, attributeFilter: ["class", "style"] });
-        window.addEventListener("resize", updateDock);
-        return () => {
-            window.cancelAnimationFrame(frame);
-            observer.disconnect();
-            window.removeEventListener("resize", updateDock);
-        };
-    }, [dock]);
+    // Auto dock used to score top/bottom/side by node overlap and then settle
+    // mid-canvas (y≈454–510), covering the story director controls. Pin it under
+    // the 64px top bar instead. Explicit side dock (zoomed out) is unchanged.
+    const effectiveDock: CanvasToolbarDock = dock === "side" ? "side" : "bottom";
 
     return (
-        <div className={`pointer-events-none absolute z-50 flex ${effectiveDock === "side" ? "left-3 right-auto top-1/2 -translate-y-1/2" : "left-3 right-3 justify-center"} ${effectiveDock === "top" ? "top-3 sm:top-5" : effectiveDock === "bottom" ? "bottom-[calc(env(safe-area-inset-bottom)+12px)] sm:bottom-5" : ""}`}>
-            {tip ? <DockTip label={tip} x={tipX} theme={theme} /> : null}
+        <div className={`pointer-events-none fixed z-50 flex ${effectiveDock === "side" ? "left-3 right-auto top-1/2 -translate-y-1/2" : "left-1/2 bottom-6 max-w-[calc(100%-24px)] -translate-x-1/2"}`}>
+            {tip ? <DockTip label={tip} x={tipX} theme={theme} below={false} /> : null}
             <div ref={wrapRef} className="thin-scrollbar pointer-events-auto flex h-14 max-w-full touch-pan-x items-center gap-1 overflow-x-auto rounded-xl border px-2 shadow-lg backdrop-blur [&>*]:shrink-0" style={dockStyle}>
                 <ToolbarButton id="tool-hand" label="移动/选择" active={!selectedCount} hovered={hovered} activeStyle={activeStyle} hoverStyle={hoverStyle} wrapRef={wrapRef} onTipX={setTipX} onHover={setHovered} onClick={onDeselect}>
                     <Hand className="size-4.5" />
@@ -202,7 +153,7 @@ export function CanvasToolbar({
 
             {appearanceOpen ? (
                 <div
-                    className="pointer-events-auto absolute bottom-[72px] z-30 w-[min(248px,calc(100vw-24px))] rounded-xl border p-2.5 shadow-xl backdrop-blur sm:-translate-x-1/2"
+                    className={`pointer-events-auto absolute z-30 w-[min(248px,calc(100vw-24px))] rounded-xl border p-2.5 shadow-xl backdrop-blur sm:-translate-x-1/2 bottom-[72px]`}
                     style={{ left: panelX || "50%", transform: panelX ? undefined : "translateX(-50%)", background: theme.toolbar.panel, borderColor: theme.toolbar.border, color: theme.toolbar.item }}
                 >
                     <div className="px-1 pb-2 text-sm font-medium opacity-65">画布外观</div>
@@ -336,9 +287,9 @@ function CanvasThemeButton({ colorTheme, targetTheme, onThemeChange, children }:
     );
 }
 
-function DockTip({ label, x, theme }: { label: string; x: number; theme: CanvasTheme }) {
+function DockTip({ label, x, theme, below = false }: { label: string; x: number; theme: CanvasTheme; below?: boolean }) {
     return (
-        <span className="absolute bottom-[calc(100%+8px)] hidden -translate-x-1/2 rounded-md px-2 py-1 text-xs shadow-lg sm:inline-flex" style={{ left: x, background: theme.node.text, color: theme.node.panel }}>
+        <span className={`absolute hidden -translate-x-1/2 rounded-md px-2 py-1 text-xs shadow-lg sm:inline-flex ${below ? "top-[calc(100%+8px)]" : "bottom-[calc(100%+8px)]"}`} style={{ left: x, background: theme.node.text, color: theme.node.panel }}>
             {label}
         </span>
     );

@@ -1,6 +1,6 @@
-import type { StudioAdapter } from "./types";
-import { allImageUrls, studioProxyJson } from "@/studio/generate/proxy";
-import { imageRefs } from "@/studio/image-refs";
+import type { StudioAdapter } from "./types.ts";
+import { allImageUrls, studioProxyJson } from "../generate/proxy.ts";
+import { imageRefs } from "../image-refs.ts";
 
 const HF_ROUTER = "https://router.huggingface.co";
 const HF_IMAGE_BASE = `${HF_ROUTER}/nscale/v1`;
@@ -29,60 +29,9 @@ function retryable(message: string) {
   return /404|not found|not supported|no provider|does not exist|unknown model|unavailable|not available/i.test(message);
 }
 
-/**
- * HF Inference Router 只接受 "宽x高" 像素尺寸（例如 1344x768），
- * 直接透传 "2K"/"16:9" 会被上游 400 拒绝。把档位/比例换算成像素。
- */
-const HF_ASPECT_BASE: Record<string, [number, number]> = {
-  "1:1": [1024, 1024],
-  "16:9": [1344, 768],
-  "9:16": [768, 1344],
-  "4:3": [1152, 864],
-  "3:4": [864, 1152],
-  "3:2": [1216, 832],
-  "2:3": [832, 1216],
-  "21:9": [1536, 640],
-};
-const HF_TIER_LONG_SIDE: Record<string, number> = { "1k": 1024, "2k": 2048, "3k": 2560, "4k": 4096 };
+import { huggingfaceImageSize } from "./image-size.ts";
 
-function roundTo8(value: number) {
-  return Math.max(8, Math.round(value / 8) * 8);
-}
-
-export function huggingfaceImageSize(size?: string, aspectRatio?: string): string | undefined {
-  const raw = String(size || "").trim();
-  if (/^\d{2,5}x\d{2,5}$/i.test(raw)) return raw;
-  const tier = HF_TIER_LONG_SIDE[raw.toLowerCase()];
-  const ratioText = String(aspectRatio || "").trim();
-  const ratioMatch = /^(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)$/.exec(ratioText);
-  const base = HF_ASPECT_BASE[ratioText];
-  if (tier) {
-    if (base) {
-      const longSide = Math.max(base[0], base[1]);
-      const scale = tier / longSide;
-      return `${roundTo8(base[0] * scale)}x${roundTo8(base[1] * scale)}`;
-    }
-    if (ratioMatch) {
-      const w = Number(ratioMatch[1]);
-      const h = Number(ratioMatch[2]);
-      if (w > 0 && h > 0) {
-        const scale = tier / Math.max(w, h);
-        return `${roundTo8(w * scale)}x${roundTo8(h * scale)}`;
-      }
-    }
-    return `${tier}x${tier}`;
-  }
-  if (base) return `${base[0]}x${base[1]}`;
-  if (ratioMatch) {
-    const w = Number(ratioMatch[1]);
-    const h = Number(ratioMatch[2]);
-    if (w > 0 && h > 0) {
-      const scale = 1024 / Math.max(w, h);
-      return `${roundTo8(w * scale)}x${roundTo8(h * scale)}`;
-    }
-  }
-  return undefined;
-}
+export { huggingfaceImageSize };
 
 export const huggingfaceAdapter: StudioAdapter = {
   id: "huggingface",
@@ -107,6 +56,11 @@ export const huggingfaceAdapter: StudioAdapter = {
             n: input.n || 1,
             response_format: "b64_json",
             ...(huggingfaceImageSize(input.size, input.aspectRatio) ? { size: huggingfaceImageSize(input.size, input.aspectRatio) } : {}),
+            ...(typeof input.seed === "number" && Number.isFinite(input.seed) ? { seed: input.seed } : {}),
+            ...(input.negativePrompt ? { negative_prompt: input.negativePrompt } : {}),
+            ...(typeof input.steps === "number" && Number.isFinite(input.steps) ? { steps: input.steps } : {}),
+            ...(typeof input.guidance === "number" && Number.isFinite(input.guidance) ? { guidance_scale: input.guidance } : {}),
+            ...(input.quality ? { quality: input.quality } : {}),
             ...(refs.length === 1 ? { image: refs[0] } : {}),
             ...(refs.length > 1 ? { image: refs[0], images: refs } : {}),
           },
@@ -135,8 +89,7 @@ export const huggingfaceAdapter: StudioAdapter = {
       return { ok: true, message: "Hugging Face Router 可用" };
     } catch (err) {
       const message = err instanceof Error ? err.message : "失败";
-      if (/401|invalid|unauthorized/i.test(message)) return { ok: false, message: `Token 被拒绝：${message.slice(0, 160)}` };
-      return { ok: true, message: `端点在，厂商返回：${message.slice(0, 160)}` };
+      return { ok: false, message: `Hugging Face 连接失败：${message.slice(0, 160)}` };
     }
   },
 };

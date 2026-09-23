@@ -169,15 +169,6 @@ export type ImageRequestBasicSettingsOverride = Pick<Partial<ImageAdvancedSettin
     fromConfig?: readonly ImageRequestBasicSettingKey[];
 };
 
-export type WebdavSyncConfig = {
-    proxyMode: "direct" | "nextjs";
-    url: string;
-    username: string;
-    password: string;
-    directory: string;
-    lastSyncedAt: string;
-};
-
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = ApiCapability;
 
@@ -227,15 +218,6 @@ export const defaultConfig: AiConfig = {
     apiBoardRouting: defaultApiBoardModelRouting,
     apiPlatformBoardRouting: defaultApiPlatformBoardModelRouting,
     apiRelayAdvanced: defaultApiRelayAdvanced,
-};
-
-export const defaultWebdavSyncConfig: WebdavSyncConfig = {
-    proxyMode: "direct",
-    url: "",
-    username: "",
-    password: "",
-    directory: "infinite-canvas",
-    lastSyncedAt: "",
 };
 
 function migrateLegacyScopedGenerationSettings(
@@ -316,14 +298,12 @@ function redactPersistedConfig(config: Partial<AiConfig>): Partial<AiConfig> {
 
 type ConfigStore = {
     config: AiConfig;
-    webdav: WebdavSyncConfig;
     publicSettings: AdminPublicSettings | null;
     isPublicSettingsLoading: boolean;
     isConfigOpen: boolean;
     shouldPromptContinue: boolean;
     hydrated: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
-    updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     loadPublicSettings: () => Promise<void>;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean) => void;
@@ -457,7 +437,6 @@ export const useConfigStore = create<ConfigStore>()(
     persist(
         (set, get) => ({
             config: defaultConfig,
-            webdav: defaultWebdavSyncConfig,
             publicSettings: null,
             isPublicSettingsLoading: false,
             isConfigOpen: false,
@@ -471,13 +450,6 @@ export const useConfigStore = create<ConfigStore>()(
                         ...(key === "imageHostBaseUrl" && value !== state.config.imageHostBaseUrl
                             ? { imageHostHasApiKey: false }
                             : {}),
-                    },
-                })),
-            updateWebdavConfig: (key, value) =>
-                set((state) => ({
-                    webdav: {
-                        ...state.webdav,
-                        [key]: value,
                     },
                 })),
             loadPublicSettings: async () => {
@@ -503,14 +475,11 @@ export const useConfigStore = create<ConfigStore>()(
             storage: createJSONStorage(() => recoverableConfigStorage),
             partialize: (state) => ({
                 config: redactPersistedConfig(state.config),
-                webdav: { ...state.webdav, password: "" },
             }),
             merge: (persisted, current) => {
                 const persistedState = (persisted || {}) as Partial<ConfigStore>;
                 const persistedConfig = (persistedState.config || {}) as Partial<AiConfig>;
                 const safePersistedConfig = redactPersistedConfig(persistedConfig);
-                const persistedWebdav = (persistedState.webdav || {}) as Partial<WebdavSyncConfig>;
-                const safePersistedWebdav = { ...persistedWebdav, password: "" };
                 const config = { ...defaultConfig, ...safePersistedConfig };
                 const persistedRelays = hasOwn(safePersistedConfig, "apiRelays") ? safePersistedConfig.apiRelays : undefined;
                 const replaceManaged = shouldReplaceManagedRelays(persistedRelays as ApiRelayProvider[] | undefined);
@@ -548,7 +517,6 @@ export const useConfigStore = create<ConfigStore>()(
                 );
                 return {
                     ...current,
-                    webdav: { ...defaultWebdavSyncConfig, ...safePersistedWebdav },
                     config: migratedConfig,
                 };
             },
@@ -649,6 +617,14 @@ async function savePendingRelayCredentials() {
                 hiddenPresetIds: session.hiddenPresetIds,
             },
         });
+        await fetch("/client-api/config-vault", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                relays: mergeRelaySources(session.relays, snapshot.apiRelays),
+                hiddenPresetIds: session.hiddenPresetIds,
+            }),
+        }).catch(() => {});
         const savedById = new Map(pendingRelays.map((provider) => [provider.id, provider]));
         useConfigStore.setState((state) => ({
             config: {
@@ -711,12 +687,12 @@ async function flushLatestConfigStore() {
     while (true) {
         await savePendingRelayCredentials();
         await savePendingImageHostCredential();
-        const { config, webdav } = useConfigStore.getState();
+        const { config } = useConfigStore.getState();
         if (config.apiRelays.some(relayHasPendingCredentials) || config.imageHostApiKey.trim()) continue;
         await flushRecoverableConfig(
             CONFIG_STORE_KEY,
             browserSafeConfigEnvelope(
-                JSON.stringify({ state: { config, webdav }, version: 0 }),
+                JSON.stringify({ state: { config }, version: 0 }),
                 { redactProxy: false },
             ),
         );

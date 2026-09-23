@@ -5,7 +5,6 @@ export const STUDIO_FEATURES = {
   seedance2Workflow: true,
   promptLibrary: true,
   assetLibrary: true,
-  webdav: true,
   membership: true,
   civitai: true,
   audio: true,

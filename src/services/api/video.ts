@@ -1,7 +1,5 @@
 import axios from "axios";
 
-import { desktopApiUrl } from "@/services/desktop-api-url";
-
 import { dataUrlToFile } from "@/lib/image-utils";
 import { explicitMediaRequestModel, resolveApiRequestRoute, routedLocalApiUrl, routedLocalHeaders, type ApiRequestRoute } from "@/services/api/ai-routing";
 import { buildAgnesVideoPayload, isAgnesRoute, readAgnesVideoTaskIdentity } from "@/services/api/agnes";
@@ -373,11 +371,12 @@ async function pollAgnesVideoTask(config: AiConfig, route: ApiRequestRoute, task
 }
 
 async function fetchAgnesVideoState(config: AiConfig, route: ApiRequestRoute, task: VideoGenerationTask) {
-    if (task.agnesVideoId && route.mode === "local") {
+    const videoId = task.agnesVideoId || task.id;
+    if (videoId && route.mode === "local") {
         try {
             const response = await axios.get<ApiVideoResponse>(routedLocalApiUrl(route, "/agnesapi"), {
                 headers: buildLocalRelayProxyHeaders(route.provider, undefined, undefined, task.credentialId),
-                params: { video_id: task.agnesVideoId },
+                params: { video_id: videoId },
                 timeout: route.timeoutMs,
             });
             return unwrapVideoResponse(response.data);
@@ -605,9 +604,12 @@ async function pollCivitaiVideoTask(config: AiConfig, route: ApiRequestRoute, ta
 function isAgnesTaskNotFoundError(error: unknown) {
     if (!axios.isAxiosError(error)) return false;
     const status = error.response?.status;
-    if (status !== 400 && status !== 404) return false;
-    const message = readErrorValue(error.response?.data).toLowerCase();
-    return message.includes("not_exist") || message.includes("not found") || message.includes("不存在");
+    if (status === 404 || status === 429) return true;
+    if (status === 400) {
+        const message = readErrorValue(error.response?.data).toLowerCase();
+        return message.includes("not_exist") || message.includes("not found") || message.includes("不存在") || !message.trim() || message === "{}";
+    }
+    return false;
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
@@ -623,6 +625,28 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 export async function storeGeneratedVideo(result: VideoGenerationResult, route?: ApiRequestRoute): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
+        if (typeof window !== "undefined" && typeof fetch === "function") {
+            try {
+                const res = await fetch("/client-api/upload-work-media", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ remoteUrl: result.url, kind: "video" }),
+                });
+                if (res.ok) {
+                    const payload = await res.json().catch(() => null);
+                    if (payload && payload.ok && payload.url) {
+                        return {
+                            url: payload.url,
+                            storageKey: payload.url,
+                            bytes: Number(payload.bytes || 0),
+                            mimeType: "video/mp4",
+                        };
+                    }
+                }
+            } catch {
+                // fall through to direct download
+            }
+        }
         const downloaded = await videoResultFromUrl(result.url, route);
         if (downloaded.blob) return uploadMediaFile(downloaded.blob, "video");
         throw new Error("视频已生成，但无法下载到本地；请检查结果地址或网络后重试");
@@ -1328,7 +1352,7 @@ async function uploadReferenceMedia(file: File) {
 }
 
 function desktopFetchedResourceUrl(url: string) {
-    return `${desktopApiUrl("/client-api/fetch-url")}?url=${encodeURIComponent(url)}`;
+    return `/client-api/fetch-url?url=${encodeURIComponent(url)}`;
 }
 
 async function videoResultFromUrl(
